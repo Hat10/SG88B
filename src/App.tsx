@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { registerSW } from 'virtual:pwa-register';
 import { useScrollLock } from './lib/useScrollLock';
 import { Couple } from './components';
+import { useSnackbar } from './contexts/SnackbarContext';
 import { FinanceProvider } from './contexts/FinanceContext';
 import { CategoryProvider } from './contexts/CategoryContext';
 import { WishProvider } from './contexts/WishContext';
@@ -167,6 +169,38 @@ function homeGreeting(): React.ReactNode {
   if (h >= 11 && h < 17) return <>God <em>ettermiddag</em>.</>;
   if (h >= 17 && h < 23) return <>God <em>kveld</em>.</>;
   return <>God <em>natt</em>.</>;
+}
+
+// Registers the service worker and hooks its update flow up to a snackbar
+// instead of the default silent reload — a build we deploy shouldn't yank the
+// page out from under someone mid-interaction (worst case on the always-open
+// Gangskjerm). registration.update() is polled periodically + on tab-focus so
+// a long-lived tab doesn't have to wait for the browser's own ~24h check.
+function ServiceWorkerUpdater() {
+  const { notify } = useSnackbar();
+  const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
+
+  useEffect(() => {
+    registerSW({
+      immediate: true,
+      onNeedReload() {
+        notify('Ny versjon tilgjengelig', { actionLabel: 'Oppdater nå', onAction: () => window.location.reload() });
+      },
+      onRegisteredSW(_url, reg) { if (reg) setRegistration(reg); },
+      onRegisterError() { /* SW utilgjengelig (f.eks. dev-modus) — ingenting å gjøre */ },
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!registration) return;
+    const check = () => { void registration.update(); };
+    const id = window.setInterval(check, 15 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVisible); };
+  }, [registration]);
+
+  return null;
 }
 
 function ThemeSwitcher({ mode, setMode }: { mode: ThemeMode; setMode: (m: ThemeMode) => void }) {
@@ -426,7 +460,7 @@ function AppInner() {
       </div>
     );
 
-  return <SnackbarProvider><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider>;
+  return <SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider>;
 }
 
 export default function App() {

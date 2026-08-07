@@ -35,6 +35,12 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
+        // We register the service worker ourselves in src/App.tsx via
+        // `virtual:pwa-register` (so we can hook onNeedReload up to a snackbar) —
+        // without this, VitePWA also auto-injects a bare `navigator.serviceWorker
+        // .register()` script into index.html that has none of the autoUpdate
+        // wiring, so registerType: 'autoUpdate' above silently did nothing.
+        injectRegister: false,
         strategies: 'injectManifest',
         srcDir: 'src',
         filename: 'sw.ts',
