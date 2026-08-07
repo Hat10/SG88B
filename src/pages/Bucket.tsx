@@ -10,7 +10,7 @@ import { burst } from '../confetti';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-const WHO_LABEL: Record<Who, string> = { f: 'Felles', M: 'Mikkel', L: 'Leah' };
+const WHO_LABEL: Record<Who, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
 const WHO_COLOR: Record<Who, string> = { f: 'var(--good)', M: 'var(--accent)', L: 'var(--ink)' };
 
 const CAT_PALETTE = [

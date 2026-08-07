@@ -174,8 +174,8 @@ export default function InvestTab({ isMobile, onOpenMonth }: {
       return own + felles / 2;
     };
     const perPerson = [
-      { id: 'bank_M' as const, name: 'Mikkel', net: ownNet('bank_M') },
-      { id: 'bank_L' as const, name: 'Leah',   net: ownNet('bank_L') },
+      { id: 'bank_M' as const, name: 'Andreas', net: ownNet('bank_M') },
+      { id: 'bank_L' as const, name: 'Taran',   net: ownNet('bank_L') },
     ];
 
     // Sparerate: netto spart mot inntekt i de månedene det faktisk kom inn penger

@@ -115,5 +115,5 @@ alter publication supabase_realtime add table public.workout_sessions;
 alter publication supabase_realtime add table public.workout_records;
 alter publication supabase_realtime add table public.workout_goals;
 
--- Ingen startdata med vilje: Mikkel og Leah lager sine egne øktmaler og mål
+-- Ingen startdata med vilje: Andreas og Taran lager sine egne øktmaler og mål
 -- i appen. Tabellene skal være helt tomme etter at dette skriptet er kjørt.

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ShoppingItem, Priority, PriceSource, Who } from '../data';
 
-export type ListKey = 'felles' | 'mikkel' | 'leah';
+export type ListKey = 'felles' | 'andreas' | 'taran';
 
 export type WishPatch = {
   t?: string;
@@ -24,7 +24,7 @@ interface WishCtx {
   remove: (id: string) => Promise<void>;
 }
 
-const EMPTY: Record<ListKey, ShoppingItem[]> = { felles: [], mikkel: [], leah: [] };
+const EMPTY: Record<ListKey, ShoppingItem[]> = { felles: [], andreas: [], taran: [] };
 
 const WishContext = createContext<WishCtx>({
   items: EMPTY, loading: true,
@@ -71,8 +71,8 @@ export function WishProvider({ children }: { children: React.ReactNode }) {
     if (data) {
       setItems({
         felles: data.filter(r => r.list === 'felles').map(fromRow),
-        mikkel: data.filter(r => r.list === 'mikkel').map(fromRow),
-        leah:   data.filter(r => r.list === 'leah').map(fromRow),
+        andreas: data.filter(r => r.list === 'andreas').map(fromRow),
+        taran:   data.filter(r => r.list === 'taran').map(fromRow),
       });
     }
     setLoading(false);

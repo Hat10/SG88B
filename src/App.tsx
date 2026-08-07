@@ -6,7 +6,6 @@ import { CategoryProvider } from './contexts/CategoryContext';
 import { WishProvider } from './contexts/WishContext';
 import { BucketProvider } from './contexts/BucketContext';
 import { TodoProvider } from './contexts/TodoContext';
-import { RatingProvider } from './contexts/RatingContext';
 import { MapProvider } from './contexts/MapContext';
 import { BoligflippingProvider } from './contexts/BoligflippingContext';
 import { TreningProvider } from './contexts/TreningContext';
@@ -20,18 +19,17 @@ import { ConfirmProvider } from './contexts/ConfirmContext';
 // leaflet med Kart, pdfjs med Forbruk — i stedet for å ligge i hovedbunten.
 const PageDashboard = lazy(() => import('./pages/Dashboard'));
 const PageHus = lazy(() => import('./pages/Hus'));
-const PageHandlelister = lazy(() => import('./pages/Handlelister'));
+const PageOnskeliste = lazy(() => import('./pages/Onskeliste'));
 const PageBucket = lazy(() => import('./pages/Bucket'));
 const PageOkonomi = lazy(() => import('./pages/Okonomi'));
 const PageKalender = lazy(() => import('./pages/Kalender'));
-const PageRatinger = lazy(() => import('./pages/Ratinger'));
 const PageSkjerm = lazy(() => import('./pages/Skjerm'));
 const PageGjoremal = lazy(() => import('./pages/Gjoremal'));
 const PageKart = lazy(() => import('./pages/Kart'));
 const PageBoligflipping = lazy(() => import('./pages/Boligflipping'));
 const PageTrening = lazy(() => import('./pages/Trening'));
 
-type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' | 'okonomi' | 'kalender' | 'ratinger' | 'skjerm' | 'kart' | 'boligflipping' | 'trening';
+type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' | 'okonomi' | 'kalender' | 'skjerm' | 'kart' | 'boligflipping' | 'trening';
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 type ThemeMode = 'auto' | 'light' | 'dark';
@@ -141,22 +139,20 @@ const NAV: NavItem[] = [
   { id: 'ting-vi-vil-gjore', label: '🎯 Ting vi vil gjøre', group: 'Hverdag' },
   { id: 'gjoremal',          label: '✅ Gjøremål',          group: 'Hverdag' },
   { id: 'trening',      label: '🏋️ Trening',      group: 'Hverdag' },
-  { id: 'ratinger',     label: '⭐ Ratinger',     group: 'Hverdag' },
   { id: 'kart',         label: '🗺️ Kart',         group: 'Hverdag' },
   { id: 'boligflipping', label: '🏗️ Boligflipping', group: 'Prosjekter' },
 ];
 
 const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub: string }> = {
-  home: { eyebrow: 'Oversikt', title: <>God morgen, <em>Mikkel</em>.</>, sub: 'Torsdag 7. mai 2026' },
+  home: { eyebrow: 'Oversikt', title: <>God morgen, <em>Andreas</em>.</>, sub: 'Torsdag 7. mai 2026' },
   hus: { eyebrow: 'Prosjekt', title: <><em>Landsbydrømmen</em> 🏡</>, sub: '' },
-  onskelister: { eyebrow: '', title: 'Ønskelister', sub: 'Felles · Mikkel · Leah' },
+  onskelister: { eyebrow: '', title: 'Ønskelister', sub: 'Felles · Andreas · Taran' },
   'ting-vi-vil-gjore': { eyebrow: '', title: <>Ting vi vil <em>gjøre</em></>, sub: '' },
   gjoremal: { eyebrow: '', title: 'Gjøremål', sub: '' },
   trening: { eyebrow: 'Hverdag', title: 'Trening', sub: '' }, // siden lager sitt eget hode (se HEADLESS_ROUTES)
   okonomi: { eyebrow: '', title: 'Forbruk', sub: '' },
   kalender: { eyebrow: 'Hverdag', title: 'Kalender', sub: '' }, // sub is computed live in Page (current month)
-  ratinger: { eyebrow: 'Drømmer', title: <>Våre <em>ratinger</em></>, sub: 'Mat · Film · Serier · Bøker · Steder' },
-  kart:  { eyebrow: 'Utforskning', title: <>Vårt <em>kart</em></>, sub: 'Besøkte steder · Vil besøke' },
+  kart:  { eyebrow: 'Utforskning', title: <>Vårt <em>kart</em></>, sub: 'Vil besøke' },
   boligflipping: { eyebrow: 'Investeringer', title: <>Bolig<em>flipping</em></>, sub: 'Kjøp · Oppussing · Salg' },
   skjerm: { eyebrow: 'Display', title: 'Gangskjerm', sub: 'Vær · Avganger · Sparing · Kalender' },
 };
@@ -210,7 +206,7 @@ function Sidebar({ route, setRoute, open, dragX, themeMode, setThemeMode }: { ro
         <div className="brand-mark">F</div>
         <div className="col" style={{ gap: 1 }}>
           <span className="brand-name">Felles</span>
-          <span className="brand-sub">M & L · 2026</span>
+          <span className="brand-sub">A & T · 2026</span>
         </div>
       </div>
 
@@ -238,7 +234,7 @@ function Sidebar({ route, setRoute, open, dragX, themeMode, setThemeMode }: { ro
         <div className="sidebar-footer" style={{ marginTop: 0 }}>
           <Couple />
           <div className="couple-meta">
-            <b>Mikkel & Leah</b>
+            <b>Andreas & Taran</b>
           </div>
         </div>
       </div>
@@ -264,10 +260,9 @@ function Topbar({ route, setRoute, onMenuToggle }: { route: Route; setRoute: (r:
 }
 
 const PAGE_COMPONENTS: Record<Exclude<Route, 'skjerm'>, React.ComponentType> = {
-  ratinger: PageRatinger,
   home: PageDashboard,
   hus: PageHus,
-  onskelister: PageHandlelister,
+  onskelister: PageOnskeliste,
   'ting-vi-vil-gjore': PageBucket,
   gjoremal: PageGjoremal,
   okonomi: PageOkonomi,
@@ -426,7 +421,7 @@ function AppInner() {
       </div>
     );
 
-  return <SnackbarProvider><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><RatingProvider><MapProvider><BoligflippingProvider><TreningProvider>{inner}</TreningProvider></BoligflippingProvider></MapProvider></RatingProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider>;
+  return <SnackbarProvider><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider>{inner}</TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider>;
 }
 
 export default function App() {

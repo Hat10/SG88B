@@ -975,7 +975,7 @@ details[open] > summary::before { content: "−"; }
 }
 
 /* Start / Fullfør på det mørke hero-kortet. Fargen settes inline per identitet
-   (Mikkel / Leah / sammen), så både start- og fullfør-knappen er fargekodet. */
+   (Andreas / Taran / sammen), så både start- og fullfør-knappen er fargekodet. */
 .tr-actbtn {
   flex: 1; border: 0; border-radius: 6px; padding: 15px;
   font-family: var(--font-sans); font-size: 14px; font-weight: 600; letter-spacing: -0.005em;
@@ -993,8 +993,8 @@ details[open] > summary::before { content: "−"; }
 @keyframes tr-livepulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* Måneds-heatmap.
-   Leah-dagene får en nøytral grå — --chip ligger for tett på --accent-soft
-   (Mikkel) til at de to kan skilles på et lite kalenderfelt.
+   Taran-dagene får en nøytral grå — --chip ligger for tett på --accent-soft
+   (Andreas) til at de to kan skilles på et lite kalenderfelt.
    --tr-both: begge trente, men hver for seg — et mellomtrinn mellom «én person»
    (--accent-soft) og «felles økt» (--accent-deep). Mørk i lyst tema / lys i
    mørkt tema, som --accent-deep, så dagtallet kan stå i --bg og være lesbart. */

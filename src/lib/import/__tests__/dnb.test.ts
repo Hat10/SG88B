@@ -96,10 +96,10 @@ describe.skipIf(!hasFixtures)('normalize — DNB-mønstre fra ekte data', () => 
   });
 
   it('Overføring: løpenummer og Tpp:-hale bort, Ref: til meta', () => {
-    expect(norm('Overføring Innland  635 Leah Kristoffersen Larsen', '2026-06-01', 5000).merchantText)
-      .toBe('Leah Kristoffersen Larsen');
-    const ref = norm('Overføring Jo Mikkel Nysæther Ofrim Ref:8cgg44k8kmhn', '2026-06-10', 1147.02);
-    expect(ref.merchantText).toBe('Jo Mikkel Nysæther Ofrim');
+    expect(norm('Overføring Innland  635 Taran Five', '2026-06-01', 5000).merchantText)
+      .toBe('Taran Five');
+    const ref = norm('Overføring Andreas Attila Stenberg Ref:8cgg44k8kmhn', '2026-06-10', 1147.02);
+    expect(ref.merchantText).toBe('Andreas Attila Stenberg');
     expect(ref.meta.reference).toBe('8cgg44k8kmhn');
     const tpp = norm('Overføring  4602960583 Hermann Rødset Theimann FotballTpp: Vipps Mobilepay AS', '2026-06-18', -1146);
     expect(tpp.merchantText).toBe('Hermann Rødset Theimann Fotball');

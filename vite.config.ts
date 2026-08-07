@@ -30,9 +30,9 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       manifest: {
-        name: 'Felles',
-        short_name: 'Felles',
-        description: 'Mikkel & Leah',
+        name: 'SG88B',
+        short_name: 'SG88B',
+        description: 'SG88B — Andreas & Taran',
         theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',

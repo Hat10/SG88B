@@ -132,9 +132,9 @@ function extractDnb(raw: string, txDate: string): Extracted {
   m = raw.match(/^Utbytte\s+(?:\d+\s+)?(.+)$/i);
   if (m) return { merchantText: m[1].replace(/^utbytte\s+/i, ''), meta: { channel: 'utbytte' }, kindHint: 'income' };
 
-  // Overføringer: "Overføring Innland  635 Leah Kristoffersen Larsen"
+  // Overføringer: "Overføring Innland  635 Taran Five"
   //               "Overføring  4602960583 Hermann Rødset Theimann FotballTpp: Vipps Mobilepay AS"
-  //               "Overføring Jo Mikkel Nysæther Ofrim Ref:8cgg44k8kmhn"
+  //               "Overføring Andreas Attila Stenberg Ref:8cgg44k8kmhn"
   m = raw.match(/^Overføring(?:\s+Innland)?\s+(.+)$/i);
   if (m) {
     const meta: TxMeta = { channel: 'overføring' };

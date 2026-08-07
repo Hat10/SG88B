@@ -252,7 +252,7 @@ function readWhen(date: string, time: string) {
 }
 
 const WHO_LOG_COLOR: Record<LogWho, string> = { M: 'var(--accent)', L: 'var(--ink)', sammen: 'var(--good)' };
-const WHO_LOG_LABEL: Record<LogWho, string> = { M: 'Mikkel', L: 'Leah', sammen: 'Sammen' };
+const WHO_LOG_LABEL: Record<LogWho, string> = { M: 'Andreas', L: 'Taran', sammen: 'Sammen' };
 
 /**
  * M / L / Sammen som tre store, fargekodede knapper. Store trykkflater gjør at
@@ -762,7 +762,7 @@ interface PR {
 function buildPRs(records: WorkoutRecord[]): PR[] {
   const groups = new Map<string, WorkoutRecord[]>();
   for (const r of records) {
-    const k = `${r.exercise} ${r.who}`;
+    const k = `${r.exercise} ${r.who}`;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(r);
   }
@@ -1326,7 +1326,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
     }
     return { tog, m, l };
   }, [inPeriod, togetherIds]);
-  // Felles: Sammen / Mikkel alene / Leah alene. Person: Sammen / Alene (deres egne).
+  // Felles: Sammen / Andreas alene / Taran alene. Person: Sammen / Alene (deres egne).
   const splitRows = isPerson
     ? [
         { label: 'Sammen', n: splitSessions.tog, color: 'var(--accent-deep)' },
@@ -1334,8 +1334,8 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
       ]
     : [
         { label: 'Sammen',       n: splitSessions.tog, color: 'var(--accent-deep)' },
-        { label: 'Mikkel alene', n: splitSessions.m,   color: 'var(--accent)' },
-        { label: 'Leah alene',   n: splitSessions.l,   color: 'var(--ink)' },
+        { label: 'Andreas alene', n: splitSessions.m,   color: 'var(--accent)' },
+        { label: 'Taran alene',   n: splitSessions.l,   color: 'var(--ink)' },
       ];
   const splitTotal = splitSessions.tog + splitSessions.m + splitSessions.l;
   const splitMax = Math.max(1, ...splitRows.map(r => r.n));
@@ -1917,15 +1917,15 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
             <h3>Økter per {period === 'ar' ? 'måned' : 'uke'}</h3>
             <div className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="meta">Siste 12 {period === 'ar' ? 'måneder' : 'uker'}</span>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> Mikkel</span>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> Leah</span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> Andreas</span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> Taran</span>
             </div>
           </div>
           <div className="row" style={{ alignItems: 'flex-end', gap: 10, height: 110 }}>
             {bars.map(b => (
               <div key={b.key} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
                 <div
-                  title={`${b.label}: ${b.total} økter · Mikkel ${b.m} / Leah ${b.l}`}
+                  title={`${b.label}: ${b.total} økter · Andreas ${b.m} / Taran ${b.l}`}
                   style={{
                     width: '100%', background: 'var(--surface-2)', borderRadius: '3px 3px 0 0',
                     height: `${(b.total / barMax) * 100}%`, minHeight: b.total ? 4 : 2,

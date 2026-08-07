@@ -20,13 +20,13 @@ const NO_MONTHS       = ['januar','februar','mars','april','mai','juni','juli','
 const WEEK_LABELS     = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
 
 const SOURCE_COLOR: Record<string, string> = {
-  mikkel: '#4A80C4', leah: '#6B2FA0', felles: '#7AB394', todo: '#C9963A',
+  andreas: '#4A80C4', taran: '#6B2FA0', felles: '#7AB394', todo: '#C9963A',
 };
 const PRIORITY_COLOR: Record<string, string> = {
   høy: '#C0392B', middels: '#C9963A', lav: 'var(--ink-4)',
 };
 const SOURCE_LABEL: Record<string, string> = {
-  mikkel: 'Mikkel', leah: 'Leah', felles: 'Felles', todo: 'Gjøremål',
+  andreas: 'Andreas', taran: 'Taran', felles: 'Felles', todo: 'Gjøremål',
 };
 
 function localIso(d: Date): string {
@@ -648,7 +648,7 @@ function MobileSavingsMini({ houseSaved, housePct, houseLastMonth }: {
 function BucketReminder({ dark = false }: { dark?: boolean }) {
   const { item } = useWeeklyBucket();
   if (!item) return null;
-  const who = item.who === 'M' ? 'Mikkel' : item.who === 'L' ? 'Leah' : 'vi';
+  const who = item.who === 'M' ? 'Andreas' : item.who === 'L' ? 'Taran' : 'vi';
   const secondary = dark ? 'rgba(207,224,239,0.45)' : 'var(--ink-4)';
   const primary   = dark ? 'rgba(207,224,239,0.9)' : 'var(--ink)';
 
@@ -710,7 +710,7 @@ export default function PageDashboard() {
 
   // ── Derived data ──
   const today    = todayStr();
-  const WHO: Record<string, string> = { f: 'Felles', M: 'Mikkel', L: 'Leah' };
+  const WHO: Record<string, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
 
   const todoEvents: AnyEvent[] = todos
     .filter(t => !t.done && t.deadline)

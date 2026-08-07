@@ -46,9 +46,9 @@ function fmtAxis(v: number) {
 /**
  * Verdiområdet grafen tegnes i — utledet fra TALLENE, ikke forankret i null.
  *
- * Med nullforankring ble utviklingen usynlig: Mikkels egenkapital beveger seg
+ * Med nullforankring ble utviklingen usynlig: Andreas sin egenkapital beveger seg
  * ~3 000 kr på en akse til 380 000, altså under to piksler — en rett strek.
- * Negative serier (Leah har negativ egenkapital) var direkte ødelagt, fordi
+ * Negative serier (Taran har negativ egenkapital) var direkte ødelagt, fordi
  * skalaen ble negativ og punktene ble klemt mot kanten.
  *
  * Målstreken tas bare med i skalaen når den er innen rekkevidde. Ligger målet
@@ -73,12 +73,12 @@ type PersonFilter = 'felles' | 'M' | 'L';
 
 // Build the chart series for the current person filter — combined + both (dashed) when "felles", else just that person's line.
 function filteredSeries(filter: PersonFilter, combined: number[], m: number[], l: number[]): Series[] {
-  if (filter === 'M') return [{ values: m, color: M_COL, label: 'Mikkel' }];
-  if (filter === 'L') return [{ values: l, color: L_COL, label: 'Leah' }];
+  if (filter === 'M') return [{ values: m, color: M_COL, label: 'Andreas' }];
+  if (filter === 'L') return [{ values: l, color: L_COL, label: 'Taran' }];
   return [
     { values: combined, color: C_COL, label: 'Samlet' },
-    { values: m, color: M_COL, label: 'Mikkel', dashed: true },
-    { values: l, color: L_COL, label: 'Leah', dashed: true },
+    { values: m, color: M_COL, label: 'Andreas', dashed: true },
+    { values: l, color: L_COL, label: 'Taran', dashed: true },
   ];
 }
 
@@ -193,7 +193,7 @@ function Legend({ items }: { items: { color: string; label: string; dashed?: boo
   );
 }
 
-// Small "Felles / Mikkel / Leah" segmented control, used per-graph. Always starts at "Felles".
+// Small "Felles / Andreas / Taran" segmented control, used per-graph. Always starts at "Felles".
 function FilterToggle({ value, onChange }: { value: PersonFilter; onChange: (f: PersonFilter) => void }) {
   return (
     <div style={{ display: 'flex', gap: 4 }}>
@@ -204,7 +204,7 @@ function FilterToggle({ value, onChange }: { value: PersonFilter; onChange: (f: 
           background: value === f ? (f === 'M' ? M_COL : f === 'L' ? L_COL : 'var(--accent)') : 'transparent',
           color: value === f ? '#fff' : 'var(--ink-3)',
           borderRadius: 4, fontSize: 10, cursor: 'pointer',
-        }}>{f === 'felles' ? 'Felles' : f === 'M' ? 'Mikkel' : 'Leah'}</button>
+        }}>{f === 'felles' ? 'Felles' : f === 'M' ? 'Andreas' : 'Taran'}</button>
       ))}
     </div>
   );
@@ -250,7 +250,7 @@ function PersonCard({ who, entry, params }: { who: 'M' | 'L'; entry: FinanceEntr
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-          <div className="card-eyebrow">{who === 'M' ? 'Mikkel' : 'Leah'}</div>
+          <div className="card-eyebrow">{who === 'M' ? 'Andreas' : 'Taran'}</div>
         </div>
         <span className="mono muted" style={{ fontSize: 10 }}>{entry.month}</span>
       </div>
@@ -357,7 +357,7 @@ function AddForm({ onSave, preset, onClearPreset, lastEntries, entriesByMonth, p
     if (!preset && entriesByMonth[who].has(month)) {
       const ok = await confirm({
         title: 'Overskrive logget måned?',
-        message: `${who === 'M' ? 'Mikkel' : 'Leah'} har allerede tall logget for ${month}. Lagrer du nå, overskrives de.`,
+        message: `${who === 'M' ? 'Andreas' : 'Taran'} har allerede tall logget for ${month}. Lagrer du nå, overskrives de.`,
         confirmLabel: 'Overskriv',
       });
       if (!ok) return;
@@ -373,7 +373,7 @@ function AddForm({ onSave, preset, onClearPreset, lastEntries, entriesByMonth, p
     <Card eyebrow="Logg tall" title={isEdit ? month : undefined}>
       {isEdit && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'var(--bg)', borderRadius: 4, border: '1px solid var(--line)', marginBottom: 4 }}>
-          <span className="mono" style={{ fontSize: 10, color: 'var(--accent)' }}>Redigerer {preset.who === 'M' ? 'Mikkel' : 'Leah'} · {preset.entry.month}</span>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--accent)' }}>Redigerer {preset.who === 'M' ? 'Andreas' : 'Taran'} · {preset.entry.month}</span>
           <button onClick={onClearPreset} style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--ink-4)', fontSize: 12 }}>×</button>
         </div>
       )}
@@ -397,7 +397,7 @@ function AddForm({ onSave, preset, onClearPreset, lastEntries, entriesByMonth, p
               background: who === w ? (w === 'M' ? M_COL : L_COL) : 'transparent',
               color: who === w ? '#fff' : 'var(--ink-3)',
               borderRadius: 4, fontSize: 12, cursor: 'pointer',
-            }}>{w === 'M' ? 'Mikkel' : 'Leah'}</button>
+            }}>{w === 'M' ? 'Andreas' : 'Taran'}</button>
           ))}
         </div>
       )}
@@ -436,7 +436,7 @@ function AddForm({ onSave, preset, onClearPreset, lastEntries, entriesByMonth, p
       )}
       <Btn primary icon={Ico.plus} onClick={save}
         style={{ opacity: !assetsN ? 0.4 : 1 }}>
-        {isEdit ? 'Lagre endring' : `Logg for ${who === 'M' ? 'Mikkel' : 'Leah'}`}
+        {isEdit ? 'Lagre endring' : `Logg for ${who === 'M' ? 'Andreas' : 'Taran'}`}
       </Btn>
     </Card>
   );
@@ -504,7 +504,7 @@ function LogTable({ allM, allL, onEdit }: {
         {(['M', 'L'] as const).map(w => (
           <div key={w} style={{ display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 6, borderBottom: '1px solid var(--line)' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: w === 'M' ? M_COL : L_COL }} />
-            <span className="card-eyebrow">{w === 'M' ? 'Mikkel' : 'Leah'}</span>
+            <span className="card-eyebrow">{w === 'M' ? 'Andreas' : 'Taran'}</span>
           </div>
         ))}
         {/* Rows */}
@@ -571,8 +571,8 @@ function WealthDelta({ allM, allL, eyebrow, calc }: {
   const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 11, fontVariantNumeric: 'tabular-nums' };
 
   const allRows = [
-    { id: 'M' as const, label: 'Mikkel', color: M_COL, arr: allM },
-    { id: 'L' as const, label: 'Leah',   color: L_COL, arr: allL },
+    { id: 'M' as const, label: 'Andreas', color: M_COL, arr: allM },
+    { id: 'L' as const, label: 'Taran',   color: L_COL, arr: allL },
   ];
   const rows = (filter === 'felles' ? allRows : allRows.filter(r => r.id === filter)).map(r => ({
     ...r,
@@ -670,7 +670,7 @@ export default function PageHus() {
       {/* ── Hero ── */}
       {!hasData && !loading && (
         <div className="card" style={{ padding: '24px 28px', marginBottom: 24, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-          Ingen data ennå. Logg den første måneden nedenfor — du trenger minst én måned for Mikkel og én for Leah før grafer og kjøpekraft vises.
+          Ingen data ennå. Logg den første måneden nedenfor — du trenger minst én måned for Andreas og én for Taran før grafer og kjøpekraft vises.
         </div>
       )}
       {loading && (

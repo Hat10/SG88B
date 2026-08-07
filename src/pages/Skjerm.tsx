@@ -353,13 +353,13 @@ function HourlyChart({ hourly, now, sunrise, sunset }: {
 }
 
 const SOURCE_COLOR: Record<string, string> = {
-  mikkel: '#4A80C4', leah: '#6B2FA0', felles: '#7AB394', todo: '#C9963A',
+  andreas: '#4A80C4', taran: '#6B2FA0', felles: '#7AB394', todo: '#C9963A',
 };
 const PRIORITY_COLOR: Record<string, string> = {
   høy: '#C0392B', middels: '#C9963A', lav: 'var(--ink-4)',
 };
 const SOURCE_LABEL: Record<string, string> = {
-  mikkel: 'Mikkel', leah: 'Leah', felles: 'Felles', todo: 'Gjøremål',
+  andreas: 'Andreas', taran: 'Taran', felles: 'Felles', todo: 'Gjøremål',
 };
 
 function localIso(d: Date): string {
@@ -572,7 +572,7 @@ export default function PageSkjerm({ onBack }: Props) {
   };
 
   const today = todayStr();
-  const WHO: Record<string, string> = { f: 'Felles', M: 'Mikkel', L: 'Leah' };
+  const WHO: Record<string, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
 
   const todoEvents: AnyEvent[] = todos
     .filter(t => !t.done && t.deadline)
@@ -701,7 +701,7 @@ export default function PageSkjerm({ onBack }: Props) {
   // dealKr = kroner below the 30-day average (avg30 − current price). The cron
   // flags a deal when it's ≥10 % OR ≥500 kr under, so both numbers matter.
   type Deal = { t: string; dealPct: number; dealKr: number };
-  const realDeals: Deal[] = [...wishItems.felles, ...wishItems.mikkel, ...wishItems.leah]
+  const realDeals: Deal[] = [...wishItems.felles, ...wishItems.andreas, ...wishItems.taran]
     .filter(w => !w.on && typeof w.dealPct === 'number')
     .map(w => ({
       t: w.t,
@@ -937,7 +937,7 @@ export default function PageSkjerm({ onBack }: Props) {
                 {weeklyBucketReminder.title}
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
-                noe {weeklyBucketReminder.who === 'M' ? 'Mikkel' : weeklyBucketReminder.who === 'L' ? 'Leah' : 'vi'} vil gjøre
+                noe {weeklyBucketReminder.who === 'M' ? 'Andreas' : weeklyBucketReminder.who === 'L' ? 'Taran' : 'vi'} vil gjøre
               </div>
             </div>
           )}

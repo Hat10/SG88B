@@ -8,10 +8,10 @@ import { aliasKeyOf } from '../../lib/import';
 // ─── Kilde-konstanter ─────────────────────────────────────────────────────────
 
 export const SOURCE_LABEL: Record<string, string> = {
-  bank_M:    '👨 DNB Mikkel',
-  bank_L:    '👩 DNB Leah',
-  revolut_M: '👨 Revolut Mikkel',
-  revolut_L: '👩 Revolut Leah',
+  bank_M:    '👨 DNB Andreas',
+  bank_L:    '👩 DNB Taran',
+  revolut_M: '👨 Revolut Andreas',
+  revolut_L: '👩 Revolut Taran',
   trumf:     '💳 Trumf Visa (felles)',
   felles:    '✍️ Felles (manuelt)',
 };
@@ -32,8 +32,8 @@ export function monthLabel(m: string) {
 
 // 3-veis «hvem er utgiften» for bankrader
 export const OWNERS: { id: 'bank_M' | 'bank_L' | 'felles'; emoji: string; label: string }[] = [
-  { id: 'bank_M', emoji: '👨', label: 'Mikkel' },
-  { id: 'bank_L', emoji: '👩', label: 'Leah' },
+  { id: 'bank_M', emoji: '👨', label: 'Andreas' },
+  { id: 'bank_L', emoji: '👩', label: 'Taran' },
   { id: 'felles', emoji: '🤝', label: 'Felles' },
 ];
 export function ownerOf(source: string): 'bank_M' | 'bank_L' | 'felles' {

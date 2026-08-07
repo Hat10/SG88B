@@ -19,7 +19,7 @@
 import type { WorkoutSession, WorkoutRecord, WorkoutGoal, GoalKind, Trainer } from '../contexts/TreningContext';
 import type { Who } from '../data';
 
-export const WHO_LABEL: Record<Who, string> = { f: 'Felles', M: 'Mikkel', L: 'Leah' };
+export const WHO_LABEL: Record<Who, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
 export const TRAINERS: Trainer[] = ['M', 'L'];
 
 const DAY = 86400000;
@@ -88,7 +88,7 @@ export function startOfWeek(d: Date): Date {
 //   overdrev hvor mye de faktisk trente sammen — samtidig som appen hele tiden
 //   hadde det presise svaret liggende i `sessionGroup`, ubrukt av statistikken.
 
-/** Gruppe-id-ene der både Mikkel og Leah fullførte samme «Start sammen»-økt. */
+/** Gruppe-id-ene der både Andreas og Taran fullførte samme «Start sammen»-økt. */
 export function togetherGroups(sessions: WorkoutSession[]): Set<string> {
   const byGroup = new Map<string, Set<Trainer>>();
   for (const s of sessions) {
@@ -134,7 +134,7 @@ export function togetherDays(sessions: WorkoutSession[]): Set<string> {
 //
 //   En uke teller i streaken når HVER av personene streaken gjelder for har
 //   minst STREAK_MIN_SESSIONS fullførte økter i den uka. Uker går mandag til
-//   søndag. For den felles streaken må altså både Mikkel og Leah ha trent tre
+//   søndag. For den felles streaken må altså både Andreas og Taran ha trent tre
 //   ganger den uka; for en personlig streak (et `weekly_streak`-mål med
 //   who = 'M' eller 'L') gjelder kravet bare den ene.
 //
@@ -443,7 +443,7 @@ const MILESTONE_SESSIONS = [25, 50, 100, 250, 500, 1000];
 const MILESTONE_WEEKS = [2, 4, 8, 12, 26, 52];
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** «Mikkel mangler 2 økter og Leah mangler 1 økt» */
+/** «Andreas mangler 2 økter og Taran mangler 1 økt» */
 const andList = (parts: string[]) =>
   parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} og ${parts[parts.length - 1]}`;
 
@@ -493,8 +493,8 @@ export function buildPulseRules(
   }).sort((a, b) => b.overdue - a.overdue);
 
   // Den som aldri har trent og den som ligger etter er to uavhengige beskjeder.
-  // Var de en if/else før, og da kunne «Leah har ingen økter ennå» skjule at
-  // Mikkel samtidig hadde tatt tre ukers pause.
+  // Var de en if/else før, og da kunne «Taran har ingen økter ennå» skjule at
+  // Andreas samtidig hadde tatt tre ukers pause.
   const never = status.filter(x => x.days === null);
   const active = status.filter(x => x.days !== null);
 

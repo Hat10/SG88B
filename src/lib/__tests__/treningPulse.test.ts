@@ -207,7 +207,7 @@ describe('streak', () => {
     const s = [
       ...fullWeek(1),
       ...inWeek(2, 'M', STREAK_MIN_SESSIONS),
-      ...inWeek(2, 'L', STREAK_MIN_SESSIONS - 1), // Leah manglet én
+      ...inWeek(2, 'L', STREAK_MIN_SESSIONS - 1), // Taran manglet én
       ...fullWeek(3),
     ];
     expect(weekStreak(s)).toBe(1);       // bare uke 1 henger sammen med nå
@@ -226,7 +226,7 @@ describe('streak', () => {
     const s = [...inWeek(1, 'M', 3), ...inWeek(2, 'M', 4), ...inWeek(1, 'L', 1)];
     expect(weekStreak(s, ['M'])).toBe(2);
     expect(weekStreak(s, ['L'])).toBe(0);
-    expect(weekStreak(s)).toBe(0); // felles: Leah nådde aldri kravet
+    expect(weekStreak(s)).toBe(0); // felles: Taran nådde aldri kravet
   });
 
   it('finner den lengste rekka, ikke den siste', () => {
@@ -246,7 +246,7 @@ describe('streak', () => {
     const s = [...fullWeek(1), ...fullWeek(2)];
     expect(goalStatus(goal('weekly_streak', 4, { who: 'f' }), s, []).now).toBe(2);
     expect(goalStatus(goal('weekly_streak', 4, { who: 'M' }), s, []).now).toBe(2);
-    // Leah dropper uke 1 → hennes personlige streak er kortere enn den felles.
+    // Taran dropper uke 1 → hennes personlige streak er kortere enn den felles.
     const uneven = [...inWeek(1, 'M', 3), ...inWeek(1, 'L', 1), ...fullWeek(2)];
     expect(goalStatus(goal('weekly_streak', 4, { who: 'L' }), uneven, []).now).toBe(0);
     expect(goalStatus(goal('weekly_streak', 4, { who: 'M' }), uneven, []).now).toBe(2);
@@ -272,7 +272,7 @@ describe('regler bygget fra øktlogg', () => {
   });
 
   it('lar ikke «har aldri trent» skjule at den andre ligger etter', () => {
-    // Var if/else før: da sto boksen fast på Leah, og Mikkels tre ukers pause
+    // Var if/else før: da sto boksen fast på Taran, og Andreas sin tre ukers pause
     // ble aldri nevnt.
     const s = Array.from({ length: 12 }, (_, i) => at(30 + i * 3, 50, 'M'));
     const r = ids(s);
@@ -395,7 +395,7 @@ describe('rekordmål', () => {
     expect(st.done).toBe(false);
   });
 
-  it('holder Mikkel og Leah fra hverandre', () => {
+  it('holder Andreas og Taran fra hverandre', () => {
     const both = [rec(100, '2026-03-01', 'M'), rec(60, '2026-03-02', 'L')];
     expect(goalStatus(goal('record', 80, { who: 'L', exercise: 'Benkpress', unit: 'kg' }), [], both).now).toBe(60);
     expect(goalStatus(goal('record', 80, { who: 'M', exercise: 'Benkpress', unit: 'kg' }), [], both).now).toBe(100);

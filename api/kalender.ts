@@ -8,17 +8,17 @@ export interface CalEvent {
   start: string;   // 'YYYY-MM-DD' for all-day, ISO datetime for timed
   end?: string;
   allDay: boolean;
-  source: 'mikkel' | 'leah' | 'felles';
+  source: 'andreas' | 'taran' | 'felles';
   color: string;
 }
 
 // ─── Feed config ───────────────────────────────────────────────────────────
 
 const FEEDS = [
-  { env: 'CAL_MIKKEL_PERSONAL', source: 'mikkel', color: '#4A80C4' },
-  { env: 'CAL_MIKKEL_FELLES',   source: 'felles', color: '#7AB394' },
-  { env: 'CAL_LEAH_PERSONAL',   source: 'leah',   color: '#6B2FA0' },
-  { env: 'CAL_LEAH_FELLES',     source: 'felles', color: '#7AB394' },
+  { env: 'CAL_ANDREAS_PERSONAL', source: 'andreas', color: '#4A80C4' },
+  { env: 'CAL_ANDREAS_FELLES',   source: 'felles',  color: '#7AB394' },
+  { env: 'CAL_TARAN_PERSONAL',   source: 'taran',   color: '#6B2FA0' },
+  { env: 'CAL_TARAN_FELLES',     source: 'felles',  color: '#7AB394' },
 ] as const;
 
 // ─── Date helpers ──────────────────────────────────────────────────────────

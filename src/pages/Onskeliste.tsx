@@ -13,8 +13,8 @@ type PriceMode = 'none' | 'manual' | 'prisjakt';
 
 const LISTS: { key: ListKey; title: string; sub: string }[] = [
   { key: 'felles', title: '❤️ Felles',  sub: 'Ting vi ønsker sammen' },
-  { key: 'mikkel', title: '💙 Mikkel',  sub: 'Mikkels ønskeliste'    },
-  { key: 'leah',   title: '💜 Leah',    sub: 'Leahs ønskeliste'      },
+  { key: 'andreas', title: '💙 Andreas', sub: 'Andreas sin ønskeliste' },
+  { key: 'taran',   title: '💜 Taran',   sub: 'Tarans ønskeliste'      },
 ];
 
 const PRIORITY_ORDER: Record<Priority, number> = { lav: 1, middels: 2, høy: 3 };
@@ -162,7 +162,7 @@ function EditScreen({ title, onClose, children }: { title: string; onClose: () =
   ), document.body);
 }
 
-export default function PageHandlelister() {
+export default function PageOnskeliste() {
   const { items, loading, add, toggle, update, patchPrice, remove } = useWish();
   const { notify } = useSnackbar();
   const { confirm } = useConfirm();
@@ -176,7 +176,7 @@ export default function PageHandlelister() {
 
   const [tab,      setTab]      = useState<ListKey>('felles');
   const [sort,     setSort]     = useState<SortKey>('date-desc');
-  const [showDone, setShowDone] = useState<Record<ListKey, boolean>>({ felles: false, mikkel: false, leah: false });
+  const [showDone, setShowDone] = useState<Record<ListKey, boolean>>({ felles: false, andreas: false, taran: false });
 
   // Form
   const [addTarget, setAddTarget] = useState<ListKey>('felles');
@@ -198,7 +198,7 @@ export default function PageHandlelister() {
   // Re-fetch Prisjakt prices on mount
   useEffect(() => {
     if (loading) return;
-    (['felles', 'mikkel', 'leah'] as ListKey[]).forEach(list => {
+    (['felles', 'andreas', 'taran'] as ListKey[]).forEach(list => {
       items[list].forEach(it => {
         if (!it.id || it.priceSource !== 'prisjakt' || !it.priceUrl) return;
         const id = it.id; const url = it.priceUrl;
@@ -295,7 +295,7 @@ export default function PageHandlelister() {
         });
         cancelEdit();
       } else {
-        const who = addTarget === 'mikkel' ? 'M' as const : addTarget === 'leah' ? 'L' as const : 'f' as const;
+        const who = addTarget === 'andreas' ? 'M' as const : addTarget === 'taran' ? 'L' as const : 'f' as const;
         await add(addTarget, {
           t: title.trim(), note: desc.trim() || undefined,
           on: false, who, priority,

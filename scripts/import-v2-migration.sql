@@ -226,8 +226,8 @@ insert into merchant_aliases (alias, merchant_id)
 select v.alias, m.id
 from (values
   -- Egne navn → intern flytting (overføringer mellom deres kontoer)
-  ('jo mikkel nysæther ofrim',            'intern overføring'),
-  ('leah kristoffersen larsen',           'intern overføring'),
+  ('andreas attila stenberg',             'intern overføring'),
+  ('taran five',                          'intern overføring'),
   ('kontoregulering',                     'intern overføring'),
   -- Kredittkortoppgjør sett i ekte DNB-data
   ('norgesgruppen finans as',             'norgesgruppen finans'),

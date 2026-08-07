@@ -73,7 +73,7 @@ export default async function handler(req: any, res: any) {
 
   if (error) { res.status(500).send('Database error'); return; }
 
-  const who: Record<string, string> = { f: 'Felles', M: 'Mikkel', L: 'Leah' };
+  const who: Record<string, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
   const pri: Record<string, string> = { høy: '🔴', middels: '🟡', lav: '⚪' };
   const now = stamp();
 

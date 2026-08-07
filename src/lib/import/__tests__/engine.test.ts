@@ -31,8 +31,8 @@ const ALIASES: MerchantAlias[] = [
   { alias: 'vipps', merchant_id: 'vipps' },
   { alias: 'norgesgruppen finans as', merchant_id: 'ngf' },
   { alias: 'norgesgruppen trumf', merchant_id: 'ngf' },
-  { alias: 'leah kristoffersen larsen', merchant_id: 'intern' },
-  { alias: 'jo mikkel nysæther ofrim', merchant_id: 'intern' },
+  { alias: 'taran five', merchant_id: 'intern' },
+  { alias: 'andreas attila stenberg', merchant_id: 'intern' },
 ];
 
 const ctx = buildMatchContext(MERCHANTS, ALIASES);
@@ -132,7 +132,7 @@ describe('classifyTx', () => {
   });
 
   it('overføring til egen/partner-konto → intern; til andre → P2P avhuket', () => {
-    expect(cls('Overføring Innland  635 Leah Kristoffersen Larsen', 5000).cls)
+    expect(cls('Overføring Innland  635 Taran Five', 5000).cls)
       .toMatchObject({ kind: 'internal', includedByDefault: false });
     expect(cls('Overføring  3520870782 Torstein Hauge Tpp: Vipps', 1750).cls)
       .toMatchObject({ kind: 'p2p', includedByDefault: false });
@@ -212,7 +212,7 @@ describe('DuplicateTracker', () => {
   });
 
   it('finner raden igjen selv om eieren er endret til Felles etterpå', () => {
-    // Raden kom fra Mikkels fil, men ble omfordelt → ligger lagret som 'felles'
+    // Raden kom fra Andreas sin fil, men ble omfordelt → ligger lagret som 'felles'
     const x = fp('Bunnpris', -195.7);
     const t = new DuplicateTracker(new Map([[`felles|${x}`, 1]]));
     t.beginFile();
@@ -276,13 +276,13 @@ describe.skipIf(!existsSync(fixture('dnb-konto-a.txt')))('prepareReview — hele
   });
 
   it('identiske rader hos TO personer er IKKE duplikater (scopet per kilde)', () => {
-    // Mikkel og Leah kjøper lunsj i samme kantine samme dag — begge skal telle
+    // Andreas og Taran kjøper lunsj i samme kantine samme dag — begge skal telle
     const two = [
       { ...files[0], dedupeScope: 'bank_M' },
       { ...files[0], id: 'l', zone: 'bank_L', dedupeScope: 'bank_L' },
     ];
-    const [, leah] = prepareReview(two, ctx, new Map());
-    expect(leah.txs.some(t => t.isDuplicate)).toBe(false);
+    const [, taran] = prepareReview(two, ctx, new Map());
+    expect(taran.txs.some(t => t.isDuplicate)).toBe(false);
   });
 
   it('detectMonth finner dominerende måned', () => {

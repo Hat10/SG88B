@@ -5,10 +5,10 @@ import type { CalEvent } from '../../api/kalender';
 // ─── Config ────────────────────────────────────────────────────────────────
 
 const SOURCE_META = {
-  mikkel: { label: 'Mikkel', color: '#4A80C4' },
-  leah:   { label: 'Leah',   color: '#6B2FA0' },
-  felles: { label: 'Felles', color: '#7AB394' },
-  todo:   { label: 'Gjøremål', color: '#C9963A' },
+  andreas: { label: 'Andreas', color: '#4A80C4' },
+  taran:   { label: 'Taran',   color: '#6B2FA0' },
+  felles:  { label: 'Felles', color: '#7AB394' },
+  todo:    { label: 'Gjøremål', color: '#C9963A' },
 } as const;
 
 const PRIORITY_COLORS = { høy: '#C0392B', middels: '#C9963A', lav: '#8A9BAD' } as const;
@@ -386,7 +386,7 @@ function MonthGrid({ viewYear, viewMonth, today, selected, onSelect, onPrev, onN
 function Legend() {
   return (
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 12, paddingLeft: 2 }}>
-      {(['mikkel', 'leah', 'felles'] as Source[]).map(key => (
+      {(['andreas', 'taran', 'felles'] as Source[]).map(key => (
         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: SOURCE_META[key].color }} />
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>{SOURCE_META[key].label}</span>
@@ -462,7 +462,7 @@ export default function PageKalender() {
       .finally(() => setLoading(false));
   }, []);
 
-  const WHO_LABEL: Record<string, string> = { f: 'Felles', M: 'Mikkel', L: 'Leah' };
+  const WHO_LABEL: Record<string, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
   const p2 = (n: number) => String(n).padStart(2, '0');
   const todoEvents: AnyEvent[] = todos
     .filter(t => !t.done && t.deadline)

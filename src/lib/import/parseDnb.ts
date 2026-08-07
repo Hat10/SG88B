@@ -1,7 +1,7 @@
 // DNB kontoutskrift (.txt/.csv, semikolonseparert).
 //
 //   "Dato";"Forklaring";"Rentedato";"Ut fra konto";"Inn på konto"
-//   "08.06.2026";"Overføring Innland  83328 Jo Mikkel Nys{ther Ofrim ";"08.06.2026";"";10027.2
+//   "08.06.2026";"Overføring Innland  83328 Andreas Attila Stenberg ";"08.06.2026";"";10027.2
 //
 // Kolonnene slås opp fra headerraden ved navn, så rekkefølge/ekstra kolonner
 // tåles. Hver datarad blir enten en RawTx eller en unparsed-oppføring med

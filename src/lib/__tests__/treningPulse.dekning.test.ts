@@ -142,7 +142,7 @@ const SCENARIOS: Scenario[] = [
       ...routine(6, 3).filter(x => Date.now() - new Date(x.startedAt).getTime() <= 42 * DAY),
     ],
   })),
-  // Streaken lever, men Leah ligger an til å ryke den denne uka.
+  // Streaken lever, men Taran ligger an til å ryke den denne uka.
   sc('streaken står i fare denne uka', () => ({
     sessions: [
       ...routine(20, 3, ['M', 'L'], 'Push', [0])

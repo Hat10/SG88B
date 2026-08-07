@@ -19,10 +19,10 @@ type ZoneId = 'bank_M' | 'bank_L' | 'revolut_M' | 'revolut_L' | 'trumf';
 interface ZoneDef { id: ZoneId; kind: SourceKind; label: string; accept: string }
 
 const ZONES: Record<ZoneId, ZoneDef> = {
-  bank_M:    { id: 'bank_M',    kind: 'dnb',     label: '👨 DNB Mikkel',      accept: '.txt,.csv' },
-  bank_L:    { id: 'bank_L',    kind: 'dnb',     label: '👩 DNB Leah',        accept: '.txt,.csv' },
-  revolut_M: { id: 'revolut_M', kind: 'revolut', label: '👨 Revolut Mikkel',  accept: '.csv' },
-  revolut_L: { id: 'revolut_L', kind: 'revolut', label: '👩 Revolut Leah',    accept: '.csv' },
+  bank_M:    { id: 'bank_M',    kind: 'dnb',     label: '👨 DNB Andreas',      accept: '.txt,.csv' },
+  bank_L:    { id: 'bank_L',    kind: 'dnb',     label: '👩 DNB Taran',        accept: '.txt,.csv' },
+  revolut_M: { id: 'revolut_M', kind: 'revolut', label: '👨 Revolut Andreas',  accept: '.csv' },
+  revolut_L: { id: 'revolut_L', kind: 'revolut', label: '👩 Revolut Taran',    accept: '.csv' },
   trumf:     { id: 'trumf',     kind: 'trumf',   label: '💳 Trumf kontoutskrift (PDF)', accept: '.pdf' },
 };
 

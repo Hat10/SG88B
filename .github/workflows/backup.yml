@@ -46,16 +46,6 @@ jobs:
           supabase db dump --db-url "$DB_URL" --data-only --use-copy -f backups/data.sql
           echo "Last successful backup: $(date -u +'%Y-%m-%d %H:%M UTC')" > backups/last-run.txt
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Back up Storage files (incremental)
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/backup-storage.mjs
-
       - name: Commit backup
         run: |
           set -euo pipefail

@@ -376,7 +376,7 @@ export default function PageOkonomi() {
     }
   }
 
-  // ── Reassign whose expense a transaction is (Mikkel / Leah / Felles) ──────────
+  // ── Reassign whose expense a transaction is (Andreas / Taran / Felles) ──────────
   async function updateOwner(tx: Tx, v: 'bank_M' | 'bank_L' | 'felles') {
     setEditingOwnerId(null);
     if (v === ownerOf(tx.source)) return;  // unchanged (keeps a trumf row as trumf when "Felles" is re-picked)
@@ -433,7 +433,7 @@ export default function PageOkonomi() {
    *  «+ ½ felles» er på. Brukes overalt der beløp summeres person-filtrert. */
   const amt = (t: Tx) => halfFelles && isFelles(t) ? t.amount / 2 : t.amount;
 
-  // Unfiltered sets drive the always-on Mikkel/Leah/Felles split; the filtered
+  // Unfiltered sets drive the always-on Andreas/Taran/Felles split; the filtered
   // "view" sets drive the KPIs, categories, weekday, comparison and the tx list.
   // Investments are excluded from the "forbruk" totals unless the toggle is on (they inflate it).
   const allExpensesTx = txs.filter(isExpense);
@@ -456,12 +456,12 @@ export default function PageOkonomi() {
   // counts as out, money pulled back out (sales) counts as in — they net by themselves.
   const fellesExp   = allExpensesTx.filter(t => t.source === 'trumf' || t.source === 'felles');
   const fellesTotal = fellesExp.reduce((s, t) => s + t.amount, 0);
-  const mikkelOwn   = allExpensesTx.filter(t => t.source === 'bank_M').reduce((s, t) => s + t.amount, 0);
-  const leahOwn     = allExpensesTx.filter(t => t.source === 'bank_L').reduce((s, t) => s + t.amount, 0);
-  const mikkelIn    = allIncomeTx.filter(t => t.source === 'bank_M').reduce((s, t) => s + t.amount, 0);
-  const leahIn      = allIncomeTx.filter(t => t.source === 'bank_L').reduce((s, t) => s + t.amount, 0);
-  const mikkelTot   = mikkelOwn + fellesTotal / 2;   // negative — all money out
-  const leahTot     = leahOwn   + fellesTotal / 2;   // negative
+  const andreasOwn   = allExpensesTx.filter(t => t.source === 'bank_M').reduce((s, t) => s + t.amount, 0);
+  const taranOwn     = allExpensesTx.filter(t => t.source === 'bank_L').reduce((s, t) => s + t.amount, 0);
+  const andreasIn    = allIncomeTx.filter(t => t.source === 'bank_M').reduce((s, t) => s + t.amount, 0);
+  const taranIn      = allIncomeTx.filter(t => t.source === 'bank_L').reduce((s, t) => s + t.amount, 0);
+  const andreasTot   = andreasOwn + fellesTotal / 2;   // negative — all money out
+  const taranTot     = taranOwn   + fellesTotal / 2;   // negative
   // ── Sparing (egen bøtte — verken forbruk eller inntekt) ──────────────────────
   // Netto investert = innskudd − uttak. Felles-sparing deles 50/50 som forbruk.
   const investTxs      = txs.filter(t => isInvestment(t) && matchesPerson(t));
@@ -474,10 +474,10 @@ export default function PageOkonomi() {
     const felles = -investAllTxs.filter(t => t.source === 'trumf' || t.source === 'felles').reduce((s, t) => s + t.amount, 0);
     return own + felles / 2;
   };
-  const mikkelInvest = investNetOf('bank_M');
-  const leahInvest   = investNetOf('bank_L');
-  const mikkelSave  = mikkelIn + mikkelTot - mikkelInvest;   // inn − forbruk − netto sparing
-  const leahSave    = leahIn   + leahTot   - leahInvest;
+  const andreasInvest = investNetOf('bank_M');
+  const taranInvest   = investNetOf('bank_L');
+  const andreasSave  = andreasIn + andreasTot - andreasInvest;   // inn − forbruk − netto sparing
+  const taranSave    = taranIn   + taranTot   - taranInvest;
 
 
   const byCat: Record<string, number> = {};
@@ -629,7 +629,7 @@ export default function PageOkonomi() {
     rule:  'rgba(232,239,247,0.14)',
   };
   const statNum = isMobile ? 16 : 22;  // stat-box number size, smaller on phones
-  // Mobile: one 3-col grid so the top row lines up with Mikkel/Leah/Felles below.
+  // Mobile: one 3-col grid so the top row lines up with Andreas/Taran/Felles below.
   // Totalt ut takes 1/3, Inn 2/3 (income is the bigger number); the three people 1/3 each.
   const statsWrap: React.CSSProperties = isMobile
     ? { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }
@@ -643,8 +643,8 @@ export default function PageOkonomi() {
   // Shared person filter, reused across Oversikt / Trend / Per butikk
   const PERSON_OPTS: Array<{ id: typeof person; label: string }> = [
     { id: 'alle',   label: 'Alle' },
-    { id: 'bank_M', label: '👨 Mikkel' },
-    { id: 'bank_L', label: '👩 Leah' },
+    { id: 'bank_M', label: '👨 Andreas' },
+    { id: 'bank_L', label: '👩 Taran' },
     { id: 'felles', label: '🤝 Felles' },
   ];
   // Segmented pill control — content-width on desktop, full-width equal segments on mobile
@@ -662,7 +662,7 @@ export default function PageOkonomi() {
   // Person-filteret + «+ ½ felles»-bryteren. Bryteren vises bare når én person er
   // valgt — på «Alle» er felles allerede med i sin helhet, og på «Felles» ville
   // den vært et filter mot seg selv.
-  const personName = person === 'bank_M' ? 'Mikkel' : person === 'bank_L' ? 'Leah' : '';
+  const personName = person === 'bank_M' ? 'Andreas' : person === 'bank_L' ? 'Taran' : '';
   const personBar = (
     <div style={{
       display: 'flex', flexDirection: isMobile ? 'column' : 'row',
@@ -740,7 +740,7 @@ export default function PageOkonomi() {
       }}>
         {/* Main row — datoen står i dagheaderen over (Oversikt) eller i egen kolonne (Transaksjoner) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
-          {/* Whose expense — shows the person, click to reassign Mikkel / Leah / Felles */}
+          {/* Whose expense — shows the person, click to reassign Andreas / Taran / Felles */}
           {editingOwnerId === tx.id ? (
             <OwnerPicker value={ownerOf(tx.source)} onChange={v => updateOwner(tx, v)} />
           ) : (
@@ -1132,7 +1132,7 @@ export default function PageOkonomi() {
                       ? `${totalIn > prevTotalIn ? '▲' : '▼'} ${fmtKr(Math.abs(totalIn - prevTotalIn))} vs. ${monthLabel(prevMonth).toLowerCase()}`
                       : 'ekte inntekt, uten uttak',
                   },
-                  ...([['bank_M', 'Mikkel'], ['bank_L', 'Leah'], ['felles', 'Felles']] as const).map(([id, label]) => ({
+                  ...([['bank_M', 'Andreas'], ['bank_L', 'Taran'], ['felles', 'Felles']] as const).map(([id, label]) => ({
                     key: id, label, flex: 0.95, span: statSm,
                     value: fmtKr(Math.abs(id === 'felles' ? fellesTotal : (bySource[id] ?? 0))),
                     sub: id === 'felles' ? 'Trumf + manuelt' : 'egne utgifter',
@@ -1197,11 +1197,11 @@ export default function PageOkonomi() {
             </div>
 
             {/* Per-person breakdown */}
-            {(mikkelIn !== 0 || leahIn !== 0 || mikkelOwn !== 0 || leahOwn !== 0) && (
+            {(andreasIn !== 0 || taranIn !== 0 || andreasOwn !== 0 || taranOwn !== 0) && (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                 {[
-                  { name: 'Mikkel', color: SOURCE_COLOR.bank_M, own: mikkelOwn, inc: mikkelIn, invest: mikkelInvest, tot: mikkelTot, save: mikkelSave },
-                  { name: 'Leah',   color: SOURCE_COLOR.bank_L, own: leahOwn,   inc: leahIn,   invest: leahInvest,   tot: leahTot,   save: leahSave },
+                  { name: 'Andreas', color: SOURCE_COLOR.bank_M, own: andreasOwn, inc: andreasIn, invest: andreasInvest, tot: andreasTot, save: andreasSave },
+                  { name: 'Taran',   color: SOURCE_COLOR.bank_L, own: taranOwn,   inc: taranIn,   invest: taranInvest,   tot: taranTot,   save: taranSave },
                 ].map(p => {
                   const line = (label: React.ReactNode, value: string, opts?: { total?: boolean; color?: string }) => (
                     <div style={{
@@ -2129,7 +2129,7 @@ export default function PageOkonomi() {
                 <div style={card}>
                   <span style={ey}>👥 Fordeling person{single ? ` · ${CATEGORY_LABELS[single] ?? single}` : ''}</span>
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
-                    {([['bank_M', '👨 Mikkel'], ['bank_L', '👩 Leah'], ['felles', '🤝 Felles']] as const).map(([id, label]) => {
+                    {([['bank_M', '👨 Andreas'], ['bank_L', '👩 Taran'], ['felles', '🤝 Felles']] as const).map(([id, label]) => {
                       const val = byPerson[id];
                       const sum = byPerson.bank_M + byPerson.bank_L + byPerson.felles;
                       const share = sum > 0 ? (val / sum) * 100 : 0;
