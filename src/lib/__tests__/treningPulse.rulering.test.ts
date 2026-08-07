@@ -4,7 +4,7 @@
 // «kan en melding bli underprioritert bort så den aldri kommer med i rulleringa»
 // — og gjør det på to måter:
 //
-//   1. Per-regel-garanti: for hver av de 22 reglene bygges et scenario som
+//   1. Per-regel-garanti: for hver av de 18 reglene bygges et scenario som
 //      isolerer den, og vi sjekker at regelen faktisk er MED i rotasjonsbåndet
 //      (`pulseBand`), ikke bare at den fyrer. Er den i båndet, blir den garantert
 //      vist innen band.length ≤ 5 døgn — så vi verifiserer også at den dukker opp
@@ -25,17 +25,16 @@ const DAY = 86400000;
 const baseId = (id: string) => id.replace(/-g\d+$/, '');
 
 let seq = 0;
-function sessAt(start: Date, who: Trainer, opts: { cat?: string; min?: number; group?: string | null } = {}): WorkoutSession {
-  const { cat = 'Push', min = 50, group = null } = opts;
+function sessAt(start: Date, who: Trainer, opts: { cat?: string; min?: number } = {}): WorkoutSession {
+  const { cat = 'Push', min = 50 } = opts;
   return {
     id: `s${seq++}`, templateId: 't1', templateName: `${cat} A`, category: cat, who,
-    sessionGroup: group,
     startedAt: start.toISOString(),
     completedAt: new Date(start.getTime() + min * 60000).toISOString(),
     note: null,
   };
 }
-function sess(daysAgo: number, who: Trainer, opts: { cat?: string; min?: number; group?: string | null } = {}): WorkoutSession {
+function sess(daysAgo: number, who: Trainer, opts: { cat?: string; min?: number } = {}): WorkoutSession {
   const start = new Date(Date.now() - daysAgo * DAY);
   start.setHours(18, 0, 0, 0);
   return sessAt(start, who, opts);
@@ -54,9 +53,8 @@ const inDays = (n: number) => new Date(Date.now() + n * DAY).toISOString().slice
  * nyeste økta i inneværende uke bare et døgn eller to tilbake — ikke fire, som
  * ville tippet `etterslep` over terskelen og gjort scenarioene ubrukelige.
  */
-function weekSessions(w: number, perWeek: number, who: Trainer[], opts: { cat?: string; togetherIdx?: number[]; min?: number } = {}): WorkoutSession[] {
-  const { cat = 'Push', togetherIdx = [], min = 50 } = opts;
-  const both = who.includes('M') && who.includes('L');
+function weekSessions(w: number, perWeek: number, who: Trainer[], opts: { cat?: string; min?: number } = {}): WorkoutSession[] {
+  const { cat = 'Push', min = 50 } = opts;
   const weekStart = startOfWeek(new Date()).getTime() - w * 7 * DAY;
   const out: WorkoutSession[] = [];
   let placed = 0;
@@ -64,14 +62,13 @@ function weekSessions(w: number, perWeek: number, who: Trainer[], opts: { cat?: 
     const at = new Date(weekStart + dow * DAY);
     at.setHours(18, 0, 0, 0);
     if (at.getTime() >= Date.now()) continue; // aldri økter i framtida
-    const group = both && togetherIdx.includes(placed) ? `grp-${cat}-${w}-${placed}` : null;
-    for (const p of who) out.push(sessAt(at, p, { cat, min, group }));
+    for (const p of who) out.push(sessAt(at, p, { cat, min }));
     placed++;
   }
   return out;
 }
 /** `weeks` kan være et antall (0..n-1) eller en eksplisitt liste med ukenumre. */
-function routine(weeks: number | number[], perWeek: number, who: Trainer[] = ['M', 'L'], opts: { cat?: string; togetherIdx?: number[]; min?: number } = {}): WorkoutSession[] {
+function routine(weeks: number | number[], perWeek: number, who: Trainer[] = ['M', 'L'], opts: { cat?: string; min?: number } = {}): WorkoutSession[] {
   const list = Array.isArray(weeks) ? weeks : Array.from({ length: weeks }, (_, i) => i);
   return list.flatMap(w => weekSessions(w, perWeek, who, opts));
 }
@@ -131,11 +128,6 @@ const CASES: Case[] = [
   { id: 'streak-milepal', anchor: SAT, build: () => ({ sessions: routine([0, 1, 3, 4, 5, 6], 3, ['M', 'L']) }) },
   { id: 'beste-maned', anchor: SAT, build: () => ({
       sessions: [...weekSessions(0, 3, ['M', 'L']), sess(35, 'M'), sess(35, 'L'), sess(38, 'M'), sess(38, 'L')] }) },
-  { id: 'sammen-okt', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2], 2, ['M', 'L'], { togetherIdx: [0] }) }) },
-  { id: 'sammen-streak', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2], 2, ['M', 'L'], { togetherIdx: [0] }) }) },
-  { id: 'lenge-siden-sammen', anchor: SAT, build: () => ({
-      sessions: [...routine([0, 1, 2, 3], 2, ['M', 'L']), sess(28, 'M', { group: 'grp-old' }), sess(28, 'L', { group: 'grp-old' })] }) },
-  { id: 'aldri-sammen', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 1, ['M', 'L']) }) },
   { id: 'snitt', anchor: SAT, build: () => ({ sessions: [sess(3, 'M'), sess(3, 'L')] }) },
 ];
 
@@ -178,8 +170,8 @@ it('hver regel kan komme med i rotasjonsbåndet og bli vist når døgnet ruller'
   }
   expect(missing).toEqual([]);
   expect(notShown).toEqual([]);
-  // Alle 22 familiene skal være dekket av et scenario hver.
-  expect(new Set(CASES.map(c => c.id)).size).toBe(22);
+  // Alle 18 familiene skal være dekket av et scenario hver.
+  expect(new Set(CASES.map(c => c.id)).size).toBe(18);
 });
 
 // ── Fuzz ────────────────────────────────────────────────────────────────────
@@ -212,12 +204,6 @@ function randomData(rand: () => number): Data {
       }
     }
   }
-  for (let k = 0, tog = ri(0, 8); k < tog; k++) {
-    const d = ri(0, 60), grp = `tg-${k}`;
-    sessions.push(sess(d, 'M', { group: grp }));
-    sessions.push(sess(d, 'L', { group: grp }));
-  }
-
   const records: WorkoutRecord[] = [];
   for (let k = 0, nr = ri(0, 4); k < nr; k++) {
     records.push(rec(ri(0, 200), pick(['M', 'L']) as Trainer, ri(20, 200),
@@ -225,7 +211,7 @@ function randomData(rand: () => number): Data {
   }
 
   const goals: WorkoutGoal[] = [];
-  const kinds: GoalKind[] = ['record', 'sessions_year', 'sessions_month', 'sessions_total', 'hours_year', 'minutes_week', 'together_week', 'weekly_streak'];
+  const kinds: GoalKind[] = ['record', 'sessions_year', 'sessions_month', 'sessions_total', 'hours_year', 'minutes_week', 'weekly_streak'];
   for (let k = 0, ng = ri(0, 4); k < ng; k++) {
     const kind = pick(kinds);
     const deadline = rand() < 0.4 ? inDays(ri(-40, 60)) : null;

@@ -15,10 +15,9 @@ export interface CalEvent {
 // ─── Feed config ───────────────────────────────────────────────────────────
 
 const FEEDS = [
-  { env: 'CAL_ANDREAS_PERSONAL', source: 'andreas', color: '#4A80C4' },
-  { env: 'CAL_ANDREAS_FELLES',   source: 'felles',  color: '#7AB394' },
-  { env: 'CAL_TARAN_PERSONAL',   source: 'taran',   color: '#6B2FA0' },
-  { env: 'CAL_TARAN_FELLES',     source: 'felles',  color: '#7AB394' },
+  { env: 'CAL_ANDREAS', source: 'andreas', color: '#4A80C4' },
+  { env: 'CAL_TARAN',   source: 'taran',   color: '#6B2FA0' },
+  { env: 'CAL_FELLES',  source: 'felles',  color: '#7AB394' },
 ] as const;
 
 // ─── Date helpers ──────────────────────────────────────────────────────────
@@ -235,6 +234,27 @@ function expandRrule(
 
 // ─── iCal parser ───────────────────────────────────────────────────────────
 
+interface RawVevent {
+  uid: string;
+  summary: string;
+  dtstart: { key: string; val: string };
+  dtend?: { key: string; val: string };
+  rrule?: string;
+  exdates: string[];
+  /** 'YYYY-MM-DD' — present when this VEVENT overrides one occurrence of a
+   *  recurring UID (moved time, edited title, …), via a RECURRENCE-ID prop. */
+  recurrenceId?: string;
+}
+
+// Same local-time parsing expandRrule uses for dtstart (bare "no Z" strings
+// are read as local time, then re-derived through toDateStr) — reused here so
+// a RECURRENCE-ID override always lands on the exact date key the master's
+// RRULE expansion would generate for that occurrence, however the server's
+// local timezone happens to shift a floating time across midnight.
+function toOccKey(iso: string): string {
+  return toDateStr(new Date(iso.includes('T') ? iso : iso + 'T00:00:00Z'));
+}
+
 function parseIcal(
   text: string,
   source: CalEvent['source'],
@@ -243,11 +263,15 @@ function parseIcal(
   winEnd: string,
 ): CalEvent[] {
   const lines = unfold(text).split(/\r?\n/);
-  const events: CalEvent[] = [];
   let inEvent = false;
   let props: Record<string, { key: string; val: string }> = {};
   let exdateVals: string[] = [];
   let rruleVal: string | undefined;
+
+  // Pass 1: collect every VEVENT block as-is. Deferred (not expanded/emitted
+  // yet) so a recurring master can be matched against its RECURRENCE-ID
+  // exceptions below, regardless of which one appears first in the feed.
+  const raws: RawVevent[] = [];
 
   for (const line of lines) {
     if (line === 'BEGIN:VEVENT') {
@@ -261,39 +285,12 @@ function parseIcal(
       const dtstart = props['DTSTART'];
       if (!uid || !summary || !dtstart) continue;
 
-      const { iso: start, allDay } = parseDate(dtstart.key, dtstart.val);
-      const endProp = props['DTEND'];
-      const end = endProp ? parseDate(endProp.key, endProp.val).iso : undefined;
+      const recurrenceIdProp = props['RECURRENCE-ID'];
+      const recurrenceId = recurrenceIdProp
+        ? toOccKey(parseDate(recurrenceIdProp.key, recurrenceIdProp.val).iso)
+        : undefined;
 
-      const base: CalEvent = { id: uid, title: unescape(summary), start, end, allDay, source, color };
-
-      if (rruleVal) {
-        // Expand all recurrences within window
-        const exSet = new Set(exdateVals);
-        events.push(...expandRrule(base, rruleVal, exSet, winStart, winEnd));
-      } else {
-        // Single event — include if it overlaps with the window
-        const startDay = start.slice(0, 10);
-        const endDay   = (end ?? start).slice(0, 10);
-        if (startDay <= winEnd && endDay >= winStart) {
-          // Multi-day all-day event: expand to one entry per day
-          if (allDay && end && end.slice(0, 10) > startDay) {
-            const s = new Date(startDay + 'T00:00:00Z');
-            const e = new Date(end.slice(0, 10) + 'T00:00:00Z'); // DTEND is exclusive
-            let cur = new Date(s);
-            let safety = 0;
-            while (cur < e && safety++ < 365) {
-              const dayStr = toDateStr(cur);
-              if (dayStr >= winStart && dayStr <= winEnd) {
-                events.push({ ...base, id: `${base.id}_${dayStr}`, start: dayStr, end: toDateStr(addDays(cur, 1)) });
-              }
-              cur = addDays(cur, 1);
-            }
-          } else {
-            events.push(base);
-          }
-        }
-      }
+      raws.push({ uid, summary, dtstart, dtend: props['DTEND'], rrule: rruleVal, exdates: [...exdateVals], recurrenceId });
       continue;
     }
     if (!inEvent) continue;
@@ -310,6 +307,59 @@ function parseIcal(
       rruleVal = val;
     } else {
       props[baseName] = { key: fullKey, val };
+    }
+  }
+
+  // A RECURRENCE-ID event overrides one specific occurrence of a recurring
+  // UID. Calendars don't reliably also add a matching EXDATE on the master
+  // for it — without this, the master's RRULE expansion would still generate
+  // the original, now-stale occurrence alongside the override, showing the
+  // same event twice on that date (e.g. moved from 20:30 to 20:00 → both).
+  const overridesByUid = new Map<string, Set<string>>();
+  for (const r of raws) {
+    if (!r.recurrenceId) continue;
+    if (!overridesByUid.has(r.uid)) overridesByUid.set(r.uid, new Set());
+    overridesByUid.get(r.uid)!.add(r.recurrenceId);
+  }
+
+  const events: CalEvent[] = [];
+  for (const r of raws) {
+    const { iso: start, allDay } = parseDate(r.dtstart.key, r.dtstart.val);
+    const end = r.dtend ? parseDate(r.dtend.key, r.dtend.val).iso : undefined;
+    // Suffix exception instances by their overridden date so two exceptions
+    // on the same recurring UID (e.g. several edited occurrences) don't
+    // collide on one id.
+    const id = r.recurrenceId ? `${r.uid}_${r.recurrenceId}` : r.uid;
+    const base: CalEvent = { id, title: unescape(r.summary), start, end, allDay, source, color };
+
+    if (r.rrule) {
+      // Expand all recurrences within window, excluding EXDATE'd dates AND
+      // any date that has its own RECURRENCE-ID override (see above).
+      const exSet = new Set(r.exdates);
+      for (const d of overridesByUid.get(r.uid) ?? []) exSet.add(d);
+      events.push(...expandRrule(base, r.rrule, exSet, winStart, winEnd));
+    } else {
+      // Single event (or a RECURRENCE-ID override) — include if it overlaps the window
+      const startDay = start.slice(0, 10);
+      const endDay   = (end ?? start).slice(0, 10);
+      if (startDay <= winEnd && endDay >= winStart) {
+        // Multi-day all-day event: expand to one entry per day
+        if (allDay && end && end.slice(0, 10) > startDay) {
+          const s = new Date(startDay + 'T00:00:00Z');
+          const e = new Date(end.slice(0, 10) + 'T00:00:00Z'); // DTEND is exclusive
+          let cur = new Date(s);
+          let safety = 0;
+          while (cur < e && safety++ < 365) {
+            const dayStr = toDateStr(cur);
+            if (dayStr >= winStart && dayStr <= winEnd) {
+              events.push({ ...base, id: `${base.id}_${dayStr}`, start: dayStr, end: toDateStr(addDays(cur, 1)) });
+            }
+            cur = addDays(cur, 1);
+          }
+        } else {
+          events.push(base);
+        }
+      }
     }
   }
   return events;
@@ -339,17 +389,8 @@ export default async function handler(_req: any, res: any) {
     if (r.status === 'fulfilled') events.push(...r.value);
   }
 
-  // Deduplicate felles events (same UID from both feeds)
-  const seen = new Set<string>();
-  const deduped = events.filter(e => {
-    const key = `${e.source}-${e.id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  deduped.sort((a, b) => a.start.localeCompare(b.start));
+  events.sort((a, b) => a.start.localeCompare(b.start));
 
   res.setHeader('Cache-Control', 's-maxage=300');
-  res.json(deduped);
+  res.json(events);
 }

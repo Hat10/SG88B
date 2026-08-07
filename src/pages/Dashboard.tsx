@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useHusGoal } from '../hooks/useHusGoal';
 import { useTodo } from '../contexts/TodoContext';
-import { useCountdown } from '../hooks/useCountdown';
+import { useCountdown, type Countdown } from '../hooks/useCountdown';
+import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWeeklyBucket } from '../hooks/useWeeklyBucket';
 import { Btn, fmtKr, Ico } from '../components';
 import { QuickAddBar } from '../QuickAdd';
@@ -277,12 +278,15 @@ function SavingsPanel({
 
 // ─── Countdown panel ─────────────────────────────────────────────────────────
 
-function CountdownPanel({ dark = false }: { dark?: boolean }) {
-  const { cd, save: saveCd, loading } = useCountdown();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft]     = useState(cd);
+const EMPTY_COUNTDOWN: Countdown = { label: '', date: '' };
 
-  useEffect(() => { if (!editing) setDraft(cd); }, [cd, editing]);
+function CountdownPanel({ dark = false }: { dark?: boolean }) {
+  const { cd, save: saveCd, clear: clearCd, loading } = useCountdown();
+  const { notify } = useSnackbar();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState<Countdown>(cd ?? EMPTY_COUNTDOWN);
+
+  useEffect(() => { if (!editing) setDraft(cd ?? EMPTY_COUNTDOWN); }, [cd, editing]);
 
   const save = () => {
     if (!draft.label.trim() || !draft.date) return;
@@ -290,11 +294,18 @@ function CountdownPanel({ dark = false }: { dark?: boolean }) {
     setEditing(false);
   };
 
-  const days = daysUntil(cd.date);
+  const remove = () => {
+    const prev = cd;
+    void clearCd();
+    if (prev) notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void saveCd(prev) });
+  };
+
+  const days = cd ? daysUntil(cd.date) : 0;
 
   const textPrimary   = dark ? 'rgba(207,224,239,0.9)' : 'var(--ink)';
   const textSecondary = dark ? 'rgba(207,224,239,0.45)' : 'var(--ink-4)';
   const textAccent    = dark ? 'rgba(207,224,239,1)' : 'var(--ink)';
+  const btnStyle: React.CSSProperties = { background: 'transparent', border: 0, cursor: 'pointer', color: textSecondary, fontSize: 13, padding: '2px 4px', lineHeight: 1 };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center' }}>
@@ -303,31 +314,43 @@ function CountdownPanel({ dark = false }: { dark?: boolean }) {
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: textSecondary, textTransform: 'uppercase' }}>
           Nedtelling
         </div>
-        <button
-          onClick={() => { setDraft(cd); setEditing(e => !e); }}
-          style={{ background: 'transparent', border: 0, cursor: 'pointer', color: textSecondary, fontSize: 13, padding: '2px 4px', lineHeight: 1 }}
-          aria-label="Rediger nedtelling"
-        >✎</button>
+        {cd && (
+          <div style={{ display: 'flex', gap: 2 }}>
+            <button onClick={() => { setDraft(cd); setEditing(e => !e); }} style={btnStyle} aria-label="Rediger nedtelling">✎</button>
+            <button onClick={remove} style={btnStyle} aria-label="Fjern nedtelling">×</button>
+          </div>
+        )}
       </div>
 
       {loading ? (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: textSecondary }}>…</div>
       ) : !editing ? (
-        <>
-          <div style={{ fontSize: 13, fontWeight: 400, color: textPrimary, marginBottom: 8, lineHeight: 1.3 }}>
-            {cd.label}
-          </div>
-          <div style={{
-            fontSize: 64, fontWeight: 400, letterSpacing: '-0.04em',
-            lineHeight: 0.9, fontVariantNumeric: 'tabular-nums', color: textAccent,
-            marginBottom: 10,
-          }}>
-            {Math.max(0, days)}
-          </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: textSecondary }}>
-            {days <= 0 ? 'i dag!' : days === 1 ? 'dag · i morgen' : 'dager'} · {new Date(cd.date + 'T12:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </div>
-        </>
+        cd ? (
+          <>
+            <div style={{ fontSize: 13, fontWeight: 400, color: textPrimary, marginBottom: 8, lineHeight: 1.3 }}>
+              {cd.label}
+            </div>
+            <div style={{
+              fontSize: 64, fontWeight: 400, letterSpacing: '-0.04em',
+              lineHeight: 0.9, fontVariantNumeric: 'tabular-nums', color: textAccent,
+              marginBottom: 10,
+            }}>
+              {Math.max(0, days)}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: textSecondary }}>
+              {days <= 0 ? 'i dag!' : days === 1 ? 'dag · i morgen' : 'dager'} · {new Date(cd.date + 'T12:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </div>
+          </>
+        ) : (
+          <button
+            onClick={() => { setDraft(EMPTY_COUNTDOWN); setEditing(true); }}
+            style={{
+              background: 'transparent', cursor: 'pointer', textAlign: 'left',
+              border: `1px dashed ${textSecondary}`, borderRadius: 6, padding: '10px 12px',
+              color: textSecondary, fontSize: 12,
+            }}
+          >+ Legg til nedtelling</button>
+        )
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <input
@@ -772,7 +795,7 @@ export default function PageDashboard() {
     .filter(e => e.start.slice(0,10) >= today)
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())[0];
 
-  const cdDays = daysUntil(cd.date);
+  const cdDays = cd ? daysUntil(cd.date) : 0;
 
   // ── Mobile layout ──
   if (isMobile) {
@@ -849,7 +872,7 @@ export default function PageDashboard() {
               onClick={() => navigate('kalender')}
             />
           )}
-          {cd.label && cd.date && (
+          {cd && (
             <StatusChip
               icon={Ico.star}
               text={`${Math.max(0, cdDays)} dager til ${cd.label}`}

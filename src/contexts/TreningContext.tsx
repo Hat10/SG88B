@@ -6,9 +6,6 @@ import type { Who } from '../data';
 export type Trainer = Exclude<Who, 'f'>;
 export const TRAINERS: Trainer[] = ['M', 'L'];
 
-/** Hvem en registrering gjelder: den ene, den andre, eller begge (sammen-økt). */
-export type LogWho = Trainer | 'sammen';
-
 /** Standardkategoriene appen kommer med. Basen kan ha flere — se workout_categories. */
 export const WORKOUT_CATEGORIES = ['Push', 'Pull', 'Legs', 'Fullkropp', 'Overkropp', 'Cardio'] as const;
 
@@ -56,8 +53,6 @@ export interface WorkoutSession {
   templateName: string;
   category: string;
   who: Trainer;
-  /** Satt (og delt) på de to radene i en sammen-økt; null for solo-økter. */
-  sessionGroup: string | null;
   /** Tidspunktet økta ble gjennomført. For avhukinger er completedAt lik denne. */
   startedAt: string;
   /** null ⇒ eldre pågående økt; for avhukinger alltid lik startedAt. */
@@ -87,7 +82,6 @@ export type GoalKind =
   | 'sessions_total'  // fullførte økter noensinne
   | 'hours_year'      // målt tid hittil i år, i timer
   | 'minutes_week'    // målt tid denne uka, i minutter
-  | 'together_week'   // dager denne uka der begge trente
   | 'weekly_streak'   // uker på rad med minst én økt
   | 'record';         // nå en gitt verdi i en øvelse — «55 kg benk»
 
@@ -116,17 +110,12 @@ interface TreningCtx {
   removeCategory: (id: string) => Promise<void>;
   restoreCategory: (c: WorkoutCategory) => Promise<void>;
   /**
-   * Huk av at en økt i en kategori er gjennomført. who='sammen' legger inn én
-   * M-rad og én L-rad med felles session_group. started_at = completed_at =
+   * Huk av at en økt i en kategori er gjennomført. started_at = completed_at =
    * performedAt, så den teller som fullført, men uten målt varighet.
    */
-  registerSession: (input: { category: string; who: LogWho; performedAt: string; note?: string | null }) => Promise<void>;
-  /**
-   * Rediger en tidligere registrert økt. Avstemmer anledningen (solo-raden, eller
-   * alle radene i session_group) mot ny hvem/kategori/tid — inkludert
-   * konvertering mellom solo og sammen.
-   */
-  saveLoggedSession: (input: { occasion: WorkoutSession; who: LogWho; category: string; performedAt: string; note?: string | null }) => Promise<void>;
+  registerSession: (input: { category: string; who: Trainer; performedAt: string; note?: string | null }) => Promise<void>;
+  /** Rediger en tidligere registrert økt. */
+  saveLoggedSession: (input: { occasion: WorkoutSession; who: Trainer; category: string; performedAt: string; note?: string | null }) => Promise<void>;
   removeSession: (id: string) => Promise<void>;
   restoreSession: (s: WorkoutSession) => Promise<void>;
   addRecord: (r: Omit<WorkoutRecord, 'id'>) => Promise<void>;
@@ -162,7 +151,6 @@ const sessionFromRow = (r: Record<string, unknown>): WorkoutSession => ({
   id: r.id as string,
   category: (r.category as string | null) ?? '',
   who: (r.who as Trainer) ?? 'M',
-  sessionGroup: (r.session_group as string | null) ?? null,
   startedAt: r.started_at as string,
   completedAt: (r.completed_at as string | null) ?? null,
   note: (r.note as string | null) ?? null,
@@ -274,35 +262,22 @@ export function TreningProvider({ children }: { children: React.ReactNode }) {
   // ── Økter ──────────────────────────────────────────────────────────────────
 
   // Én avhuking: started_at = completed_at, template_id null, template_name =
-  // kategorien (feltet er not null og leses fortsatt enkelte steder). who='sammen'
-  // gir én M-rad og én L-rad med felles session_group.
-  const insertOccasion = async (category: string, who: LogWho, performedAt: string, note: string | null) => {
-    const base = { category, started_at: performedAt, completed_at: performedAt, note };
-    if (who === 'sammen') {
-      const group = crypto.randomUUID();
-      await supabase.from('workout_sessions').insert(
-        TRAINERS.map(w => ({ ...base, who: w, session_group: group })),
-      );
-    } else {
-      await supabase.from('workout_sessions').insert({ ...base, who, session_group: null });
-    }
+  // kategorien (feltet er not null og leses fortsatt enkelte steder).
+  const insertOccasion = async (category: string, who: Trainer, performedAt: string, note: string | null) => {
+    await supabase.from('workout_sessions').insert({
+      category, who, started_at: performedAt, completed_at: performedAt, note,
+    });
   };
 
   const registerSession = async ({ category, who, performedAt, note = null }:
-    { category: string; who: LogWho; performedAt: string; note?: string | null }) => {
+    { category: string; who: Trainer; performedAt: string; note?: string | null }) => {
     await insertOccasion(category, who, performedAt, note);
     await load();
   };
 
   const saveLoggedSession = async ({ occasion, who, category, performedAt, note = null }:
-    { occasion: WorkoutSession; who: LogWho; category: string; performedAt: string; note?: string | null }) => {
-    // En anledning er enten én solo-rad eller de to radene i en session_group.
-    // Vi bygger den opp på nytt fra bunnen, så solo↔sammen-konvertering bare blir
-    // «slett de gamle radene, sett inn de nye».
-    const rows = occasion.sessionGroup
-      ? sessions.filter(s => s.sessionGroup === occasion.sessionGroup)
-      : [occasion];
-    await supabase.from('workout_sessions').delete().in('id', rows.map(s => s.id));
+    { occasion: WorkoutSession; who: Trainer; category: string; performedAt: string; note?: string | null }) => {
+    await supabase.from('workout_sessions').delete().eq('id', occasion.id);
     await insertOccasion(category, who, performedAt, note);
     await load();
   };
@@ -314,7 +289,7 @@ export function TreningProvider({ children }: { children: React.ReactNode }) {
 
   const restoreSession = async (s: WorkoutSession) => {
     await supabase.from('workout_sessions').insert({
-      id: s.id, category: s.category, who: s.who, session_group: s.sessionGroup,
+      id: s.id, category: s.category, who: s.who,
       started_at: s.startedAt, completed_at: s.completedAt, note: s.note,
     });
     await load();

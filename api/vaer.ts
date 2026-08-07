@@ -1,8 +1,8 @@
 export const config = { maxDuration: 10 };
 
-// Oslo sentrum
-const LAT = 59.9139;
-const LON = 10.7522;
+// Bodø sentrum
+const LAT = 67.2827;
+const LON = 14.3742;
 
 const SYMBOL_NO: Record<string, string> = {
   clearsky_day: 'Klarvær', clearsky_night: 'Klarvær',

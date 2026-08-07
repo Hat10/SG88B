@@ -32,8 +32,8 @@ export default function PageLogin() {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
           <Couple size="lg" />
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.03em', color: 'var(--ink)' }}>Felles</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>M & L · 2026</div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.03em', color: 'var(--ink)' }}>SG88B</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>A & T · 2026</div>
           </div>
         </div>
 

@@ -10,9 +10,11 @@ export const Ico = {
 } as const;
 
 // ── Avatars ──────────────────────────────────────────────────────────────────
+const WHO_INITIAL: Record<'M' | 'L', string> = { M: 'A', L: 'T' }; // Andreas, Taran
+
 export function Avatar({ who, size = 'sm' }: { who: 'M' | 'L'; size?: 'sm' | 'lg' }) {
   const cls = 'avatar' + (size === 'lg' ? ' lg' : '') + (who === 'M' ? ' avatar-m' : ' avatar-l');
-  return <div className={cls}>{who}</div>;
+  return <div className={cls}>{WHO_INITIAL[who]}</div>;
 }
 
 export function Couple({ size = 'sm' }: { size?: 'sm' | 'lg' }) {

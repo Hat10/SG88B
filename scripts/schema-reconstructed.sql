@@ -153,9 +153,33 @@ create policy "authenticated_spending_categories" on public.spending_categories
 grant select, insert, update, delete on public.spending_categories to authenticated;
 alter publication supabase_realtime add table public.spending_categories;
 
--- Seeded with ~19 built-in keys incl. 'investering'; deliberately excludes
--- 'overføring' (internal transfers are tagged that category by import/classify
--- logic but are not a user-pickable spending category).
+-- [CONFIRMED] scripts/spending-categories-migration.sql — exact seed data.
+-- sort_order intentionally skips 17: that slot is conceptually reserved for
+-- 'overføring' (internal transfers), which is deliberately NOT seeded here —
+-- transfers aren't a user-pickable spending category, even though import/
+-- classify code still tags rows with that key.
+insert into public.spending_categories (key, label, color, sort_order, is_system) values
+  ('dagligvarer', 'Dagligvarer',        '#5B9BD5',  0, true),
+  ('kiosk',       'Kiosk',              '#7BC4C4',  1, true),
+  ('kafé',        'Kafé & Restaurant',  '#F4A261',  2, true),
+  ('hjem',        'Hjem & Bygg',        '#8BC34A',  3, true),
+  ('klær',        'Klær & Shopping',    '#C97A8B',  4, true),
+  ('transport',   'Transport',          '#7B68EE',  5, true),
+  ('abonnement',  'Abonnementer',       '#FF8C00',  6, true),
+  ('forsikring',  'Forsikring',         '#4A80C4',  7, true),
+  ('trening',     'Trening',            '#26A69A',  8, true),
+  ('velvære',     'Velvære',            '#B39DDB',  9, true),
+  ('helse',       'Helse & Apotek',     '#EC407A', 10, true),
+  ('utdanning',   'Utdanning & læring', '#5C6BC0', 11, true),
+  ('bolig',       'Bolig & Strøm',      '#A0856A', 12, true),
+  ('arrangement', 'Arrangementer',      '#AB47BC', 13, true),
+  ('gambling',    'Gambling',           '#D32F2F', 14, true),
+  ('reise',       'Reise',              '#26C6DA', 15, true),
+  ('finans',      'Finans & Skatt',     '#78909C', 16, true),
+  ('inntekt',     'Inntekt',            '#66BB6A', 18, true),
+  ('investering', 'Investering',        '#FFD700', 19, true),
+  ('annet',       'Annet',              '#9E9E9E', 20, true)
+on conflict (key) do nothing;
 
 -- [CONFIRMED] scripts/investment-values-migration.sql — no realtime subscription.
 -- Design note (from the script's own comment): originally meant for monthly
@@ -271,7 +295,18 @@ create policy "authenticated_workout_categories_all" on public.workout_categorie
 grant select, insert, update, delete on public.workout_categories to authenticated;
 alter publication supabase_realtime add table public.workout_categories;
 
--- Seeded: Push(0), Pull(1), Legs(2), Fullkropp(3), Overkropp(4), Cardio(5).
+-- [CONFIRMED] Base 6 rows from scripts/trening-rebuild.sql
+-- (name, sort_order), muscle_groups merged in from
+-- scripts/trening-muskelgrupper-migration.sql's follow-up UPDATE — combined
+-- into one INSERT here since this targets a fresh, empty database.
+insert into public.workout_categories (name, sort_order, muscle_groups) values
+  ('Push',       0, '{Push}'),
+  ('Pull',       1, '{Pull}'),
+  ('Legs',       2, '{Legs}'),
+  ('Fullkropp',  3, '{Push,Pull,Legs}'),
+  ('Overkropp',  4, '{Push,Pull}'),
+  ('Cardio',     5, '{Cardio}')
+on conflict (name) do nothing;
 
 -- [CONFIRMED] scripts/trening-rebuild.sql, extended by
 -- scripts/trening-note-migration.sql (note — already present in rebuild,
@@ -282,12 +317,15 @@ alter publication supabase_realtime add table public.workout_categories;
 -- excluded for now — treningPulse.ts still has calculation logic for them,
 -- but TreningContext.tsx never reads/writes them, so wiring them back in
 -- properly (a real "fortsett økt" feature) is its own future task.
+--
+-- session_group (the "Sammen"/shared-session column) is also excluded: the
+-- Sammen feature was removed from the app entirely (UI, context logic, and
+-- the treningPulse.ts rule family it powered) rather than deferred.
 create table public.workout_sessions (
   id             uuid primary key default gen_random_uuid(),
   category       text not null,          -- denormalized copy of workout_categories.name,
                                           -- no FK — deleting a category doesn't touch history
   who            text not null check (who in ('M','L')),
-  session_group  uuid,                   -- shared by both rows of a "sammen" session; null if solo
   started_at     timestamptz not null default now(),
   completed_at   timestamptz,            -- always = started_at in current model
   note           text,
@@ -301,7 +339,6 @@ grant select, insert, update, delete on public.workout_sessions to authenticated
 alter publication supabase_realtime add table public.workout_sessions;
 
 create index workout_sessions_started_idx on public.workout_sessions (started_at desc);
-create index workout_sessions_group_idx   on public.workout_sessions (session_group);
 
 -- [CONFIRMED] scripts/trening-migration.sql, recreated identically by rebuild
 create table public.workout_records (
@@ -581,11 +618,90 @@ create index flipping_costs_category_idx on public.flipping_costs (category);
 -- DOMAIN: Kalender
 -- ============================================================================
 -- No table. Events are fetched live from external iCal feed URLs on every
--- request (api/kalender.ts) — nothing is persisted. The feed URLs themselves
--- live in env vars: CAL_ANDREAS_PERSONAL, CAL_ANDREAS_FELLES,
--- CAL_TARAN_PERSONAL, CAL_TARAN_FELLES (renamed from CAL_MIKKEL_*/CAL_LEAH_*
--- — you still need to update these in Vercel/GitHub secrets, see earlier
--- rename summary).
+-- request (api/kalender.ts) — nothing is persisted. Three calendars, three
+-- env vars: CAL_ANDREAS, CAL_TARAN (personal), CAL_FELLES (shared, not
+-- duplicated per person) — set these in Vercel/GitHub secrets.
+
+
+-- ============================================================================
+-- DOMAIN: Middagsplanlegger + Dagligvarer (scripts/matplan-migration.sql)
+-- ============================================================================
+-- [CONFIRMED] scripts/matplan-migration.sql — brand new, no prior migration
+-- to reconcile against. Manual planning + grocery list only; no suggestion
+-- algorithm, calendar reading, or Spoonacular integration yet (deferred).
+
+create table public.recipes (
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  ingredients        jsonb not null default '[]',  -- [{name, amount, unit}, ...]
+  cook_time_minutes  int,
+  instructions       text,
+  tags               text[] not null default '{}',
+  source             text not null default 'egen' check (source in ('egen', 'spoonacular')),
+  created_at         timestamptz default now(),
+  updated_at         timestamptz default now()
+);
+
+alter table public.recipes enable row level security;
+create policy "authenticated_recipes_all" on public.recipes
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.recipes to authenticated;
+alter publication supabase_realtime add table public.recipes;
+
+create table public.meal_plan (
+  id          uuid primary key default gen_random_uuid(),
+  date        date not null unique,
+  recipe_id   uuid not null references public.recipes(id) on delete cascade,
+  created_at  timestamptz default now()
+);
+
+alter table public.meal_plan enable row level security;
+create policy "authenticated_meal_plan_all" on public.meal_plan
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.meal_plan to authenticated;
+alter publication supabase_realtime add table public.meal_plan;
+
+create index meal_plan_recipe_idx on public.meal_plan (recipe_id);
+
+create table public.staple_items (
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  amount             numeric,
+  unit               text,
+  interval_weeks     int not null default 1 check (interval_weeks >= 1),  -- 1 = ukentlig
+  last_bought_at     date,
+  postponed_until    date,   -- hopp over neste påminnelse uten å endre intervallet
+  created_at         timestamptz default now()
+);
+
+alter table public.staple_items enable row level security;
+create policy "authenticated_staple_items_all" on public.staple_items
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.staple_items to authenticated;
+alter publication supabase_realtime add table public.staple_items;
+
+create table public.grocery_items (
+  id               uuid primary key default gen_random_uuid(),
+  name             text not null,
+  amount           numeric,
+  unit             text,
+  done             boolean not null default false,
+  meal_plan_id     uuid references public.meal_plan(id) on delete cascade,
+  staple_item_id   uuid references public.staple_items(id) on delete cascade,
+  created_at       timestamptz default now(),
+  constraint grocery_items_single_origin check (
+    (meal_plan_id is not null)::int + (staple_item_id is not null)::int = 1
+  )
+);
+
+alter table public.grocery_items enable row level security;
+create policy "authenticated_grocery_items_all" on public.grocery_items
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.grocery_items to authenticated;
+alter publication supabase_realtime add table public.grocery_items;
+
+create index grocery_items_meal_plan_idx   on public.grocery_items (meal_plan_id);
+create index grocery_items_staple_item_idx on public.grocery_items (staple_item_id);
 
 
 -- ============================================================================
@@ -613,6 +729,11 @@ create index flipping_costs_category_idx on public.flipping_costs (category);
 --     — not superseded, just DEFERRED: intentionally left out of this schema
 --       for now per your instruction. Revisit as its own task when the
 --       "fortsett økt" feature is properly wired up end-to-end.
+-- • workout_sessions.session_group + the "Sammen" feature it powered
+--     — removed from the app entirely (RegisterModal/EditSessionModal UI,
+--       TreningContext's registerSession/saveLoggedSession branching, and the
+--       togetherGroups/togetherOccasions/etc. + sammen-* pulse rules in
+--       treningPulse.ts). Not deferred like tillegg above — just gone.
 -- • ratings, rating_categories
 --     — Ratinger feature removed from the app entirely (see earlier commit).
 --       Per your instruction, these tables/migrations were left untouched in

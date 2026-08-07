@@ -22,7 +22,6 @@ const s = (daysAgo: number, who: Trainer, cat = 'Push', min = 50): WorkoutSessio
   start.setHours(18, 0, 0, 0);
   return {
     id: `s${seq++}`, templateId: 't1', templateName: `${cat} A`, category: cat, who,
-    sessionGroup: null,
     startedAt: start.toISOString(),
     completedAt: new Date(start.getTime() + min * 60000).toISOString(),
     note: null,
@@ -43,22 +42,18 @@ const inDays = (n: number) => new Date(Date.now() + n * DAY).toISOString().slice
 
 /**
  * `perWeek` økter i uka for hver av `who`, `weeks` uker bakover fra og med
- * denne uka. `togetherIdx` sier hvilke av ukas økter som er «Start sammen» —
- * de får delt `sessionGroup`, og er det eneste som teller som sammen.
+ * denne uka.
  */
 function routine(
   weeks: number, perWeek: number, who: Trainer[] = ['M', 'L'], cat = 'Push',
-  togetherIdx: number[] = [],
 ): WorkoutSession[] {
   const out: WorkoutSession[] = [];
   const thisMonday = startOfWeek(new Date()).getTime();
-  const both = ['M', 'L'].every(p => who.includes(p as Trainer));
   for (let w = 0; w < weeks; w++) {
     for (let i = 0; i < perWeek; i++) {
       const t = thisMonday - w * 7 * DAY + i * 2 * DAY;
       if (t > Date.now()) continue; // ikke legg økter i framtida
-      const group = both && togetherIdx.includes(i) ? `grp-${cat}-${w}-${i}` : null;
-      for (const p of who) out.push({ ...s(Math.floor((Date.now() - t) / DAY), p, cat), sessionGroup: group });
+      for (const p of who) out.push(s(Math.floor((Date.now() - t) / DAY), p, cat));
     }
   }
   return out.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -77,50 +72,53 @@ const SCENARIOS: Scenario[] = [
   // Fersk base: det finnes ærlig talt bare én ting å si, så én melding er riktig.
   sc('kun én økt totalt', () => ({ sessions: [s(2, 'M')] }), 1),
   sc('M trener jevnt, L har aldri trent', () => ({ sessions: routine(30, 3, ['M']) })),
-  sc('begge jevnt 3/uke i 30 uker', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push', [0]) })),
-  sc('begge jevnt 4/uke i 60 uker', () => ({ sessions: routine(60, 4, ['M', 'L'], 'Push', [0]) })),
+  sc('begge jevnt 3/uke i 30 uker', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push') })),
+  sc('begge jevnt 4/uke i 60 uker', () => ({ sessions: routine(60, 4, ['M', 'L'], 'Push') })),
   sc('jevnt, men M sluttet for 12 dager siden', () => ({
     sessions: [...routine(30, 3, ['L']), ...routine(30, 3, ['M']).filter(x => Date.now() - new Date(x.startedAt).getTime() > 12 * DAY)],
   })),
   sc('ingen har trent på 20 dager', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]).filter(x => Date.now() - new Date(x.startedAt).getTime() > 20 * DAY),
+    sessions: routine(30, 3, ['M', 'L'], 'Push').filter(x => Date.now() - new Date(x.startedAt).getTime() > 20 * DAY),
   })),
-  sc('jevnt + fersk rekord (2 dager)', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(2, 'M', 100), r(200, 'M', 95)] })),
-  sc('jevnt + rekord 45 dager gammel', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(45, 'M', 100), r(200, 'M', 95)] })),
-  sc('jevnt + rekord 120 dager gammel', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(120, 'M', 100)] })),
+  // minMessages senket til 2 for disse to: uten Sammen-regelfamilien er det ikke
+  // nok andre regler igjen til å garantere 3 ulike meldinger i akkurat disse
+  // smale scenarioene (jevn trening + én rekord, ingen andre mål/milepæler).
+  sc('jevnt + fersk rekord (2 dager)', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(2, 'M', 100), r(200, 'M', 95)] }), 2),
+  sc('jevnt + rekord 45 dager gammel', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(45, 'M', 100), r(200, 'M', 95)] })),
+  sc('jevnt + rekord 120 dager gammel', () => ({ sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(120, 'M', 100)] })),
   sc('rekord i både kg og reps', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(3, 'M', 100, 'Benkpress', 'kg'), r(1, 'M', 200, 'Benkpress', 'reps')],
-  })),
-  sc('sessions_year foran skjema', () => ({ sessions: routine(30, 4, ['M', 'L'], 'Push', [0]), goals: [g('sessions_year', 100)] })),
-  sc('sessions_year bak skjema', () => ({ sessions: routine(30, 2, ['M', 'L'], 'Push', [0]), goals: [g('sessions_year', 400)] })),
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(3, 'M', 100, 'Benkpress', 'kg'), r(1, 'M', 200, 'Benkpress', 'reps')],
+  }), 2),
+  sc('sessions_year foran skjema', () => ({ sessions: routine(30, 4, ['M', 'L'], 'Push'), goals: [g('sessions_year', 100)] })),
+  sc('sessions_year bak skjema', () => ({ sessions: routine(30, 2, ['M', 'L'], 'Push'), goals: [g('sessions_year', 400)] })),
   sc('rekordmål nesten nådd', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(10, 'M', 98)],
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(10, 'M', 98)],
     goals: [g('record', 100, { who: 'M', exercise: 'Benkpress', unit: 'kg' })],
   })),
   sc('rekordmål nådd i går', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(1, 'M', 105)],
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(1, 'M', 105)],
     goals: [g('record', 100, { who: 'M', exercise: 'Benkpress', unit: 'kg' })],
   })),
   sc('rekordmål nådd for 90 dager siden', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(90, 'M', 105)],
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(90, 'M', 105)],
     goals: [g('record', 100, { who: 'M', exercise: 'Benkpress', unit: 'kg' })],
   })),
   sc('frist om 10 dager', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(10, 'M', 80)],
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(10, 'M', 80)],
     goals: [g('record', 120, { who: 'M', exercise: 'Benkpress', unit: 'kg', deadline: inDays(10) })],
   })),
   sc('frist gikk ut for 5 dager siden', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(10, 'M', 80)],
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(10, 'M', 80)],
     goals: [g('record', 120, { who: 'M', exercise: 'Benkpress', unit: 'kg', deadline: inDays(-5) })],
   })),
   sc('løpende mål nådd (økter denne måneden)', () => ({
-    sessions: routine(30, 4, ['M', 'L'], 'Push', [0]), goals: [g('sessions_month', 4)],
+    sessions: routine(30, 4, ['M', 'L'], 'Push'), goals: [g('sessions_month', 4)],
   })),
-  sc('seks mål samtidig', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0]), records: [r(5, 'M', 98)],
+  sc('fem mål samtidig', () => ({
+    sessions: routine(30, 3, ['M', 'L'], 'Push'), records: [r(5, 'M', 98)],
     goals: [
       g('sessions_year', 400), g('sessions_month', 4), g('hours_year', 500),
-      g('together_week', 2), g('weekly_streak', 20),
+      g('weekly_streak', 20),
       g('record', 100, { who: 'M', exercise: 'Benkpress', unit: 'kg' }),
     ],
   })),
@@ -131,21 +129,10 @@ const SCENARIOS: Scenario[] = [
       s(40, 'M', 'Kondisjon'), s(45, 'L', 'Kondisjon'),
     ],
   })),
-  // Begge trener jevnt og ofte på samme dag, men trykker aldri «Start sammen».
-  // Under den gamle dag-baserte definisjonen var dette «alltid sammen».
-  sc('begge trener samme dager, men aldri «Start sammen»', () => ({
-    sessions: routine(30, 3),
-  })),
-  sc('trener jevnt, men sist sammen-økt for 6 uker siden', () => ({
-    sessions: [
-      ...routine(30, 3, ['M', 'L'], 'Push', [0]).filter(x => Date.now() - new Date(x.startedAt).getTime() > 42 * DAY),
-      ...routine(6, 3).filter(x => Date.now() - new Date(x.startedAt).getTime() <= 42 * DAY),
-    ],
-  })),
   // Streaken lever, men Taran ligger an til å ryke den denne uka.
   sc('streaken står i fare denne uka', () => ({
     sessions: [
-      ...routine(20, 3, ['M', 'L'], 'Push', [0])
+      ...routine(20, 3, ['M', 'L'], 'Push')
         .filter(x => new Date(x.startedAt).getTime() < startOfWeek(new Date()).getTime()),
       ...routine(1, 3, ['M']),
       ...routine(1, 1, ['L']),
@@ -156,26 +143,22 @@ const SCENARIOS: Scenario[] = [
   sc('kort streak, lengre rekke tidligere', () => {
     const weekOf = (x: WorkoutSession) => Math.round(
       (startOfWeek(new Date()).getTime() - startOfWeek(new Date(x.startedAt)).getTime()) / (7 * DAY));
-    return { sessions: routine(24, 3, ['M', 'L'], 'Push', [0]).filter(x => weekOf(x) !== 4) };
+    return { sessions: routine(24, 3, ['M', 'L'], 'Push').filter(x => weekOf(x) !== 4) };
   }),
-  sc('sammen-mål nådd denne uka', () => ({
-    sessions: routine(30, 3, ['M', 'L'], 'Push', [0, 1]),
-    goals: [g('together_week', 2)],
-  })),
   sc('rolig rytme (1/uke hver), tom uke så langt', () => ({
     // Median-gapet er ~7 dager, så terskelen for etterslep er 14 — ingen er
     // «på etterslep», men uka er tom. Det er tilfellet tom-uke finnes for.
-    sessions: routine(30, 1, ['M', 'L'], 'Push', [0]).filter(x => Date.now() - new Date(x.startedAt).getTime() > 4 * DAY),
+    sessions: routine(30, 1, ['M', 'L'], 'Push').filter(x => Date.now() - new Date(x.startedAt).getTime() > 4 * DAY),
   })),
   sc('beste måned noensinne', () => ({
-    sessions: [...routine(40, 2, ['M', 'L'], 'Push', [0]).filter(x => Date.now() - new Date(x.startedAt).getTime() > 31 * DAY), ...routine(4, 5, ['M', 'L'], 'Push', [0])],
+    sessions: [...routine(40, 2, ['M', 'L'], 'Push').filter(x => Date.now() - new Date(x.startedAt).getTime() > 31 * DAY), ...routine(4, 5, ['M', 'L'], 'Push')],
   })),
   sc('lav aktivitet siste 4 uker', () => ({
-    sessions: [...routine(40, 4, ['M', 'L'], 'Push', [0]).filter(x => Date.now() - new Date(x.startedAt).getTime() > 28 * DAY), ...routine(4, 1)],
+    sessions: [...routine(40, 4, ['M', 'L'], 'Push').filter(x => Date.now() - new Date(x.startedAt).getTime() > 28 * DAY), ...routine(4, 1)],
   })),
-  sc('akkurat passert 100 økter', () => ({ sessions: routine(17, 3, ['M', 'L'], 'Push', [0]) })),
+  sc('akkurat passert 100 økter', () => ({ sessions: routine(17, 3, ['M', 'L'], 'Push') })),
   sc('passert 100 økter for lenge siden', () => ({ sessions: routine(60, 1) })),
-  sc('stort volum, alt i orden, ingen mål', () => ({ sessions: routine(80, 4, ['M', 'L'], 'Push', [0]) })),
+  sc('stort volum, alt i orden, ingen mål', () => ({ sessions: routine(80, 4, ['M', 'L'], 'Push') })),
 ];
 
 it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
@@ -249,7 +232,10 @@ it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
   expect(frozen.map(x => `${x.name}: bare ${x.distinct} melding(er) på ${SIM_DAYS} døgn`))
     .toEqual([]);
 
-  // Regelsettet skal ikke krympe uten at noen tar stilling til det.
-  expect(all.length).toBeGreaterThanOrEqual(21);
-  expect(samples.size).toBeGreaterThanOrEqual(21);
+  // Regelsettet skal ikke krympe uten at noen tar stilling til det. 18 familier nå
+  // (etter at Sammen — sammen-okt/-streak/lenge-siden/aldri — ble fjernet, ned fra
+  // 22); terskelen holder samme slakk som før (opprinnelig 21 av 22 — én familie,
+  // typisk mal-foran, trenger ikke fyre i akkurat dette scenarioutvalget).
+  expect(all.length).toBeGreaterThanOrEqual(17);
+  expect(samples.size).toBeGreaterThanOrEqual(17);
 });

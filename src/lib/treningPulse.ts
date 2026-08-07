@@ -2,7 +2,7 @@
 // Gangskjermen. Alt her er rene funksjoner uten React, så begge sidene kan dele
 // én implementasjon i stedet for å ha hver sin som driver fra hverandre.
 //
-// Familiene er Etterslep, Mål/milepæler og Sammen. Rotasjonsmeldinger er med
+// Familiene er Etterslep og Mål/milepæler. Rotasjonsmeldinger er med
 // vilje utelatt: hvem rekkefølgen venter på hører hjemme på hero-kortet på
 // forsiden, der man faktisk kan gjøre noe med det.
 //
@@ -36,13 +36,7 @@ export function durationMin(s: WorkoutSession): number | null {
   return ms > 0 ? ms / 60000 : null;
 }
 
-/**
- * Sum av målt tid, i minutter.
- *
- * En sammen-økt er to rader, så den teller to ganger — det er med vilje: begge
- * to var faktisk på gymmen i den tiden. Alle summer her er «timer trent til
- * sammen», ikke veggklokketid.
- */
+/** Sum av målt tid, i minutter. */
 export function totalMinutes(sessions: WorkoutSession[]): number {
   return sessions.reduce((sum, s) => sum + (durationMin(s) ?? 0), 0);
 }
@@ -74,58 +68,6 @@ export function startOfWeek(d: Date): Date {
   x.setHours(0, 0, 0, 0);
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // mandag = 0
   return x;
-}
-
-// ─── Sammen ─────────────────────────────────────────────────────────────────
-//
-// DEFINISJONEN PÅ «SAMMEN»
-//
-//   En sammen-økt er én økt begge to kjørte: «Start sammen» lager to rader,
-//   én per person, med samme `sessionGroup`. Begge radene må være fullført.
-//
-//   At begge trente samme dag er IKKE nok. Push kl. 07 og Legs kl. 20 er to
-//   separate økter, ikke en felles. Det var den gamle definisjonen, og den
-//   overdrev hvor mye de faktisk trente sammen — samtidig som appen hele tiden
-//   hadde det presise svaret liggende i `sessionGroup`, ubrukt av statistikken.
-
-/** Gruppe-id-ene der både Andreas og Taran fullførte samme «Start sammen»-økt. */
-export function togetherGroups(sessions: WorkoutSession[]): Set<string> {
-  const byGroup = new Map<string, Set<Trainer>>();
-  for (const s of sessions) {
-    if (!s.completedAt || !s.sessionGroup) continue;
-    if (!byGroup.has(s.sessionGroup)) byGroup.set(s.sessionGroup, new Set());
-    byGroup.get(s.sessionGroup)!.add(s.who);
-  }
-  return new Set([...byGroup].filter(([, who]) => TRAINERS.every(w => who.has(w))).map(([g]) => g));
-}
-
-/**
- * Én rad per sammen-økt — anledningen, ikke de to loggradene. Eldste først.
- *
- * Skillet er verdt å holde rede på: en sammen-økt er to rader i loggen (begge
- * var jo på gymmen), men det er én anledning. Andeler og fordelinger teller
- * rader, mål og «uker på rad» teller anledninger.
- */
-export function togetherOccasions(sessions: WorkoutSession[]): { group: string; day: string; at: number }[] {
-  const groups = togetherGroups(sessions);
-  const seen = new Map<string, { group: string; day: string; at: number }>();
-  for (const s of sessions) {
-    if (!s.sessionGroup || !groups.has(s.sessionGroup) || seen.has(s.sessionGroup)) continue;
-    const d = new Date(s.startedAt);
-    seen.set(s.sessionGroup, { group: s.sessionGroup, day: dayKey(d), at: d.getTime() });
-  }
-  return [...seen.values()].sort((a, b) => a.at - b.at);
-}
-
-/** Loggradene som hører til en fullført sammen-økt. To rader per anledning. */
-export function togetherSessionIds(sessions: WorkoutSession[]): Set<string> {
-  const groups = togetherGroups(sessions);
-  return new Set(sessions.filter(s => s.sessionGroup && groups.has(s.sessionGroup)).map(s => s.id));
-}
-
-/** Dagene det finnes minst én sammen-økt. */
-export function togetherDays(sessions: WorkoutSession[]): Set<string> {
-  return new Set(togetherOccasions(sessions).map(o => o.day));
 }
 
 // ─── Streak ─────────────────────────────────────────────────────────────────
@@ -259,7 +201,7 @@ export interface GoalKindInfo {
   unit: string;
   /** Rekordmål trenger en øvelse; resten regnes ut fra øktloggen. */
   needsExercise?: boolean;
-  /** «Sammen»-mål gir bare mening felles; rekordmål bare for én person. */
+  /** Rekordmål gir bare mening for én person; resten for alle. */
   who: 'alle' | 'felles' | 'person';
   /** Forslag til mål når man bytter type. */
   suggest: number;
@@ -276,7 +218,6 @@ export const GOAL_KINDS: GoalKindInfo[] = [
   { v: 'sessions_total', label: 'Økter totalt',       hint: 'Teller alle fullførte økter noensinne',                   unit: 'økter', who: 'alle',   suggest: 500, titleSuffix: ' totalt' },
   { v: 'hours_year',     label: 'Timer trent i år',   hint: 'Summerer målt tid på øktene hittil i år',                 unit: 'timer', who: 'alle',   suggest: 100, decimals: true, titleSuffix: ' i år' },
   { v: 'minutes_week',   label: 'Minutter denne uka', hint: 'Summerer målt tid på øktene denne uka',                   unit: 'min',   who: 'alle',   suggest: 180, titleSuffix: ' denne uka' },
-  { v: 'together_week',  label: 'Sammen per uke',     hint: 'Teller «Start sammen»-økter denne uka',                   unit: 'økter', who: 'felles', suggest: 2,   titleSuffix: ' sammen per uke' },
   { v: 'weekly_streak',  label: 'Uker på rad',        hint: `Teller uker på rad der hver av dere har minst ${STREAK_MIN_SESSIONS} økter`, unit: 'uker', who: 'alle', suggest: 8, titleSuffix: ' på rad' },
 ];
 
@@ -332,13 +273,6 @@ export function goalStatus(g: WorkoutGoal, sessions: WorkoutSession[], records: 
     case 'minutes_week':
       value = Math.round(totalGymMinutes(mine.filter(s => new Date(s.startedAt).getTime() >= startOfWeek(now).getTime())));
       break;
-    case 'together_week': {
-      // Anledninger, ikke loggrader: «2 sammen per uke» betyr to felles økter,
-      // ikke fire rader.
-      const from = startOfWeek(now).getTime();
-      value = togetherOccasions(done).filter(o => o.at >= from).length;
-      break;
-    }
     case 'weekly_streak':
       // Et felles streak-mål krever at begge nådde kravet; et personlig bare den
       // ene. Derfor hele øktlista her, ikke `mine` — filteret ligger i `who`.
@@ -461,7 +395,6 @@ export function buildPulseRules(
   const rules: PulseRule[] = [];
   const now = Date.now();
   const year = new Date().getFullYear();
-  const weekAgo = now - 7 * DAY;
 
   const thisYear = done.filter(s => new Date(s.startedAt).getFullYear() === year);
   // Snittet teller normalt fra 1. januar, men det året systemet ble tatt i bruk
@@ -693,53 +626,6 @@ export function buildPulseRules(
   if (thisMonth > bestOther && monthCounts.size > 1 && thisMonth >= 4) {
     rules.push({ id: 'beste-maned', tone: 'good', weight: 55, from: 'Beste måned',
       text: `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er den travleste måneden deres hittil — ${thisMonth} økter.` });
-  }
-
-  // ── Sammen ───────────────────────────────────────────────────────────────
-  const occasions = togetherOccasions(done);
-  const recentTogether = occasions.filter(o => o.at >= weekAgo).pop();
-  if (recentTogether) {
-    // Teksten sier «onsdag», så den må holde seg innenfor uka uansett — her er
-    // aldringa bare en nedtrapping fram til den uansett faller ut av vinduet.
-    // «Søndag …» på en søndag leste som forrige søndag, så de to ferskeste
-    // dagene får sitt eget ord.
-    const tAge = calDaysAgo(recentTogether.at);
-    const when = tAge === 0 ? 'I dag' : tAge === 1 ? 'I går'
-      : capitalize(new Date(recentTogether.at).toLocaleDateString('nb-NO', { weekday: 'long' }));
-    // Het «dobbel-dag» da sammen betydde «begge trente samme dag». Nå er det
-    // én felles økt, og teksten sier det.
-    rules.push({ id: 'sammen-okt', tone: 'good',
-      weight: fade(70, ageDays(recentTogether.at), 7), from: 'Ukas høydepunkt',
-      text: `${when} kjørte dere en økt sammen. 💪` });
-  }
-  const togetherWeeks = new Set(occasions.map(o => dayKey(startOfWeek(new Date(o.at)))));
-  let tStreak = 0;
-  const cur = startOfWeek(new Date());
-  if (!togetherWeeks.has(dayKey(cur))) cur.setDate(cur.getDate() - 7);
-  while (togetherWeeks.has(dayKey(cur))) { tStreak++; cur.setDate(cur.getDate() - 7); }
-  if (tStreak >= 3) {
-    // «minst én økt sammen» før — men den setninga sto ofte rett ved siden av
-    // «X uker på rad med 3 økter hver», og to ulike «uker på rad»-tall om samme
-    // periode leste som en selvmotsigelse. Nå er det tydelig hva som telles.
-    rules.push({ id: 'sammen-streak', tone: 'good', weight: 55, from: 'Sammen',
-      text: `${tStreak} uker på rad med minst én sammen-økt.` });
-  }
-  const lastTogether = occasions[occasions.length - 1];
-  if (lastTogether) {
-    const weeksSince = Math.floor((now - lastTogether.at) / (7 * DAY));
-    if (weeksSince >= 3) {
-      // Poenget er å si fra idet det har gått for lang tid, ikke å gjenta det
-      // med et stadig høyere tall i det uendelige. Vekta tones ned mot et gulv
-      // etter at beskjeden er gitt, så resten av boksen slipper til igjen.
-      rules.push({ id: 'lenge-siden-sammen', tone: 'warn',
-        weight: fade(50, weeksSince * 7 - 21, 60, 28), from: 'Sammen',
-        text: `Det er ${weeksSince} uker siden dere sist kjørte en økt sammen.` });
-    }
-  } else if (TRAINERS.every(w => done.filter(s => s.who === w).length >= 10)) {
-    // Begge trener jevnt, men aldri sammen — den ville ellers falt mellom alle
-    // reglene, siden «lenge siden sist» krever at det finnes en «sist».
-    rules.push({ id: 'aldri-sammen', tone: 'warn', weight: 45, from: 'Sammen',
-      text: 'Dere har aldri kjørt en økt sammen. Én i uka er lettere å holde på.' });
   }
 
   // ── Fallback ─────────────────────────────────────────────────────────────

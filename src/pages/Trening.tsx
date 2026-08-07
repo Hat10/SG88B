@@ -4,7 +4,7 @@ import { useScrollLock } from '../lib/useScrollLock';
 import {
   useTrening, catColor,
   type WorkoutCategory, type WorkoutSession, type WorkoutRecord, type WorkoutGoal,
-  type Trainer, type LogWho, type RecordUnit, type GoalKind,
+  type Trainer, type RecordUnit, type GoalKind,
 } from '../contexts/TreningContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -12,7 +12,7 @@ import { Fab, SkeletonList } from '../components';
 import type { Who } from '../data';
 import {
   WHO_LABEL, TRAINERS, pad, dayKey, fmtNum, startOfWeek, median,
-  togetherDays, togetherSessionIds, weekStreak, bestWeekStreak, computePulse,
+  weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
 import { burst } from '../confetti';
@@ -58,18 +58,12 @@ const CatDot = ({ category }: { category: string }) => {
   return <span className="tr-catdot" style={{ '--cat': colorFor(category) } as React.CSSProperties} title={category} />;
 };
 
-/** Avatar for en loggrad — «M», «L», eller de to overlappende for en sammen-økt. */
-function WhoAvatar({ who, sammen, size = 24 }: { who: Trainer; sammen: boolean; size?: number }) {
+const WHO_INITIAL: Record<'M' | 'L', string> = { M: 'A', L: 'T' }; // Andreas, Taran
+
+/** Avatar for en loggrad — «A» eller «T». */
+function WhoAvatar({ who, size = 24 }: { who: Trainer; size?: number }) {
   const style = { width: size, height: size, fontSize: size * 0.38 };
-  if (sammen) {
-    return (
-      <span style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <span className="avatar avatar-m" style={style}>M</span>
-        <span className="avatar avatar-l" style={{ ...style, marginLeft: -size * 0.32 }}>L</span>
-      </span>
-    );
-  }
-  return <div className={`avatar avatar-${who.toLowerCase()}`} style={style}>{who}</div>;
+  return <div className={`avatar avatar-${who.toLowerCase()}`} style={style}>{WHO_INITIAL[who]}</div>;
 }
 
 function isoWeek(d: Date): number {
@@ -251,17 +245,17 @@ function readWhen(date: string, time: string) {
   return { at, valid, error };
 }
 
-const WHO_LOG_COLOR: Record<LogWho, string> = { M: 'var(--accent)', L: 'var(--ink)', sammen: 'var(--good)' };
-const WHO_LOG_LABEL: Record<LogWho, string> = { M: 'Andreas', L: 'Taran', sammen: 'Sammen' };
+const WHO_LOG_COLOR: Record<Trainer, string> = { M: 'var(--accent)', L: 'var(--ink)' };
+const WHO_LOG_LABEL: Record<Trainer, string> = { M: 'Andreas', L: 'Taran' };
 
 /**
- * M / L / Sammen som tre store, fargekodede knapper. Store trykkflater gjør at
- * det viktigste valget ved en registrering går kjapt med tommelen på mobil.
+ * M / L som store, fargekodede knapper. Store trykkflater gjør at det
+ * viktigste valget ved en registrering går kjapt med tommelen på mobil.
  */
-function WhoPicker({ who, setWho }: { who: LogWho; setWho: (w: LogWho) => void }) {
+function WhoPicker({ who, setWho }: { who: Trainer; setWho: (w: Trainer) => void }) {
   return (
     <div className="row" style={{ gap: 8 }}>
-      {(['sammen', 'M', 'L'] as LogWho[]).map(w => {
+      {(['M', 'L'] as Trainer[]).map(w => {
         const on = who === w;
         const col = WHO_LOG_COLOR[w];
         return (
@@ -273,7 +267,7 @@ function WhoPicker({ who, setWho }: { who: LogWho; setWho: (w: LogWho) => void }
             color: on ? col : 'var(--ink-3)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7,
           }}>
-            <WhoAvatar who={w === 'sammen' ? 'M' : w} sammen={w === 'sammen'} size={26} />
+            <WhoAvatar who={w} size={26} />
             {WHO_LOG_LABEL[w]}
           </button>
         );
@@ -330,7 +324,7 @@ function RegisterModal({ categories, presetCategory, onClose }: {
   }, [categories, presetCategory]);
 
   const [category, setCategory] = useState(presetCategory ?? options[0]?.name ?? '');
-  const [who, setWho] = useState<LogWho>('sammen');
+  const [who, setWho] = useState<Trainer>('M');
   const [date, setDate] = useState(() => dayKey(new Date()));
   const [time, setTime] = useState(() => toTimeInput(new Date().toISOString()));
   const [note, setNote] = useState('');
@@ -338,7 +332,7 @@ function RegisterModal({ categories, presetCategory, onClose }: {
 
   const { at, valid, error } = readWhen(date, time);
   const canSave = valid && category.trim().length > 0;
-  const whoLabel = who === 'sammen' ? 'Sammen' : WHO_LABEL[who];
+  const whoLabel = WHO_LABEL[who];
 
   const save = async (el: HTMLElement | null) => {
     if (!canSave || saving) return;
@@ -382,11 +376,7 @@ function RegisterModal({ categories, presetCategory, onClose }: {
       <div className="col" style={{ gap: 8 }}>
         <label className="card-eyebrow">Hvem gjennomførte?</label>
         <WhoPicker who={who} setWho={setWho} />
-        <span className="card-meta">
-          {who === 'sammen'
-            ? 'Loggføres på begge — én felles økt teller hos hver av dere.'
-            : `Loggføres på ${whoLabel}.`}
-        </span>
+        <span className="card-meta">Loggføres på {whoLabel}.</span>
       </div>
 
       <WhenFields date={date} setDate={setDate} time={time} setTime={setTime} error={error} />
@@ -406,7 +396,7 @@ function RegisterModal({ categories, presetCategory, onClose }: {
 function EditSessionModal({ session, categories, onClose }: {
   session: WorkoutSession; categories: WorkoutCategory[]; onClose: () => void;
 }) {
-  const { saveLoggedSession, sessions, removeSession, restoreSession } = useTrening();
+  const { saveLoggedSession, removeSession, restoreSession } = useTrening();
   const { notify } = useSnackbar();
   const { confirm } = useConfirm();
   const isMobile = useIsMobile();
@@ -421,7 +411,7 @@ function EditSessionModal({ session, categories, onClose }: {
   }, [categories, session.category]);
 
   const [category, setCategory] = useState(session.category);
-  const [who, setWho] = useState<LogWho>(session.sessionGroup ? 'sammen' : session.who);
+  const [who, setWho] = useState<Trainer>(session.who);
   const [date, setDate] = useState(() => toDateInput(session.startedAt));
   const [time, setTime] = useState(() => toTimeInput(session.startedAt));
   const [note, setNote] = useState(session.note ?? '');
@@ -430,17 +420,14 @@ function EditSessionModal({ session, categories, onClose }: {
   const { at, valid, error } = readWhen(date, time);
   const canSave = valid && category.trim().length > 0;
 
-  // En anledning er én solo-rad, eller de to radene i en sammen-gruppe.
-  const rows = session.sessionGroup ? sessions.filter(s => s.sessionGroup === session.sessionGroup) : [session];
-
   const del = async () => {
     if (!await confirm({
       title: 'Slett økt fra loggen?',
-      message: `${session.category} · ${session.sessionGroup ? 'sammen' : WHO_LABEL[session.who]} · ${fmtDay(session.startedAt)}`,
+      message: `${session.category} · ${WHO_LABEL[session.who]} · ${fmtDay(session.startedAt)}`,
       confirmLabel: 'Slett',
     })) return;
-    for (const r of rows) await removeSession(r.id);
-    notify('Økt slettet', { actionLabel: 'Angre', onAction: async () => { for (const r of rows) await restoreSession(r); } });
+    await removeSession(session.id);
+    notify('Økt slettet', { actionLabel: 'Angre', onAction: async () => { await restoreSession(session); } });
     onClose();
   };
 
@@ -1182,7 +1169,7 @@ function Dashboard({ onStats, onRegister, onNewCategory, onEditCategory }: {
                     const via = e && e.via !== c.name ? e.via : null;
                     return (
                       <div key={w} className="row" style={{ gap: 7, alignItems: 'center' }}>
-                        <span className={`avatar avatar-${w.toLowerCase()}`} style={{ width: 17, height: 17, fontSize: 8.5, flexShrink: 0 }}>{w}</span>
+                        <span className={`avatar avatar-${w.toLowerCase()}`} style={{ width: 17, height: 17, fontSize: 8.5, flexShrink: 0 }}>{WHO_INITIAL[w]}</span>
                         <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
                           {e
                             ? <>{cnt > 0 ? `${cnt}× · ` : ''}{fmtSince(e.at)}{via ? <span style={{ opacity: 0.7 }}> · via {via}</span> : null}</>
@@ -1240,20 +1227,9 @@ const TIME_BUCKETS = [
   { label: 'Kveld',       hint: 'etter 20', from: 20, to: 24 },
 ];
 
-/** Én rad per anledning: en sammen-gruppe teller som én. Nyest først. */
-function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSession; sammen: boolean }[] {
-  const seen = new Set<string>();
-  const out: { key: string; session: WorkoutSession; sammen: boolean }[] = [];
-  for (const s of done) {
-    if (s.sessionGroup) {
-      if (seen.has(s.sessionGroup)) continue;
-      seen.add(s.sessionGroup);
-      out.push({ key: s.sessionGroup, session: s, sammen: true });
-    } else {
-      out.push({ key: s.id, session: s, sammen: false });
-    }
-  }
-  return out;
+/** Én rad per registrert økt. Nyest først. */
+function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSession }[] {
+  return done.map(s => ({ key: s.id, session: s }));
 }
 
 function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
@@ -1272,10 +1248,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
   const [month, setMonth] = useState(thisMonthStart);
 
   const allDone = useMemo(() => sessions.filter(s => s.completedAt), [sessions]);
-  // Sammen-status trenger begge radene for å kjennes igjen, så disse regnes alltid
-  // ut fra hele loggen — aldri fra det person-filtrerte utsnittet.
-  const together = useMemo(() => togetherDays(allDone), [allDone]);
-  const togetherIds = useMemo(() => togetherSessionIds(allDone), [allDone]);
 
   // Person-filteret: Felles = begge, ellers bare den ene. Alt aktivitets-basert
   // under bygger på `done`, så ett bytte scoper hele siden på én gang.
@@ -1302,7 +1274,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
   const lastYear = done.filter(s => new Date(s.startedAt).getFullYear() === year - 1);
   const perWeekLast = lastYear.length / 52;
 
-  const togetherShare = done.length ? done.filter(s => togetherIds.has(s.id)).length / done.length : 0;
   const daysTrainedYear = useMemo(() => new Set(thisYear.map(s => dayKey(new Date(s.startedAt)))).size, [thisYear]);
 
   const inPeriod = useMemo(() => done.filter(s => {
@@ -1316,29 +1287,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
     ? String(year)
     : month.toLocaleDateString('nb-NO',
         month.getFullYear() === year ? { month: 'long' } : { month: 'long', year: 'numeric' });
-
-  const splitSessions = useMemo(() => {
-    let tog = 0, m = 0, l = 0;
-    for (const s of inPeriod) {
-      if (togetherIds.has(s.id)) tog++;
-      else if (s.who === 'M') m++;
-      else l++;
-    }
-    return { tog, m, l };
-  }, [inPeriod, togetherIds]);
-  // Felles: Sammen / Andreas alene / Taran alene. Person: Sammen / Alene (deres egne).
-  const splitRows = isPerson
-    ? [
-        { label: 'Sammen', n: splitSessions.tog, color: 'var(--accent-deep)' },
-        { label: 'Alene',  n: splitSessions.m + splitSessions.l, color: WHO_COLOR[who] },
-      ]
-    : [
-        { label: 'Sammen',       n: splitSessions.tog, color: 'var(--accent-deep)' },
-        { label: 'Andreas alene', n: splitSessions.m,   color: 'var(--accent)' },
-        { label: 'Taran alene',   n: splitSessions.l,   color: 'var(--ink)' },
-      ];
-  const splitTotal = splitSessions.tog + splitSessions.m + splitSessions.l;
-  const splitMax = Math.max(1, ...splitRows.map(r => r.n));
 
   const daysTrained = useMemo(() => new Set(inPeriod.map(s => dayKey(new Date(s.startedAt)))).size, [inPeriod]);
 
@@ -1460,8 +1408,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
       const who = byDay.get(k);
       let bg = 'var(--surface-2)', fg = 'var(--ink-4)', bfg = 'transparent', badge = '';
       if (who?.has('M') && who.has('L')) {
-        if (together.has(k)) { bg = 'var(--accent-deep)'; fg = 'var(--bg)'; bfg = 'var(--bg)'; }
-        else                 { bg = 'var(--tr-both)';     fg = 'var(--bg)'; bfg = 'var(--bg)'; }
+        bg = 'var(--tr-both)'; fg = 'var(--bg)'; bfg = 'var(--bg)';
         badge = 'M+L';
       }
       else if (who?.has('M'))            { bg = 'var(--accent-soft)'; fg = 'var(--accent-deep)'; bfg = 'var(--accent-deep)'; badge = 'M'; }
@@ -1469,7 +1416,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
       out.push({ key: k, day: d, badge, bg, fg, bfg });
     }
     return out;
-  }, [done, month, together]);
+  }, [done, month]);
 
   const catGroups = useMemo(
     () => Object.fromEntries(categories.filter(c => !c.archived).map(c => [c.name, c.groups])),
@@ -1494,14 +1441,13 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
   }, [goals, viewWho, done, records]);
 
   const delOccasion = async (s: WorkoutSession) => {
-    const rows = s.sessionGroup ? sessions.filter(x => x.sessionGroup === s.sessionGroup) : [s];
     if (!await confirm({
       title: 'Slett økt fra loggen?',
-      message: `${s.category} · ${s.sessionGroup ? 'sammen' : WHO_LABEL[s.who]} · ${fmtDay(s.startedAt)}`,
+      message: `${s.category} · ${WHO_LABEL[s.who]} · ${fmtDay(s.startedAt)}`,
       confirmLabel: 'Slett',
     })) return;
-    for (const r of rows) await removeSession(r.id);
-    notify('Økt slettet', { actionLabel: 'Angre', onAction: async () => { for (const r of rows) await restoreSession(r); } });
+    await removeSession(s.id);
+    notify('Økt slettet', { actionLabel: 'Angre', onAction: async () => { await restoreSession(s); } });
   };
 
   if (loading) {
@@ -1575,17 +1521,11 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           <span className="stat-val">{daysTrainedYear}</span>
           <span className="stat-delta">unike treningsdager</span>
         </div>
-        <div className="stat" style={{ flex: 1, minWidth: 130 }}
-          title="Andelen registrerte økter som ble huket av som «Sammen».">
-          <span className="stat-lbl">Trent sammen</span>
-          <span className="stat-val">{Math.round(togetherShare * 100)} %</span>
-          <span className="stat-delta">av {isPerson ? 'egne' : 'alle'} økter</span>
-        </div>
       </div>
 
       <div className="grid grid-12">
         {/* Kalender */}
-        <div className="card col-7">
+        <div className="card col-12">
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div className="row" style={{ gap: 12, alignItems: 'center' }}>
               <button className="btn ghost sm" aria-label="Forrige måned"
@@ -1607,7 +1547,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
                   <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> M</span>
                   <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> L</span>
                   <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--tr-both)' }}>●</b> begge</span>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent-deep)' }}>●</b> sammen</span>
                 </>
               )}
             </div>
@@ -1620,7 +1559,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           <div className="card-meta" style={{ marginBottom: 8 }}>
             {isPerson
               ? <>Dagene {WHO_LABEL[who]} trente.</>
-              : <><strong>M+L</strong> betyr at begge trente den dagen — mellomtone når de trente hver for seg, dyp farge når det var én felles økt.</>}
+              : <><strong>M+L</strong> betyr at begge trente den dagen.</>}
             {period === 'maned' && <> ← → bytter måned for hele siden — kortene merket «{periodLabel}» følger med.</>}
           </div>
           <div className="tr-cal">
@@ -1631,38 +1570,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
               </div>
             ))}
           </div>
-        </div>
-
-        {/* Sammen / alene */}
-        <div className="card col-5">
-          <div className="section-h">
-            <h3>Sammen eller alene</h3>
-            <span className="meta" style={{ textTransform: 'capitalize' }}>{periodLabel}</span>
-          </div>
-          {splitTotal === 0 ? (
-            <div className="card-meta">Ingen økter i perioden</div>
-          ) : (
-            <>
-              <div className="col" style={{ gap: 10 }}>
-                {splitRows.map(r => (
-                  <div key={r.label} className="col" style={{ gap: 4 }}>
-                    <div className="row between" style={{ gap: 8 }}>
-                      <span style={{ fontSize: 12.5 }}>{r.label}</span>
-                      <span className="mono tabular" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
-                        {r.n} {r.n === 1 ? 'økt' : 'økter'}
-                      </span>
-                    </div>
-                    <div className="prog tall"><i style={{ width: `${(r.n / splitMax) * 100}%`, background: r.color }} /></div>
-                  </div>
-                ))}
-              </div>
-              <div className="card-meta">
-                {isPerson
-                  ? `«Sammen» er øktene ${WHO_LABEL[who]} huket av som felles med den andre.`
-                  : '«Sammen» er økter huket av som felles — de loggføres hos begge, så én felles økt teller to.'}
-              </div>
-            </>
-          )}
         </div>
 
         {/* Kategorifordeling */}
@@ -1706,7 +1613,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
               <div className="card-meta" style={{ marginTop: 10 }}>
                 {isPerson
                   ? `Bare øktene ${WHO_LABEL[who]} har registrert.`
-                  : 'Teller én rad per person, så en økt dere huket av som «Sammen» teller to ganger.'}
+                  : 'Teller én rad per person.'}
               </div>
             </>
           )}
@@ -1820,9 +1727,9 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           </div>
           {logRows.length === 0 && <div className="card-meta">Ingen økter ennå</div>}
           <div className="list">
-            {logRows.slice(0, logCount).map(({ key, session: s, sammen }) => (
+            {logRows.slice(0, logCount).map(({ key, session: s }) => (
               <div key={key} className="li-row" style={{ borderLeft: `3px solid ${colorFor(s.category)}`, paddingLeft: 10 }}>
-                <WhoAvatar who={s.who} sammen={sammen} />
+                <WhoAvatar who={s.who} />
                 <div className="grow">
                   <div className="row" style={{ gap: 7, minWidth: 0 }}>
                     <CatTag category={s.category} />
@@ -1830,7 +1737,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
                   <div className="sub">{fmtDay(s.startedAt)} · {new Date(s.startedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}</div>
                   {s.note && <div className="sub" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>📝 {s.note}</div>}
                 </div>
-                {sammen && <span className="tag dark">sammen</span>}
                 <button
                   onClick={() => onEditSession(s)}
                   aria-label={`Rediger ${s.category}`} title="Rediger"
@@ -1959,7 +1865,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
                 >
                   <div className="row between" style={{ gap: 8 }}>
                     <span className="card-eyebrow">{pr.exercise}</span>
-                    <div className={`avatar avatar-${pr.who.toLowerCase()}`} style={{ width: 18, height: 18, fontSize: 8 }}>{pr.who}</div>
+                    <div className={`avatar avatar-${pr.who.toLowerCase()}`} style={{ width: 18, height: 18, fontSize: 8 }}>{WHO_INITIAL[pr.who]}</div>
                   </div>
                   <div className="row between" style={{ alignItems: 'flex-end', gap: 8 }}>
                     <span className="mono tabular" style={{ fontSize: 20, fontWeight: 500, color: 'var(--ink)' }}>{fmtNum(pr.best)} {pr.unit}</span>

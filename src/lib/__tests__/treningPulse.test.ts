@@ -3,7 +3,6 @@ import type { WorkoutSession, WorkoutRecord, WorkoutGoal, GoalKind } from '../..
 import {
   goalStatus, totalMinutes, durationMin, fmtDur, dayKey, startOfWeek, median,
   weekStreak, bestWeekStreak, streakShortfall, pickPulse, pulseBand, buildPulseRules,
-  togetherGroups, togetherOccasions, togetherSessionIds, togetherDays,
   STREAK_MIN_SESSIONS, type PulseRule,
 } from '../treningPulse';
 
@@ -19,7 +18,6 @@ const at = (offsetDays: number, minutes: number, who: 'M' | 'L' = 'M'): WorkoutS
     templateName: 'Push A',
     category: 'Push',
     who,
-    sessionGroup: null,
     startedAt: start.toISOString(),
     completedAt: new Date(start.getTime() + minutes * 60000).toISOString(),
     note: null,
@@ -47,7 +45,7 @@ const inWeek = (weeksAgo: number, who: 'M' | 'L', n: number): WorkoutSession[] =
     start.setHours(12, 0, 0, 0);
     return {
       id: `w${weeksAgo}-${who}-${i}`, templateId: 't1', templateName: 'Push A',
-      category: 'Push', who, sessionGroup: null,
+      category: 'Push', who,
       startedAt: start.toISOString(),
       completedAt: new Date(start.getTime() + 45 * 60000).toISOString(),
       note: null,
@@ -115,83 +113,6 @@ describe('median', () => {
   it('gir null for tom rekke, og sorterer selv', () => {
     expect(median([])).toBeNull();
     expect(median([9, 1, 5])).toBe(5);
-  });
-});
-
-describe('sammen', () => {
-  // Definisjonen: en sammen-økt er én økt begge kjørte, markert med delt
-  // `sessionGroup` av «Start sammen». Samme dag er ikke nok.
-  const pair = (daysAgo: number, group = `grp${daysAgo}`): WorkoutSession[] =>
-    (['M', 'L'] as const).map(who => ({ ...at(daysAgo, 50, who), id: `${group}-${who}`, sessionGroup: group }));
-
-  it('teller bare økter startet med «Start sammen»', () => {
-    const s = pair(1);
-    expect(togetherGroups(s).size).toBe(1);
-    expect(togetherOccasions(s)).toHaveLength(1);
-    expect(togetherSessionIds(s).size).toBe(2); // to loggrader, én anledning
-    expect(togetherDays(s).size).toBe(1);
-  });
-
-  it('teller ikke at begge trente samme dag hver for seg', () => {
-    // Kjernen i endringa: Push kl. 07 og Legs kl. 20 er ikke en felles økt.
-    const s = [at(1, 50, 'M'), at(1, 45, 'L')];
-    expect(togetherOccasions(s)).toHaveLength(0);
-    expect(togetherDays(s).size).toBe(0);
-    expect(togetherSessionIds(s).size).toBe(0);
-  });
-
-  it('krever at begge radene er fullført', () => {
-    const [m, l] = pair(1);
-    expect(togetherOccasions([m, { ...l, completedAt: null }])).toHaveLength(0);
-    expect(togetherOccasions([m])).toHaveLength(0); // gruppe med bare én person
-  });
-
-  it('sorterer anledningene eldst først', () => {
-    const s = [...pair(1, 'a'), ...pair(9, 'b'), ...pair(4, 'c')];
-    expect(togetherOccasions(s).map(o => o.group)).toEqual(['b', 'c', 'a']);
-  });
-
-  it('regner sammen-mål i anledninger, ikke loggrader', () => {
-    // To sammen-økter denne uka = fire rader, men målet «2 sammen per uke» er nådd.
-    const s = [...pair(0, 'a'), ...pair(1, 'b')];
-    const st = goalStatus(goal('together_week', 2, { who: 'f' }), s, []);
-    expect(st.now).toBe(daysIntoWeek >= 1 ? 2 : 1);
-    expect(st.unit).toBe('økter');
-  });
-
-  // En sammen-økt i går kveld er bare noen timer unna om morgenen etter, men
-  // det er fortsatt «i går». Ordvalget må følge datoskiftet ved lokal midnatt,
-  // ikke 24-timers bolker fra nå — ellers sto «I dag» der helt til kl. 22.
-  const sammenTekst = (startedAt: string) => {
-    const s = (['M', 'L'] as const).map((who): WorkoutSession => ({
-      id: `kveld-${who}`, templateId: 't1', templateName: 'Push A', category: 'Push',
-      who, sessionGroup: 'kveld', startedAt,
-      completedAt: new Date(new Date(startedAt).getTime() + 50 * 60000).toISOString(),
-      note: null,
-    }));
-    return buildPulseRules(s, [], []).find(r => r.id === 'sammen-okt')?.text;
-  };
-
-  it('sier «I går» om morgenen etter en økt i går kveld', () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date(2026, 6, 27, 6, 0, 0));        // 27. juli 06:00 lokal
-      const iGar = new Date(2026, 6, 26, 22, 0, 0).toISOString(); // 8 timer før → i går
-      expect(sammenTekst(iGar)).toBe('I går kjørte dere en økt sammen. 💪');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('sier fortsatt «I dag» for en økt tidligere samme dag', () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date(2026, 6, 27, 20, 0, 0));       // 27. juli 20:00 lokal
-      const iDag = new Date(2026, 6, 27, 6, 0, 0).toISOString();  // 14 timer før, samme dato
-      expect(sammenTekst(iDag)).toBe('I dag kjørte dere en økt sammen. 💪');
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 

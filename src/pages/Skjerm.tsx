@@ -5,7 +5,7 @@ import { useTodo } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWeeklyBucket } from '../hooks/useWeeklyBucket';
 import { useWish } from '../contexts/WishContext';
-import { useCountdown } from '../hooks/useCountdown';
+import { useCountdown, type Countdown } from '../hooks/useCountdown';
 import { useTrening } from '../contexts/TreningContext';
 import { computePulse } from '../lib/treningPulse';
 import { fmtKr } from '../components';
@@ -15,8 +15,26 @@ import type { CalEvent } from '../../api/kalender';
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 const NO_DAYS_SHORT   = ['søn','man','tir','ons','tor','fre','lør'];
+const EMPTY_COUNTDOWN: Countdown = { label: '', date: '' };
 
 interface HourlyEntry { hour: number; temp: number; precip: number; category: string; }
+
+interface WasteType { name: string; category: 'plast' | 'mat' | 'papir' | 'rest' | 'glass' | 'hage' | 'annet'; }
+interface Pickup { date: string; weekday: string; dateLabel: string; types: WasteType[]; }
+interface TommeplanData { address: string; pickups: Pickup[]; updatedAt: string; }
+
+const WASTE_COLOR: Record<WasteType['category'], string> = {
+  plast: '#C0392B', mat: '#8B5E3C', papir: '#4A80C4', rest: '#5B6B7A', glass: '#2F8F5B', hage: '#3F7D32', annet: '#6C7A8C',
+};
+const WASTE_ICON: Record<WasteType['category'], string> = {
+  plast: '♻️', mat: '🍂', papir: '📦', rest: '🗑️', glass: '🍾', hage: '🌿', annet: '🗑️',
+};
+
+type AuroraChance = 'lav' | 'middels' | 'høy';
+interface AuroraData { kp: number; kpTime: string; cloudCover: number; probability: AuroraChance; updatedAt: string; }
+
+const AURORA_COLOR: Record<AuroraChance, string> = { lav: 'var(--ink-4)', middels: 'var(--warn)', høy: 'var(--good)' };
+const AURORA_LABEL: Record<AuroraChance, string> = { lav: 'Lav sjanse', middels: 'Middels sjanse', høy: 'Høy sjanse' };
 
 interface WeatherData {
   temp: number;
@@ -405,13 +423,6 @@ interface AnyEvent {
   todoId?: string; // present only for todo events — lets us check them off in place
 }
 
-// ─── Transit types ────────────────────────────────────────────────────────
-
-interface Departure {
-  line: string; mode: string; dest: string; min: number; realtime: boolean;
-}
-interface TransitData { stopName: string; departures: Departure[]; }
-
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 interface Props { onBack: () => void }
@@ -482,8 +493,11 @@ export default function PageSkjerm({ onBack }: Props) {
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [weather, setWeather]    = useState<WeatherData | null>(null);
   const [weatherOpen, setWeatherOpen] = useState(false);
-  const [transit, setTransit]           = useState<TransitData | null>(null);
-  const { cd, save: saveCd, loading: cdLoading } = useCountdown();
+  const [tommeplan, setTommeplan]           = useState<TommeplanData | null>(null);
+  const [tommeplanError, setTommeplanError] = useState(false);
+  const [aurora, setAurora]           = useState<AuroraData | null>(null);
+  const [auroraError, setAuroraError] = useState(false);
+  const { cd, save: saveCd, clear: clearCd, loading: cdLoading } = useCountdown();
   // Trend-meldingen fra Trening → Statistikk. Dataene er allerede live via
   // TreningProvider (skjermen ligger inni den); `now` tikker hvert sekund, så vi
   // memoiserer på minutt-grovhet — nok til at tidsavhengige regler («X dager
@@ -499,7 +513,7 @@ export default function PageSkjerm({ onBack }: Props) {
     [trSessions, trRecords, trGoals, trCatGroups, minuteBucket],
   );
   const [cdEditing, setCdEditing] = useState(false);
-  const [cdDraft, setCdDraft]     = useState(cd);
+  const [cdDraft, setCdDraft]     = useState<Countdown>(cd ?? EMPTY_COUNTDOWN);
   const [winW, setWinW] = useState(() => window.innerWidth);
   const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>(() => {
     const w = window.innerWidth;
@@ -508,7 +522,7 @@ export default function PageSkjerm({ onBack }: Props) {
     return 'desktop';  // Only true desktops at 1400px+
   });
 
-  useEffect(() => { if (!cdEditing) setCdDraft(cd); }, [cd, cdEditing]);
+  useEffect(() => { if (!cdEditing) setCdDraft(cd ?? EMPTY_COUNTDOWN); }, [cd, cdEditing]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -524,18 +538,6 @@ export default function PageSkjerm({ onBack }: Props) {
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const doFetch = () => {
-      fetch('/api/avganger')
-        .then(r => r.json())
-        .then((d: TransitData & { error?: string }) => { if (!d.error) setTransit(d); })
-        .catch(() => {});
-    };
-    doFetch();
-    const id = setInterval(doFetch, 30 * 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -565,10 +567,52 @@ export default function PageSkjerm({ onBack }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  // Tømmedatoene endrer seg sjelden — en gang i timen er mer enn nok, og
+  // holder Iris-siden vi skraper for belastning.
+  useEffect(() => {
+    const doFetch = () => {
+      fetch('/api/tommeplan')
+        .then(r => r.json())
+        .then((d: TommeplanData & { error?: string }) => {
+          if (d.error) { setTommeplanError(true); return; }
+          setTommeplanError(false);
+          setTommeplan(d);
+        })
+        .catch(() => setTommeplanError(true));
+    };
+    doFetch();
+    const id = setInterval(doFetch, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Kp oppdateres hos NOAA hver 3. time, skydekket fra Yr oftere — 15 min
+  // poll er en grei balanse uten å overspørre noen av dem.
+  useEffect(() => {
+    const doFetch = () => {
+      fetch('/api/nordlys')
+        .then(r => r.json())
+        .then((d: AuroraData & { error?: string }) => {
+          if (d.error) { setAuroraError(true); return; }
+          setAuroraError(false);
+          setAurora(d);
+        })
+        .catch(() => setAuroraError(true));
+    };
+    doFetch();
+    const id = setInterval(doFetch, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const handleSaveCd = () => {
     if (!cdDraft.label.trim() || !cdDraft.date) return;
     saveCd({ label: cdDraft.label.trim(), date: cdDraft.date });
     setCdEditing(false);
+  };
+
+  const handleRemoveCd = () => {
+    const prev = cd;
+    void clearCd();
+    if (prev) notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void saveCd(prev) });
   };
 
   const today = todayStr();
@@ -668,7 +712,7 @@ export default function PageSkjerm({ onBack }: Props) {
   const daysInYear  = Math.round((yearEnd - yearStart) / 86400000);
   const daysLeft    = daysInYear - daysElapsed;
 
-  const cdDays = daysUntil(cd.date);
+  const cdDays = cd ? daysUntil(cd.date) : 0;
 
   // The weekly "ting vi vil gjøre" reminder is shared across all devices and
   // rolls over the night into Monday — see useWeeklyBucket / api/cron/rollover.
@@ -739,7 +783,7 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 1: Clock · Weather · Countdown · Fact ── (compact — natural height, no stretch) */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.1fr 1.3fr 0.75fr 0.75fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.1fr 1.3fr 0.6fr 0.6fr 0.6fr 0.6fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Clock */}
         <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, padding: screenSize === 'tablet' ? '12px 16px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 4 : 8, position: 'relative', overflow: 'hidden' }}>
@@ -786,7 +830,7 @@ export default function PageSkjerm({ onBack }: Props) {
           style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 16, cursor: 'default' }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={eyebrow}>Vær · Oslo</div>
+            <div style={eyebrow}>Vær · Bodø</div>
             {weather && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● YR</div>}
           </div>
 
@@ -890,27 +934,46 @@ export default function PageSkjerm({ onBack }: Props) {
         <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={eyebrow}>Nedtelling</div>
-            <button onClick={() => { setCdDraft(cd); setCdEditing(e => !e); }}
-              style={{ background:'transparent', border:0, cursor:'default', color:'var(--ink-4)', fontSize: 16, padding:'2px 4px', lineHeight:1 }}>✎</button>
+            {cd && (
+              <div style={{ display: 'flex', gap: 2 }}>
+                <button onClick={() => { setCdDraft(cd); setCdEditing(e => !e); }}
+                  aria-label="Rediger nedtelling"
+                  style={{ background:'transparent', border:0, cursor:'pointer', color:'var(--ink-4)', fontSize: 16, padding:'2px 4px', lineHeight:1 }}>✎</button>
+                <button onClick={handleRemoveCd}
+                  aria-label="Fjern nedtelling"
+                  style={{ background:'transparent', border:0, cursor:'pointer', color:'var(--ink-4)', fontSize: 16, padding:'2px 4px', lineHeight:1 }}>×</button>
+              </div>
+            )}
           </div>
 
           {cdLoading ? (
             <div style={{ height: 80 }} />
           ) : !cdEditing ? (
-            <>
-              <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink-2)' }}>{cd.label}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 32 : 56, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
-                  {Math.max(0, cdDays)}
-                </span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: 'var(--ink-3)' }}>
-                  {cdDays <= 0 ? '🎉' : 'dager'}
-                </span>
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-3)' }}>
-                {new Date(cd.date).toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
-              </div>
-            </>
+            cd ? (
+              <>
+                <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink-2)' }}>{cd.label}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 32 : 56, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
+                    {Math.max(0, cdDays)}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: 'var(--ink-3)' }}>
+                    {cdDays <= 0 ? '🎉' : 'dager'}
+                  </span>
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-3)' }}>
+                  {new Date(cd.date).toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => { setCdDraft(EMPTY_COUNTDOWN); setCdEditing(true); }}
+                style={{
+                  background: 'transparent', cursor: 'pointer', textAlign: 'left',
+                  border: '1px dashed var(--ink-4)', borderRadius: 6, padding: '10px 12px',
+                  color: 'var(--ink-4)', fontSize: 13,
+                }}
+              >+ Legg til nedtelling</button>
+            )
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <input className="input" placeholder="Hva teller vi ned til?" value={cdDraft.label}
@@ -964,56 +1027,95 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
           )}
         </div>
-      </div>
 
-      {/* ── Row 2: Transit · Calendar (Calendar wider) — grows to fill ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isNarrowTablet ? '1fr 1.4fr' : '1fr 1.8fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
+        {/* Tømmeplan — Iris Salten sin kalender for Storgata 88 H303, skrapet
+            server-side (api/tommeplan.ts). Skraping er skjørt: hvis Iris endrer
+            HTML-strukturen sin slutter parsingen å finne noe, og handleren
+            svarer med en feil i stedet for tomme/gale data — boksen viser da
+            en enkel melding i stedet for å late som alt er i orden. */}
+        <div style={{
+          ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
+          display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12,
+        }}>
+          <div style={eyebrow}>🗑️ Tømmeplan</div>
 
-        {/* Transit */}
-        <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={eyebrow}>Kollektivt</div>
-              <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em', marginTop: 4 }}>
-                {transit?.stopName ?? 'Rosenhoff'}
-              </div>
-            </div>
-            {transit && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● LIVE</div>}
-          </div>
-
-          {!transit ? (
+          {tommeplanError && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Utilgjengelig akkurat nå</div>
+          )}
+          {!tommeplanError && !tommeplan && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>…</div>
-          ) : transit.departures.length === 0 ? (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>Ingen avganger</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {transit.departures.map((d, i) => {
-                const modeColor = d.mode === 'tram' ? '#3B82B8' : d.mode === 'metro' ? '#6B46C1' : '#C97A3B';
-                return (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '11px 0',
-                    borderBottom: i < transit.departures.length - 1 ? '1px solid var(--line)' : '0',
-                  }}>
-                    <div style={{
-                      width: 38, height: 26, display: 'grid', placeItems: 'center', flexShrink: 0,
-                      fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700,
-                      background: modeColor, color: '#fff', borderRadius: 3,
-                    }}>{d.line}</div>
-                    <span style={{ fontSize: 18, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.dest}</span>
-                    <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 3 }}>
-                      {!d.realtime && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>ca</span>}
-                      <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
-                        color: d.min <= 1 ? 'var(--warn)' : d.min <= 3 ? 'var(--accent)' : 'var(--ink)',
-                      }}>{d.min === 0 ? 'nå' : d.min}</span>
-                      {d.min > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: 'var(--ink-4)' }}>min</span>}
-                    </div>
+          )}
+          {!tommeplanError && tommeplan && tommeplan.pickups.length === 0 && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen kommende tømming funnet</div>
+          )}
+
+          {!tommeplanError && tommeplan && tommeplan.pickups.length > 0 && (() => {
+            const [next, ...rest] = tommeplan.pickups;
+            const upcoming = rest.slice(0, 3);
+            return (
+              <>
+                <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}>
+                  {next.weekday} {next.dateLabel}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {next.types.map(t => (
+                    <span key={t.name} style={{
+                      display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 20,
+                      background: `${WASTE_COLOR[t.category]}22`, border: `1px solid ${WASTE_COLOR[t.category]}55`,
+                      fontSize: 12, fontWeight: 600, color: WASTE_COLOR[t.category],
+                    }}>
+                      <span aria-hidden="true">{WASTE_ICON[t.category]}</span>{t.name}
+                    </span>
+                  ))}
+                </div>
+                {upcoming.length > 0 && (
+                  <div style={{ marginTop: 2, paddingTop: 8, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {upcoming.map(p => (
+                      <div key={p.date} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>
+                        <span>{p.weekday.slice(0, 3)} {p.dateLabel}</span>
+                        <span style={{ textAlign: 'right' }}>{p.types.map(t => t.name).join(' + ')}</span>
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+
+        {/* Nordlys — Kp-indeks fra NOAA (observert, ikke flerdags-prognose)
+            kombinert med skydekke fra Yr/met.no for Bodø. Ren heuristikk, ikke
+            et offisielt varsel — se api/nordlys.ts for poengmodellen. */}
+        <div style={{
+          ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
+          display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12,
+        }}>
+          <div style={eyebrow}>🌌 Nordlys · Bodø</div>
+
+          {auroraError && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Utilgjengelig akkurat nå</div>
+          )}
+          {!auroraError && !aurora && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>…</div>
+          )}
+          {!auroraError && aurora && (
+            <>
+              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, letterSpacing: '-0.01em', color: AURORA_COLOR[aurora.probability] }}>
+                {AURORA_LABEL[aurora.probability]}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
+                Kp {aurora.kp} · {aurora.cloudCover}% skydekke
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', opacity: 0.7 }}>
+                Kun synlig når det er mørkt
+              </div>
+            </>
           )}
         </div>
+      </div>
+
+      {/* ── Row 2: Calendar — grows to fill ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
         {/* Calendar */}
         <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
@@ -1028,7 +1130,7 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', ...(isTablet ? { flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : {}) }}>
-              {(isTablet ? allEvents : allEvents.slice(0, (transit?.departures.length ?? 5) + 1)).map((e, i) => {
+              {(isTablet ? allEvents : allEvents.slice(0, 6)).map((e, i) => {
                 const dateKey = e.start.slice(0,10);
                 const isT  = dateKey === today;
                 const isTm = dateKey === tomorrowStr();
@@ -1120,7 +1222,7 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── Row 3: Kjøpekraft — full-width horizontal banner under Transit + Calendar ── */}
+      {/* ── Row 3: Kjøpekraft — full-width horizontal banner under Calendar ── */}
       <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, minWidth: 0, ...(isTablet ? { flex: '0 0 auto' } : {}), padding: screenSize === 'tablet' ? '12px 18px' : screenSize === 'desktop' ? '18px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={eyebrowDark}>Kjøpekraft 🏡</div>
@@ -1239,7 +1341,7 @@ export default function PageSkjerm({ onBack }: Props) {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Vær · Oslo · Time for time</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Vær · Bodø · Time for time</div>
                 <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>
                   {now.toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </div>

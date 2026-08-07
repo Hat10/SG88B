@@ -382,16 +382,37 @@ function MonthGrid({ viewYear, viewMonth, today, selected, onSelect, onPrev, onN
 }
 
 // ─── Legend ────────────────────────────────────────────────────────────────
+//
+// Andreas/Taran/Felles-prikkene er også filterknapper: klikk skjuler/viser
+// den kalenderkilden. Gjøremål er alltid synlig — bare de tre kalenderkildene
+// kan skjules.
 
-function Legend() {
+const CAL_SOURCES: Source[] = ['andreas', 'taran', 'felles'];
+
+function Legend({ hidden, onToggle }: { hidden: Set<Source>; onToggle: (key: Source) => void }) {
   return (
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 12, paddingLeft: 2 }}>
-      {(['andreas', 'taran', 'felles'] as Source[]).map(key => (
-        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: SOURCE_META[key].color }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>{SOURCE_META[key].label}</span>
-        </div>
-      ))}
+      {CAL_SOURCES.map(key => {
+        const on = !hidden.has(key);
+        return (
+          <button
+            key={key}
+            onClick={() => onToggle(key)}
+            aria-pressed={on}
+            title={on ? `Skjul ${SOURCE_META[key].label}` : `Vis ${SOURCE_META[key].label}`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+              opacity: on ? 1 : 0.4,
+            }}
+          >
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: SOURCE_META[key].color }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', textDecoration: on ? 'none' : 'line-through' }}>
+              {SOURCE_META[key].label}
+            </span>
+          </button>
+        );
+      })}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <div style={{ display: 'flex', gap: 2 }}>
           {([['høy', 'Høy'], ['middels', 'Middels'], ['lav', 'Lav']] as const).map(([pri]) => (
@@ -438,6 +459,18 @@ export default function PageKalender() {
   const { items: todos } = useTodo();
   const [isMobile, setIsMobile]   = useState(() => window.innerWidth < 768);
   const [view, setView]           = useState<View>('list');
+  const [hiddenSources, setHiddenSources] = useState<Set<Source>>(() => {
+    try {
+      const raw = localStorage.getItem('felles_kalender_hidden');
+      return raw ? new Set(JSON.parse(raw) as Source[]) : new Set();
+    } catch { return new Set(); }
+  });
+  const toggleSource = (key: Source) => setHiddenSources(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    try { localStorage.setItem('felles_kalender_hidden', JSON.stringify([...next])); } catch { /* ignore */ }
+    return next;
+  });
 
   const today    = todayStr();
   const tomorrow = tomorrowStr();
@@ -494,7 +527,7 @@ export default function PageKalender() {
     });
 
   const allEvents: AnyEvent[] = [
-    ...calEvents.map(e => ({ ...e, source: e.source as Source })),
+    ...calEvents.filter(e => !hiddenSources.has(e.source as Source)).map(e => ({ ...e, source: e.source as Source })),
     ...todoEvents,
   ];
 
@@ -544,7 +577,7 @@ export default function PageKalender() {
               onSelect={handleSelect} onPrev={prevMonth} onNext={nextMonth}
               byDate={byDate} isMobile={true}
             />
-            <Legend />
+            <Legend hidden={hiddenSources} onToggle={toggleSource} />
             <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
               <DayPanel iso={selected} events={byDate.get(selected) ?? []} today={today} tomorrow={tomorrow} />
             </div>
@@ -553,7 +586,7 @@ export default function PageKalender() {
 
         {view === 'list' && (
           <>
-            <Legend />
+            <Legend hidden={hiddenSources} onToggle={toggleSource} />
             <ListView byDate={byDate} today={today} tomorrow={tomorrow} isMobile={true} />
           </>
         )}
@@ -575,7 +608,7 @@ export default function PageKalender() {
               onSelect={handleSelect} onPrev={prevMonth} onNext={nextMonth}
               byDate={byDate} isMobile={false}
             />
-            <Legend />
+            <Legend hidden={hiddenSources} onToggle={toggleSource} />
           </div>
           <div className="col-5">
             <div style={{
@@ -596,7 +629,7 @@ export default function PageKalender() {
           </div>
           <div className="col-4">
             <div style={{ position: 'sticky', top: 16 }}>
-              <Legend />
+              <Legend hidden={hiddenSources} onToggle={toggleSource} />
             </div>
           </div>
         </div>
