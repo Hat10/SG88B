@@ -1,0 +1,75 @@
+-- Portfolio data import — kjør i felles Supabase SQL-editor
+-- Opprett tabeller + grants først, deretter insert data
+
+-- ── Tabeller ──────────────────────────────────────────────────────────────────
+
+create table if not exists public.categories (
+  id          text    primary key,
+  name        text    not null,
+  tax_rate    float8  not null default 0,
+  color       text    not null,
+  sort_order  integer not null default 0
+);
+
+create table if not exists public.snapshots (
+  month    text    primary key,
+  entries  jsonb   not null default '{}',
+  total    float8  not null default 0
+);
+
+grant select, insert, update, delete on public.categories to authenticated;
+grant select, insert, update, delete on public.snapshots   to authenticated;
+
+alter table public.categories enable row level security;
+alter table public.snapshots  enable row level security;
+
+create policy if not exists "authenticated_categories" on public.categories
+  for all using (auth.role() = 'authenticated');
+
+create policy if not exists "authenticated_snapshots" on public.snapshots
+  for all using (auth.role() = 'authenticated');
+
+
+-- ── Kategorier ────────────────────────────────────────────────────────────────
+
+insert into public.categories (id, name, tax_rate, color, sort_order) values
+  ('kunst',         'Kunst',         0.42,   '#9333ea', 0),
+  ('cfd',           'CFD',           0.22,   '#458588', 1),
+  ('cash',          'Cash',          0,      '#98971a', 2),
+  ('laan',          'Lån',           0,      '#cc241d', 3),
+  ('aksjefond',     'Aksjefond',     0.3784, '#d65d0e', 4),
+  ('rentefond',     'Rentefond',     0.22,   '#689d6a', 5),
+  ('eiendom',       'Eiendom',       0,      '#2563eb', 6),
+  ('enkeltaksjer',  'Enkeltaksjer',  0.22,   '#d79921', 7)
+on conflict (id) do update set
+  name       = excluded.name,
+  tax_rate   = excluded.tax_rate,
+  color      = excluded.color,
+  sort_order = excluded.sort_order;
+
+
+-- ── Snapshots ─────────────────────────────────────────────────────────────────
+
+insert into public.snapshots (month, entries, total) values
+
+('2025-08', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":5000,"valueEOM":0,"withdrawals":5310.01,"totalTaxPaid":0,"totalDeposits":5000,"totalWithdrawals":5310.01,"valueEOMAfterTax":-68.2},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":23720,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":23720},"laan":{"taxPaid":0,"taxRate":0,"deposits":54906.7,"valueEOM":-3886603.53,"withdrawals":3896738.5,"totalTaxPaid":0,"totalDeposits":54906.7,"totalWithdrawals":3896738.5,"valueEOMAfterTax":-3886603.53},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":1117.38,"valueEOM":1005,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1052.2},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":4330000,"valueEOM":4040000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4330000,"totalWithdrawals":0,"valueEOMAfterTax":4040000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 178100.47),
+
+('2025-09', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":3000,"valueEOM":2439,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":8000,"totalWithdrawals":5310.01,"valueEOMAfterTax":2494.22},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0},"laan":{"taxPaid":0,"taxRate":0,"deposits":37247,"valueEOM":-3862731.12,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":92153.7,"totalWithdrawals":3896738.5,"valueEOMAfterTax":-3862731.12},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":998,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1048.14},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":4030000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4330000,"totalWithdrawals":0,"valueEOMAfterTax":4030000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":6000,"valueEOM":6028,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":6000,"totalWithdrawals":0,"valueEOMAfterTax":6017.4},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":4000,"valueEOM":4001,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4000,"totalWithdrawals":0,"valueEOMAfterTax":4000.78},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 180829.42),
+
+('2025-10', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":3269.36,"totalTaxPaid":0,"totalDeposits":8000,"totalWithdrawals":8579.37,"valueEOMAfterTax":-127.46},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":28318.04,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":28318.04},"laan":{"taxPaid":0,"taxRate":0,"deposits":10000,"valueEOM":-3852729.5,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":102153.7,"totalWithdrawals":3896738.5,"valueEOMAfterTax":-3852729.5},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":1012.32,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1056.45},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":3990000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4330000,"totalWithdrawals":0,"valueEOMAfterTax":3990000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":4000,"valueEOM":10301,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":10000,"totalWithdrawals":0,"valueEOMAfterTax":10187.1},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":6000,"valueEOM":10028,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":10000,"totalWithdrawals":0,"valueEOMAfterTax":10021.84},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 186726.47),
+
+('2025-11', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":8000,"totalWithdrawals":8579.37,"valueEOMAfterTax":-127.46},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":15393,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":15393},"laan":{"taxPaid":0,"taxRate":0,"deposits":59132,"valueEOM":-3818335.67,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":161285.7,"totalWithdrawals":3896738.5,"valueEOMAfterTax":-3818335.67},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":1013.1,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1056.9},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":20000,"valueEOM":3970000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4350000,"totalWithdrawals":0,"valueEOMAfterTax":3970000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":0,"valueEOM":0,"withdrawals":10209.04,"totalTaxPaid":0,"totalDeposits":10000,"totalWithdrawals":10209.04,"valueEOMAfterTax":-79.1},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":10015.57,"totalTaxPaid":0,"totalDeposits":10000,"totalWithdrawals":10015.57,"valueEOMAfterTax":-3.43},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 167904.24),
+
+('2025-12', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":8000,"totalWithdrawals":8579.37,"valueEOMAfterTax":-127.46},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":29041.71,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":29041.71},"laan":{"taxPaid":0,"taxRate":0,"deposits":18308,"valueEOM":-3827823.46,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":179593.7,"totalWithdrawals":3896738.5,"valueEOMAfterTax":-3827823.46},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":1007.35,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1053.56},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":3970000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4350000,"totalWithdrawals":0,"valueEOMAfterTax":3970000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":10000,"totalWithdrawals":10209.04,"valueEOMAfterTax":-79.1},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":10000,"totalWithdrawals":10015.57,"valueEOMAfterTax":-3.43},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 172061.83),
+
+('2026-01', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":4760,"valueEOM":0,"withdrawals":11498.2,"totalTaxPaid":0,"totalDeposits":4760,"totalWithdrawals":12077.57,"valueEOMAfterTax":-1482.41},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":49216,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":49216},"laan":{"taxPaid":0,"taxRate":0,"deposits":18308,"valueEOM":-3854346,"withdrawals":30338,"totalTaxPaid":0,"totalDeposits":18308,"totalWithdrawals":3747482.8,"valueEOMAfterTax":-3854346},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":964,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1028.42},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":4030000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4350000,"totalWithdrawals":0,"valueEOMAfterTax":4030000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":19500,"valueEOM":18377,"withdrawals":1005.22,"totalTaxPaid":0,"totalDeposits":19500,"totalWithdrawals":1214.26,"valueEOMAfterTax":18421.57},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":13500,"valueEOM":12510,"withdrawals":1001.8,"totalTaxPaid":0,"totalDeposits":13500,"totalWithdrawals":1017.37,"valueEOMAfterTax":12507.41},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 255344.99),
+
+('2026-02', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4760,"totalWithdrawals":12077.57,"valueEOMAfterTax":-1482.41},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":41228.49,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":41228.49},"laan":{"taxPaid":0,"taxRate":0,"deposits":18308,"valueEOM":-3860258.26,"withdrawals":11376.74,"totalTaxPaid":0,"totalDeposits":36616,"totalWithdrawals":3758859.54,"valueEOMAfterTax":-3860258.26},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":950.92,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1020.83},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":4030000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4350000,"totalWithdrawals":0,"valueEOMAfterTax":4030000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":2000,"valueEOM":2011,"withdrawals":17796.28,"totalTaxPaid":0,"totalDeposits":21500,"totalWithdrawals":19010.54,"valueEOMAfterTax":2271.15},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":50000,"valueEOM":50083,"withdrawals":12547.79,"totalTaxPaid":0,"totalDeposits":63500,"totalWithdrawals":13565.16,"valueEOMAfterTax":50053.83},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 262833.64),
+
+('2026-03', '{"cfd":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4760,"totalWithdrawals":12077.57,"valueEOMAfterTax":-1482.41},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":36533.92,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":36533.92},"laan":{"taxPaid":0,"taxRate":0,"deposits":18308,"valueEOM":-3855250,"withdrawals":11376.74,"totalTaxPaid":0,"totalDeposits":54924,"totalWithdrawals":3770236.28,"valueEOMAfterTax":-3855250},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":972.84,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":1033.55},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":4050000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4350000,"totalWithdrawals":0,"valueEOMAfterTax":4050000},"aksjefond":{"taxPaid":0,"taxRate":0.3784,"deposits":2000,"valueEOM":3755,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":23500,"totalWithdrawals":19010.54,"valueEOMAfterTax":4112.02},"rentefond":{"taxPaid":0,"taxRate":0.22,"deposits":25000,"valueEOM":75111,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":88500,"totalWithdrawals":13565.16,"valueEOMAfterTax":75075.67},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":0}}', 310022.76),
+
+('2026-04', '{"cfd":{"taxPaid":127.46,"taxRate":0.22,"deposits":0,"valueEOM":0,"withdrawals":0,"totalTaxPaid":127.46,"totalDeposits":4760,"totalWithdrawals":12077.57,"valueEOMAfterTax":-1482.41},"cash":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":26654,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":0,"totalWithdrawals":0,"valueEOMAfterTax":26654},"laan":{"taxPaid":0,"taxRate":0,"deposits":18308,"valueEOM":-3861111,"withdrawals":11376.74,"totalTaxPaid":0,"totalDeposits":73232,"totalWithdrawals":3781613.02,"valueEOMAfterTax":-3861111},"kunst":{"taxPaid":0,"taxRate":0.42,"deposits":0,"valueEOM":769,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":1117.38,"totalWithdrawals":0,"valueEOMAfterTax":915.32},"eiendom":{"taxPaid":0,"taxRate":0,"deposits":0,"valueEOM":4040000,"withdrawals":0,"totalTaxPaid":0,"totalDeposits":4350000,"totalWithdrawals":0,"valueEOMAfterTax":4040000},"aksjefond":{"taxPaid":79.1,"taxRate":0.3784,"deposits":1000,"valueEOM":5113,"withdrawals":0,"totalTaxPaid":79.1,"totalDeposits":24500,"totalWithdrawals":19010.54,"valueEOMAfterTax":5334.55},"rentefond":{"taxPaid":3.43,"taxRate":0.22,"deposits":17000,"valueEOM":92781,"withdrawals":0,"totalTaxPaid":3.43,"totalDeposits":105500,"totalWithdrawals":13565.16,"valueEOMAfterTax":92598.27},"enkeltaksjer":{"taxPaid":0,"taxRate":0.22,"deposits":12546.27,"valueEOM":0,"withdrawals":9229,"totalTaxPaid":0,"totalDeposits":12546.27,"totalWithdrawals":9229,"valueEOMAfterTax":1255.25}}', 304164)
+
+on conflict (month) do update set
+  entries = excluded.entries,
+  total   = excluded.total;

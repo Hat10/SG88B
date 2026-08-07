@@ -1,0 +1,18 @@
+{
+  "name": "Felles",
+  "short_name": "Felles",
+  "description": "Felles — Mikkel & Leah",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

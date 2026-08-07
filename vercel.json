@@ -1,0 +1,9 @@
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "crons": [
+    {
+      "path": "/api/cron/rollover",
+      "schedule": "5 23 * * *"
+    }
+  ]
+}

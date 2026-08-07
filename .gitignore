@@ -1,0 +1,7 @@
+node_modules
+dist
+testdata
+.env
+.env.local
+.vercel
+.env*.local

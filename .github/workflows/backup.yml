@@ -1,0 +1,70 @@
+name: Daily database backup
+
+# Dumps the Supabase Postgres database once a day and commits the result to
+# backups/. schema.sql and data.sql are overwritten each run, so the working
+# tree stays small while git history keeps every past snapshot (git delta-
+# compresses the SQL text well). To recover an older version, see backups/README.md.
+#
+# One-time setup: add the database connection string as a repo secret named
+# SUPABASE_DB_URL. Full instructions in backups/README.md.
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 02:30 UTC daily (~03:30/04:30 in Oslo)
+  workflow_dispatch: {}      # lets you trigger a run by hand from the Actions tab
+
+permissions:
+  contents: write            # needed to commit the dump back into the repo
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump schema and data
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DB_URL:-}" ]; then
+            echo "::error::Missing SUPABASE_DB_URL secret — see backups/README.md"
+            exit 1
+          fi
+          mkdir -p backups
+          # Schema of every non-system schema (tables, RLS policies, functions, triggers…)
+          supabase db dump --db-url "$DB_URL" -f backups/schema.sql
+          # Row data only, using COPY (fast + clean to restore)
+          supabase db dump --db-url "$DB_URL" --data-only --use-copy -f backups/data.sql
+          echo "Last successful backup: $(date -u +'%Y-%m-%d %H:%M UTC')" > backups/last-run.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Back up Storage files (incremental)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backup-storage.mjs
+
+      - name: Commit backup
+        run: |
+          set -euo pipefail
+          git config user.name  "backup-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backups/
+          if git diff --staged --quiet; then
+            echo "No changes since last backup — nothing to commit."
+          else
+            git commit -m "Backup $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
