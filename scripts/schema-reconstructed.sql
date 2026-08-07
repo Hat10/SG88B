@@ -25,6 +25,19 @@
 --                   or `supabase db dump --schema-only`) before trusting this
 --                   for anything destructive.
 --
+-- RLS / policy / grant / realtime statements are inlined right after each
+-- table's CREATE TABLE below (a deliberate departure from how the original
+-- migration scripts group these by category at the end of the file — for a
+-- reference document, keeping each table self-contained is more useful).
+-- Policy names match the real ones exactly where a migration script (or a
+-- fragment of the deleted backups/schema.sql) confirms them; tables with no
+-- migration script use the dominant "authenticated_<table>_all" convention
+-- seen in the newest scripts (trening-rebuild.sql). Realtime (`alter
+-- publication supabase_realtime add table ...`) is only added for tables a
+-- context/hook actually subscribes to via `supabase.channel(...).on(
+-- 'postgres_changes', ...)` — confirmed by grepping every such call in
+-- src/contexts and src/hooks, not guessed.
+--
 -- Several older migration scripts are SUPERSEDED by later ones in scripts/
 -- and are deliberately NOT represented here (see "Superseded / obsolete"
 -- section at the bottom for the full list and why).
@@ -35,7 +48,8 @@
 -- DOMAIN: Økonomi / Forbruk (Okonomi.tsx, FinanceContext, CategoryContext)
 -- ============================================================================
 
--- [CONFIRMED] scripts/import-v2-migration.sql
+-- [CONFIRMED] scripts/import-v2-migration.sql — no realtime subscription in
+-- app code, so none added (matches the original script exactly).
 create table public.finance_imports (
   id             uuid primary key default gen_random_uuid(),
   source         text not null,        -- 'bank_M' | 'bank_L' | 'trumf'
@@ -47,7 +61,12 @@ create table public.finance_imports (
   imported_at    timestamptz default now()
 );
 
--- [CONFIRMED] scripts/import-v2-migration.sql
+alter table public.finance_imports enable row level security;
+create policy "authenticated_finance_imports" on public.finance_imports
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.finance_imports to authenticated;
+
+-- [CONFIRMED] scripts/import-v2-migration.sql — no realtime subscription.
 create table public.merchants (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
@@ -56,18 +75,31 @@ create table public.merchants (
               check (kind in ('merchant','person','internal','settlement','intermediary')),
   created_at  timestamptz default now()
 );
+
+alter table public.merchants enable row level security;
+create policy "authenticated_merchants" on public.merchants
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.merchants to authenticated;
+
 create unique index merchants_name_uniq on public.merchants (lower(name));
 
--- [CONFIRMED] scripts/import-v2-migration.sql
+-- [CONFIRMED] scripts/import-v2-migration.sql — no realtime subscription.
 create table public.merchant_aliases (
   alias        text primary key,
   merchant_id  uuid not null references public.merchants(id) on delete cascade,
   created_at   timestamptz default now()
 );
+
+alter table public.merchant_aliases enable row level security;
+create policy "authenticated_merchant_aliases" on public.merchant_aliases
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.merchant_aliases to authenticated;
+
 create index merchant_aliases_merchant_idx on public.merchant_aliases (merchant_id);
 
 -- [CONFIRMED] scripts/import-v2-migration.sql, kind CHECK widened by
--- scripts/investment-kind-migration.sql (this is the FINAL constraint)
+-- scripts/investment-kind-migration.sql (this is the FINAL constraint) — no
+-- realtime subscription.
 create table public.transactions (
   id                  uuid primary key default gen_random_uuid(),
   import_id           uuid references public.finance_imports(id) on delete cascade,
@@ -90,12 +122,22 @@ create table public.transactions (
   meta                jsonb,                   -- TxMeta: channel, reference, aliasKey, intermediary, currency/rate...
   fingerprint         text                     -- hash of date|amount|raw_description, for dedup
 );
+
+alter table public.transactions enable row level security;
+create policy "authenticated_transactions" on public.transactions
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.transactions to authenticated;
+
 create index transactions_month_idx       on public.transactions (month);
 create index transactions_source_idx      on public.transactions (source);
 create index transactions_fingerprint_idx on public.transactions (fingerprint);
 create index transactions_merchant_idx    on public.transactions (merchant_id);
 
--- [CONFIRMED] scripts/spending-categories-migration.sql
+-- [CONFIRMED] scripts/spending-categories-migration.sql. That script only
+-- creates the RLS policy (via a `do $$ if not exists` guard) and grant — it
+-- does NOT add this table to the realtime publication, yet CategoryContext.tsx
+-- subscribes to it (`.channel('spending_categories_changes')`). Added below
+-- so the reconstructed schema actually matches what the app needs to work.
 create table public.spending_categories (
   key         text primary key,
   label       text not null,
@@ -104,11 +146,18 @@ create table public.spending_categories (
   is_system   boolean not null default false,
   created_at  timestamptz default now()
 );
+
+alter table public.spending_categories enable row level security;
+create policy "authenticated_spending_categories" on public.spending_categories
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.spending_categories to authenticated;
+alter publication supabase_realtime add table public.spending_categories;
+
 -- Seeded with ~19 built-in keys incl. 'investering'; deliberately excludes
 -- 'overføring' (internal transfers are tagged that category by import/classify
 -- logic but are not a user-pickable spending category).
 
--- [CONFIRMED] scripts/investment-values-migration.sql
+-- [CONFIRMED] scripts/investment-values-migration.sql — no realtime subscription.
 -- Design note (from the script's own comment): originally meant for monthly
 -- market-value snapshots per account, but that idea was abandoned. In
 -- practice the app writes exactly ONE row: month='0000-00', account='start'
@@ -123,6 +172,12 @@ create table public.investment_values (
   updated_at  timestamptz not null default now(),
   unique (month, account)
 );
+
+alter table public.investment_values enable row level security;
+create policy "authenticated_investment_values" on public.investment_values
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.investment_values to authenticated;
+
 create index investment_values_month_idx on public.investment_values (month);
 
 -- [INFERRED] No CREATE TABLE exists anywhere in scripts/ — only
@@ -130,7 +185,8 @@ create index investment_values_month_idx on public.investment_values (month);
 -- columns), proving it predates every script in this repo. Reconstructed
 -- from FinanceContext.tsx's select('*')/upsert(...) shape. Used by the Hus
 -- page for monthly per-person net-worth entries — NOT shared with any other
--- domain table.
+-- domain table. FinanceContext.tsx subscribes to it
+-- (`.channel('finance_entries_changes')`), so realtime is added below.
 create table public.finance_entries (
   id          uuid primary key default gen_random_uuid(),
   who         text not null check (who in ('M','L')),   -- no 'f' option observed here
@@ -151,20 +207,37 @@ create table public.finance_entries (
   unique (who, month)
 );
 
+alter table public.finance_entries enable row level security;
+create policy "authenticated_finance_entries_all" on public.finance_entries
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.finance_entries to authenticated;
+alter publication supabase_realtime add table public.finance_entries;
+
 -- [INFERRED] Generic shared key/value settings store — no migration script.
 -- Used by Hus (hus_goal, lb_prognose, lb_prognose_history, bp_params) and by
 -- the weekly-bucket-reminder cron (weekly_bucket) — not finance-specific,
 -- just documented here since finance_entries and Hus share this file.
+-- Subscribed to by useHusGoal.ts, useHusPrognose.ts, useHusPrognoseHistory.ts,
+-- useBuyingPowerParams.ts and useWeeklyBucket.ts (each filters by `key`), so
+-- realtime is added below.
 create table public.settings (
   key    text primary key,
   value  jsonb
 );
+
+alter table public.settings enable row level security;
+create policy "authenticated_settings_all" on public.settings
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.settings to authenticated;
+alter publication supabase_realtime add table public.settings;
+
 -- Known keys (documentation only, not schema):
 --   hus_goal            → number (house savings goal)
 --   lb_prognose         → object {savings, salaryGrowth, returns, horizonYears, ...}
 --   lb_prognose_history → array of frozen year-end snapshots
 --   bp_params           → object {loanMultiple, equityPct}
 --   weekly_bucket       → cron state for the weekly random Bucket-item pick
+
 
 -- ============================================================================
 -- DOMAIN: Trening (TreningContext, treningPulse.ts, Trening.tsx)
@@ -178,6 +251,8 @@ create table public.settings (
 -- The original TEMPLATE-based model from scripts/trening-migration.sql /
 -- scripts/trening-goals-migration.sql (workout_templates table, template_id/
 -- template_name on sessions) was fully replaced — see "Superseded" section.
+-- All four tables below are subscribed to by TreningContext.tsx via a single
+-- `.channel('trening_realtime')`, confirmed by scripts/trening-rebuild.sql.
 
 -- [CONFIRMED] scripts/trening-rebuild.sql + scripts/trening-muskelgrupper-migration.sql
 create table public.workout_categories (
@@ -189,6 +264,13 @@ create table public.workout_categories (
   created_at     timestamptz default now(),
   muscle_groups  text[] not null default '{}'
 );
+
+alter table public.workout_categories enable row level security;
+create policy "authenticated_workout_categories_all" on public.workout_categories
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.workout_categories to authenticated;
+alter publication supabase_realtime add table public.workout_categories;
+
 -- Seeded: Push(0), Pull(1), Legs(2), Fullkropp(3), Overkropp(4), Cardio(5).
 
 -- [CONFIRMED] scripts/trening-rebuild.sql, extended by
@@ -211,6 +293,13 @@ create table public.workout_sessions (
   note           text,
   created_at     timestamptz default now()
 );
+
+alter table public.workout_sessions enable row level security;
+create policy "authenticated_workout_sessions_all" on public.workout_sessions
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.workout_sessions to authenticated;
+alter publication supabase_realtime add table public.workout_sessions;
+
 create index workout_sessions_started_idx on public.workout_sessions (started_at desc);
 create index workout_sessions_group_idx   on public.workout_sessions (session_group);
 
@@ -225,6 +314,13 @@ create table public.workout_records (
   target      numeric,
   created_at  timestamptz default now()
 );
+
+alter table public.workout_records enable row level security;
+create policy "authenticated_workout_records_all" on public.workout_records
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.workout_records to authenticated;
+alter publication supabase_realtime add table public.workout_records;
+
 create index workout_records_exercise_idx on public.workout_records (exercise, who, date desc);
 
 -- [CONFIRMED] scripts/trening-migration.sql / trening-goals-migration.sql,
@@ -247,6 +343,12 @@ create table public.workout_goals (
   )
 );
 
+alter table public.workout_goals enable row level security;
+create policy "authenticated_workout_goals_all" on public.workout_goals
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.workout_goals to authenticated;
+alter publication supabase_realtime add table public.workout_goals;
+
 
 -- ============================================================================
 -- DOMAIN: Ønskeliste (WishContext)
@@ -258,6 +360,10 @@ create table public.workout_goals (
 -- pre-rename values: CHECK (list = ANY (ARRAY['felles','mikkel','leah'])).
 -- Since this is a brand-new, empty database, the constraint below is set
 -- directly to the post-rename values — no data migration needed.
+-- WishContext.tsx subscribes via `.channel('wish_realtime')`; realtime is
+-- [CONFIRMED] by scripts/wish-price-migration.sql (added there, wrapped in
+-- a `do $$ ... exception when duplicate_object` guard — inlined plainly
+-- here instead since this targets a fresh, empty database).
 create table public.wish_items (
   id           uuid primary key default gen_random_uuid(),
   list         text not null check (list in ('felles','andreas','taran')),
@@ -275,13 +381,26 @@ create table public.wish_items (
   deal_avg30   numeric
 );
 
--- [CONFIRMED] scripts/wish-price-migration.sql
+alter table public.wish_items enable row level security;
+create policy "authenticated_wish_items_all" on public.wish_items
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.wish_items to authenticated;
+alter publication supabase_realtime add table public.wish_items;
+
+-- [CONFIRMED] scripts/wish-price-migration.sql — no realtime subscription
+-- (only queried on demand for the 30-day price chart, never subscribed to).
 create table public.wish_price_history (
   id          uuid primary key default gen_random_uuid(),
   item_id     uuid not null references public.wish_items(id) on delete cascade,
   price       numeric not null,
   checked_at  timestamptz not null default now()
 );
+
+alter table public.wish_price_history enable row level security;
+create policy "authenticated_wish_price_history" on public.wish_price_history
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.wish_price_history to authenticated;
+
 create index wish_price_history_item_checked_idx on public.wish_price_history (item_id, checked_at desc);
 
 
@@ -292,6 +411,8 @@ create index wish_price_history_item_checked_idx on public.wish_price_history (i
 -- [INFERRED] No migration script. category is a free-text value matched
 -- against bucket_categories.name BY VALUE, not a real FK — renaming a
 -- category rewrites this column on every matching row from the app.
+-- BucketContext.tsx has no realtime subscription (no `.channel(...)` call),
+-- so none is added here.
 create table public.bucket_items (
   id           uuid primary key default gen_random_uuid(),
   title        text not null,
@@ -303,13 +424,24 @@ create table public.bucket_items (
   created_at   timestamptz default now()
 );
 
+alter table public.bucket_items enable row level security;
+create policy "authenticated_bucket_items_all" on public.bucket_items
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.bucket_items to authenticated;
+
 -- [INFERRED] Only `name` is ever read/written by the app. No UPDATE policy
 -- observed — "renaming" a category is done by insert-new + bulk-rewrite +
 -- delete-old. `name` is likely the real PK/UNIQUE but not directly confirmed;
--- an `id`/`created_at` column may or may not additionally exist.
+-- an `id`/`created_at` column may or may not additionally exist. No realtime
+-- subscription found for this table either.
 create table public.bucket_categories (
   name  text primary key
 );
+
+alter table public.bucket_categories enable row level security;
+create policy "authenticated_bucket_categories_all" on public.bucket_categories
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.bucket_categories to authenticated;
 
 
 -- ============================================================================
@@ -325,6 +457,7 @@ create table public.bucket_categories (
 -- targets source_type='bucket'. They are harmless leftover rows, not a
 -- schema problem; delete them manually if you want, or leave the CHECK as
 -- 'bucket' only if you're rebuilding this table from scratch.
+-- MapContext.tsx subscribes to this table via `.channel('map_realtime')`.
 create table public.map_pins (
   id           uuid primary key default gen_random_uuid(),
   source_type  text not null,   -- 'bucket' (still-used) | 'rating' (orphaned, feature removed)
@@ -334,13 +467,26 @@ create table public.map_pins (
   unique (source_type, source_id)
 );
 
+alter table public.map_pins enable row level security;
+create policy "authenticated_map_pins_all" on public.map_pins
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.map_pins to authenticated;
+alter publication supabase_realtime add table public.map_pins;
+
 -- [INFERRED] No migration script. Only 'bucket' is ever used as source_type.
+-- Also subscribed to by MapContext.tsx's `.channel('map_realtime')`.
 create table public.map_dismissed (
   id           uuid primary key default gen_random_uuid(),
   source_type  text not null default 'bucket',
   source_id    text not null,
   unique (source_type, source_id)
 );
+
+alter table public.map_dismissed enable row level security;
+create policy "authenticated_map_dismissed_all" on public.map_dismissed
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.map_dismissed to authenticated;
+alter publication supabase_realtime add table public.map_dismissed;
 
 
 -- ============================================================================
@@ -349,6 +495,7 @@ create table public.map_dismissed (
 
 -- [INFERRED] No migration script. Table name confirmed as `todo_items`
 -- (not "todos") via TodoContext.tsx / api/todos.ics.ts / cron rollover.
+-- TodoContext.tsx subscribes via `.channel('todo_realtime')`.
 create table public.todo_items (
   id            uuid primary key default gen_random_uuid(),
   title         text not null,
@@ -365,11 +512,22 @@ create table public.todo_items (
   created_at    timestamptz default now()
 );
 
+alter table public.todo_items enable row level security;
+create policy "authenticated_todo_items_all" on public.todo_items
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.todo_items to authenticated;
+alter publication supabase_realtime add table public.todo_items;
+
 
 -- ============================================================================
--- DOMAIN: Boligflipping (BoligflippingContext) — fully confirmed, no
--- contradictions found between the migration script and app code
+-- DOMAIN: Boligflipping (BoligflippingContext)
 -- ============================================================================
+-- No contradictions found between scripts/boligflipping-migration.sql and how
+-- the app code reads/writes these tables. That script does NOT add either
+-- table to the realtime publication, yet BoligflippingContext.tsx subscribes
+-- to both (`.channel('flipping_projects_changes')` /
+-- `.channel('flipping_costs_changes')`) — added below so the reconstructed
+-- schema actually matches what the app needs to work.
 
 -- [CONFIRMED] scripts/boligflipping-migration.sql
 create table public.flipping_projects (
@@ -380,6 +538,13 @@ create table public.flipping_projects (
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
+
+alter table public.flipping_projects enable row level security;
+create policy "authenticated_projects_all" on public.flipping_projects
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.flipping_projects to authenticated;
+alter publication supabase_realtime add table public.flipping_projects;
+
 create index flipping_projects_created_idx on public.flipping_projects (created_at);
 
 -- [CONFIRMED] scripts/boligflipping-migration.sql
@@ -392,6 +557,13 @@ create table public.flipping_costs (
   date         date not null,
   created_at   timestamptz default now()
 );
+
+alter table public.flipping_costs enable row level security;
+create policy "authenticated_costs_all" on public.flipping_costs
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.flipping_costs to authenticated;
+alter publication supabase_realtime add table public.flipping_costs;
+
 create index flipping_costs_project_idx  on public.flipping_costs (project_id);
 create index flipping_costs_date_idx     on public.flipping_costs (date);
 create index flipping_costs_category_idx on public.flipping_costs (category);
@@ -414,18 +586,6 @@ create index flipping_costs_category_idx on public.flipping_costs (category);
 -- CAL_TARAN_PERSONAL, CAL_TARAN_FELLES (renamed from CAL_MIKKEL_*/CAL_LEAH_*
 -- — you still need to update these in Vercel/GitHub secrets, see earlier
 -- rename summary).
-
-
--- ============================================================================
--- RLS / grants pattern (confirmed identical across every table that DOES
--- have a migration script — apply the same pattern to the inferred tables
--- above if/when you formally create them)
--- ============================================================================
--- alter table public.<table> enable row level security;
--- create policy authenticated_<table>_all on public.<table>
---   for all using (auth.role() = 'authenticated');
--- grant select, insert, update, delete on public.<table> to authenticated;
--- alter publication supabase_realtime add table public.<table>;
 
 
 -- ============================================================================
