@@ -21,8 +21,7 @@ type ActiveItem = BucketEntry | null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeIcon(color: string, label: string, pulse = false) {
-  const size = 34;
+function makeIcon(color: string, label: string, pulse = false, size = 34) {
   const shadow = pulse
     ? `box-shadow: 0 0 0 6px ${color}44, 0 2px 10px rgba(0,0,0,0.35);`
     : 'box-shadow: 0 2px 10px rgba(0,0,0,0.3);';
@@ -30,7 +29,7 @@ function makeIcon(color: string, label: string, pulse = false) {
     html: `<div style="
       width:${size}px;height:${size}px;border-radius:50%;
       background:${color};color:#fff;
-      font-family:var(--font-mono,monospace);font-size:11px;font-weight:800;
+      font-family:var(--font-mono,monospace);font-size:${Math.round(size * 0.32)}px;font-weight:800;
       display:flex;align-items:center;justify-content:center;
       border:2.5px solid rgba(255,255,255,0.85);
       ${shadow}
@@ -61,6 +60,10 @@ const CTRL_INK_DIM = '#8a8f9c';
 // bruker for adressesøk), hardkodet siden adressen er fast og ikke trenger et
 // nytt geokodings-oppslag hver gang «Hjem»-knappen trykkes.
 const HOME_COORDS: [number, number] = [67.285706, 14.395841];
+// Terrakotta — bevisst forskjellig fra blått («vil besøke») og grønt (fullført),
+// så hjemmet ikke kan forveksles med et utforsknings-mål på kartet.
+const HOME_COLOR = '#B5563C';
+const homeIcon = makeIcon(HOME_COLOR, '🏠', false, 40);
 
 const TYPE_LABELS: Record<string, string> = {
   // Steder & administrative
@@ -373,6 +376,7 @@ function Legend() {
       }}>
         Tegnforklaring
       </div>
+      <LegendRow color={HOME_COLOR} label="Hjem" marker="🏠" />
       <LegendRow color="#3B6FBC" label="Vil besøke" marker="★" />
     </div>
   );
@@ -645,6 +649,20 @@ export default function Kart() {
             {placingFor && (
               <MapClickCapture onClick={handlePick} />
             )}
+
+            {/* Hjem — Storgata 88. Permanent, uavhengig av showWantToVisit og
+                teller ikke med i «X på kartet»-oversikten (ikke et bucket-pin). */}
+            <Marker position={HOME_COORDS} icon={homeIcon}>
+              <Popup>
+                <div style={{ minWidth: 150 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+                    Hjem
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>Storgata 88</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>8006 Bodø</div>
+                </div>
+              </Popup>
+            </Marker>
 
             {/* Bucket markers — want to visit */}
             {showWantToVisit && pinnedActiveBuckets.map(b => {
