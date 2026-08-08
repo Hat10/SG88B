@@ -389,8 +389,13 @@ export default async function handler(_req: any, res: any) {
     if (r.status === 'fulfilled') events.push(...r.value);
   }
 
-  events.sort((a, b) => a.start.localeCompare(b.start));
+  // "Jobb" (arbeidstid) skal aldri vises i kalendervisningen — filtrert her,
+  // ett sted, så både Kalender-siden og Gangskjermen (som begge bare leser
+  // dette endepunktet) automatisk holder den skjult.
+  const filtered = events.filter(e => e.title.trim().toLowerCase() !== 'jobb');
+
+  filtered.sort((a, b) => a.start.localeCompare(b.start));
 
   res.setHeader('Cache-Control', 's-maxage=300');
-  res.json(events);
+  res.json(filtered);
 }
