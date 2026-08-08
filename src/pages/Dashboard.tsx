@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useHusGoal } from '../hooks/useHusGoal';
 import { useTodo } from '../contexts/TodoContext';
-import { useCountdown, type Countdown } from '../hooks/useCountdown';
+import { useCountdowns, type Countdown } from '../hooks/useCountdown';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWeeklyBucket } from '../hooks/useWeeklyBucket';
 import { Btn, fmtKr, Ico } from '../components';
@@ -278,26 +278,32 @@ function SavingsPanel({
 
 // ─── Countdown panel ─────────────────────────────────────────────────────────
 
-const EMPTY_COUNTDOWN: Countdown = { label: '', date: '' };
+const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 
+// Viser den nærmeste nedtellingen (items[0], listen er sortert på dato) — det
+// eneste Gangskjerm også viser foreløpig. Full liste administreres i
+// CountdownAdminSection under, ikke her.
 function CountdownPanel({ dark = false }: { dark?: boolean }) {
-  const { cd, save: saveCd, clear: clearCd, loading } = useCountdown();
+  const { items, loading, add, update, remove, restore } = useCountdowns();
+  const cd = items[0] ?? null;
   const { notify } = useSnackbar();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft]     = useState<Countdown>(cd ?? EMPTY_COUNTDOWN);
+  const [draft, setDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
 
-  useEffect(() => { if (!editing) setDraft(cd ?? EMPTY_COUNTDOWN); }, [cd, editing]);
+  useEffect(() => { if (!editing) setDraft(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT); }, [cd, editing]);
 
   const save = () => {
     if (!draft.label.trim() || !draft.date) return;
-    saveCd({ label: draft.label.trim(), date: draft.date });
+    if (cd) void update(cd.id, { label: draft.label.trim(), date: draft.date });
+    else void add({ label: draft.label.trim(), date: draft.date });
     setEditing(false);
   };
 
-  const remove = () => {
+  const handleRemove = () => {
+    if (!cd) return;
     const prev = cd;
-    void clearCd();
-    if (prev) notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void saveCd(prev) });
+    void remove(cd.id);
+    notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restore(prev) });
   };
 
   const days = cd ? daysUntil(cd.date) : 0;
@@ -316,8 +322,8 @@ function CountdownPanel({ dark = false }: { dark?: boolean }) {
         </div>
         {cd && (
           <div style={{ display: 'flex', gap: 2 }}>
-            <button onClick={() => { setDraft(cd); setEditing(e => !e); }} style={btnStyle} aria-label="Rediger nedtelling">✎</button>
-            <button onClick={remove} style={btnStyle} aria-label="Fjern nedtelling">×</button>
+            <button onClick={() => { setDraft({ label: cd.label, date: cd.date }); setEditing(e => !e); }} style={btnStyle} aria-label="Rediger nedtelling">✎</button>
+            <button onClick={handleRemove} style={btnStyle} aria-label="Fjern nedtelling">×</button>
           </div>
         )}
       </div>
@@ -343,7 +349,7 @@ function CountdownPanel({ dark = false }: { dark?: boolean }) {
           </>
         ) : (
           <button
-            onClick={() => { setDraft(EMPTY_COUNTDOWN); setEditing(true); }}
+            onClick={() => { setDraft(EMPTY_COUNTDOWN_DRAFT); setEditing(true); }}
             style={{
               background: 'transparent', cursor: 'pointer', textAlign: 'left',
               border: `1px dashed ${textSecondary}`, borderRadius: 6, padding: '10px 12px',
@@ -373,6 +379,96 @@ function CountdownPanel({ dark = false }: { dark?: boolean }) {
             <Btn primary onClick={save} style={{ flex: 1 }}>Lagre</Btn>
             <Btn ghost onClick={() => setEditing(false)} style={{ flex: 1 }}>Avbryt</Btn>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Full liste-administrasjon (legg til/rediger/fjern flere) — CountdownPanel over
+// viser og redigerer kun items[0]. Samme «Administrer»-fold-ut-mønster som
+// StapleManager på Middag-siden (src/pages/middag/HandlelisteCard.tsx).
+function CountdownAdminSection() {
+  const { items, loading, add, update, remove, restore } = useCountdowns();
+  const { notify } = useSnackbar();
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState(EMPTY_COUNTDOWN_DRAFT);
+
+  const iconBtn: React.CSSProperties = {
+    background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
+    cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)', flexShrink: 0,
+    minWidth: 30, minHeight: 30, display: 'grid', placeItems: 'center',
+  };
+
+  const cancel = () => { setEditingId(null); setAdding(false); };
+  const startEdit = (c: Countdown) => { setDraft({ label: c.label, date: c.date }); setEditingId(c.id); setAdding(false); };
+  const startAdd = () => { setDraft(EMPTY_COUNTDOWN_DRAFT); setAdding(true); setEditingId(null); };
+
+  const save = async () => {
+    if (!draft.label.trim() || !draft.date) return;
+    if (editingId) await update(editingId, { label: draft.label.trim(), date: draft.date });
+    else await add({ label: draft.label.trim(), date: draft.date });
+    cancel();
+  };
+
+  const handleRemove = async (c: Countdown) => {
+    if (editingId === c.id) cancel();
+    await remove(c.id);
+    notify(`«${c.label}» fjernet`, { actionLabel: 'Angre', onAction: () => void restore(c) });
+  };
+
+  const editForm = (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8 }}>
+      <input className="input" placeholder="Hva teller vi ned til?" value={draft.label} autoFocus
+        onChange={e => setDraft(d => ({ ...d, label: e.target.value }))}
+        onKeyDown={e => e.key === 'Enter' && void save()}
+        style={{ flex: '1 1 140px', minWidth: 0 }} />
+      <input className="input" type="date" value={draft.date}
+        onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} style={{ flex: '0 0 auto' }} />
+      <button onClick={() => void save()} className="btn primary sm">Lagre</button>
+      <button onClick={cancel} className="btn ghost sm">Avbryt</button>
+    </div>
+  );
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div className="card-head">
+        <div className="col" style={{ gap: 4 }}>
+          <div className="card-eyebrow">Gangskjerm & Hjem</div>
+          <h3 className="card-title">Nedtellinger</h3>
+        </div>
+        <button onClick={() => setOpen(o => !o)} className="btn ghost sm">{open ? 'Skjul' : 'Administrer'}</button>
+      </div>
+
+      {!open && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>
+          {items.length === 0 ? 'Ingen nedtellinger ennå' : `${items.length} nedtelling${items.length === 1 ? '' : 'er'} · nærmest: ${items[0].label}`}
+        </div>
+      )}
+
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {loading && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>…</div>}
+          {items.map(c => editingId === c.id ? (
+            <div key={c.id}>{editForm}</div>
+          ) : (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 13, color: 'var(--ink)' }}>{c.label}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', marginLeft: 8 }}>
+                  {Math.max(0, daysUntil(c.date))} dager · {new Date(c.date + 'T12:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </span>
+              </div>
+              <button onClick={() => startEdit(c)} aria-label={`Rediger «${c.label}»`} style={iconBtn}>✎</button>
+              <button onClick={() => void handleRemove(c)} aria-label={`Fjern «${c.label}»`} style={iconBtn}>×</button>
+            </div>
+          ))}
+
+          {adding ? editForm : (
+            <button onClick={startAdd} className="btn ghost sm" style={{ alignSelf: 'flex-start' }}>+ Legg til nedtelling</button>
+          )}
         </div>
       )}
     </div>
@@ -701,7 +797,8 @@ export default function PageDashboard() {
   const { finance }     = useFinance();
   const { goal: houseGoalFromDB } = useHusGoal();
   const { items: todos, toggleItem } = useTodo();
-  const { cd } = useCountdown();
+  const { items: countdowns } = useCountdowns();
+  const cd = countdowns[0] ?? null;
   const { params: bpParams } = useBuyingPowerParams();
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [winW, setWinW] = useState(window.innerWidth);
@@ -835,6 +932,9 @@ export default function PageDashboard() {
           <TodoSection todos={todos} onToggle={toggleItem} />
         </div>
 
+        {/* Nedtellinger — administrasjon (Gangskjerm viser bare den nærmeste) */}
+        <CountdownAdminSection />
+
       </div>
     );
   }
@@ -928,6 +1028,11 @@ export default function PageDashboard() {
       {/* Gjøremål */}
       <div className="col-5">
         <TodoSection todos={todos} onToggle={toggleItem} />
+      </div>
+
+      {/* Nedtellinger — administrasjon (Gangskjerm viser bare den nærmeste) */}
+      <div className="col-12">
+        <CountdownAdminSection />
       </div>
 
     </div>

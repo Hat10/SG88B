@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 import { useScrollLock } from './lib/useScrollLock';
 import { Couple } from './components';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useSnackbar } from './contexts/SnackbarContext';
 import { FinanceProvider } from './contexts/FinanceContext';
 import { CategoryProvider } from './contexts/CategoryContext';
@@ -351,14 +352,14 @@ function Page({ route }: { route: Exclude<Route, 'skjerm'> }) {
           </div>
         </div>
         <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-          <Suspense fallback={<PageFallback />}><Body /></Suspense>
+          <Suspense fallback={<PageFallback />}><ErrorBoundary label={route}><Body /></ErrorBoundary></Suspense>
         </div>
       </div>
     );
   }
 
   if (HEADLESS_ROUTES.includes(route)) {
-    return <div className="page" key={route}><Suspense fallback={<PageFallback />}><Body /></Suspense></div>;
+    return <div className="page" key={route}><Suspense fallback={<PageFallback />}><ErrorBoundary label={route}><Body /></ErrorBoundary></Suspense></div>;
   }
 
   return (
@@ -370,7 +371,7 @@ function Page({ route }: { route: Exclude<Route, 'skjerm'> }) {
           <div className="page-sub" style={{ marginTop: 8 }}>{sub}</div>
         </div>
       </div>
-      <Suspense fallback={<PageFallback />}><Body /></Suspense>
+      <Suspense fallback={<PageFallback />}><ErrorBoundary label={route}><Body /></ErrorBoundary></Suspense>
     </div>
   );
 }
@@ -440,7 +441,7 @@ function AppInner() {
   if (!session) return <PageLogin />;
 
   const inner = route === 'skjerm'
-    ? <Suspense fallback={null}><PageSkjerm onBack={() => setRoute('home')} /></Suspense>
+    ? <Suspense fallback={null}><ErrorBoundary label="skjerm"><PageSkjerm onBack={() => setRoute('home')} /></ErrorBoundary></Suspense>
     : (
       <div className="app">
         {(sidebarOpen || dragX !== null) && (

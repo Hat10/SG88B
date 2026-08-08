@@ -896,6 +896,40 @@ details[open] > summary::before { content: "−"; }
   100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.2); opacity: 0; }
 }
 
+/* Rain: falls from -20px to below the viewport (--fall), with a slower ease-in
+   (gravity-like acceleration) than confetti-fly's snappy burst-outward ease. */
+@keyframes confetti-rain {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translate(var(--drift), var(--fall)) rotate(var(--rot)); opacity: 0; }
+}
+
+/* fireworkRain() — three keyframes for its two phases:
+   1. confetti-rocket: launch streak travels from the origin (e.g. a checkbox)
+      up and outward, ease-out (decelerating, like losing launch velocity).
+      Rotation is baked into the transform (not the static style) since an
+      animated `transform` fully overrides any inline transform.
+   2. confetti-pop: once a rocket peaks, a small ease-out burst outward —
+      stays fully opaque so there's no visible gap before the fall picks up.
+   3. confetti-fall-from: continues from the pop's end position (--pop-dx/dy)
+      out to --fall-x/--fall-y, ease-in (gravity), fading near the end. Kept
+      separate from confetti-rain because that one always starts at (0,0);
+      this one needs a variable, non-zero starting offset. */
+@keyframes confetti-rocket {
+  0%   { transform: translate(0, 0) rotate(var(--rocket-rot)); opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translate(var(--rocket-dx), var(--rocket-dy)) rotate(var(--rocket-rot)); opacity: 0.7; }
+}
+@keyframes confetti-pop {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--pop-dx), var(--pop-dy)) rotate(calc(var(--rot) * 0.3)); opacity: 1; }
+}
+@keyframes confetti-fall-from {
+  0%   { transform: translate(var(--pop-dx), var(--pop-dy)) rotate(calc(var(--rot) * 0.3)); opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translate(var(--fall-x), var(--fall-y)) rotate(var(--rot)); opacity: 0; }
+}
+
 /* ───── Trening ─────
    Alt her er prefikset .tr- fordi et par av navnene (cal-cell, chip) allerede
    er tatt av kalenderen og fargetokens. */

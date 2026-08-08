@@ -1,34 +1,22 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useFinance } from '../contexts/FinanceContext';
-import { useHusGoal } from '../hooks/useHusGoal';
-import { useTodo } from '../contexts/TodoContext';
+import { useState, useEffect } from 'react';
+import { useTodo, type Priority } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
-import { useWeeklyBucket } from '../hooks/useWeeklyBucket';
 import { useWish } from '../contexts/WishContext';
-import { useCountdown, type Countdown } from '../hooks/useCountdown';
-import { useTrening } from '../contexts/TreningContext';
-import { computePulse } from '../lib/treningPulse';
-import { fmtKr } from '../components';
-import { burst } from '../confetti';
+import { useCountdowns } from '../hooks/useCountdown';
+import { useMatplan } from '../contexts/MatplanContext';
+import { groupByNameUnit } from './middag/HandlelisteCard';
+import { fireworkRain } from '../confetti';
 import type { CalEvent } from '../../api/kalender';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-const NO_DAYS_SHORT   = ['søn','man','tir','ons','tor','fre','lør'];
-const EMPTY_COUNTDOWN: Countdown = { label: '', date: '' };
+const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 
 interface HourlyEntry { hour: number; temp: number; precip: number; category: string; }
 
 interface WasteType { name: string; category: 'plast' | 'mat' | 'papir' | 'rest' | 'glass' | 'hage' | 'annet'; }
 interface Pickup { date: string; weekday: string; dateLabel: string; types: WasteType[]; }
 interface TommeplanData { address: string; pickups: Pickup[]; updatedAt: string; }
-
-const WASTE_COLOR: Record<WasteType['category'], string> = {
-  plast: '#C0392B', mat: '#8B5E3C', papir: '#4A80C4', rest: '#5B6B7A', glass: '#2F8F5B', hage: '#3F7D32', annet: '#6C7A8C',
-};
-const WASTE_ICON: Record<WasteType['category'], string> = {
-  plast: '♻️', mat: '🍂', papir: '📦', rest: '🗑️', glass: '🍾', hage: '🌿', annet: '🗑️',
-};
 
 type AuroraChance = 'lav' | 'middels' | 'høy';
 interface AuroraData { kp: number; kpTime: string; cloudCover: number; probability: AuroraChance; updatedAt: string; }
@@ -376,6 +364,7 @@ const SOURCE_COLOR: Record<string, string> = {
 const PRIORITY_COLOR: Record<string, string> = {
   høy: '#C0392B', middels: '#C9963A', lav: 'var(--ink-4)',
 };
+const PRIORITY_ORDER: Record<Priority, number> = { høy: 0, middels: 1, lav: 2 };
 const SOURCE_LABEL: Record<string, string> = {
   andreas: 'Andreas', taran: 'Taran', felles: 'Felles', todo: 'Gjøremål',
 };
@@ -384,7 +373,6 @@ function localIso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function todayStr()    { return localIso(new Date()); }
-function tomorrowStr() { const d = new Date(); d.setDate(d.getDate()+1); return localIso(d); }
 
 function daysUntil(iso: string): number {
   const t = new Date(); t.setHours(0,0,0,0);
@@ -398,15 +386,6 @@ function fmtOverdue(iso: string): string {
   if (n === 0) return 'i dag';
   const days = Math.abs(n);
   return `${days} dag${days === 1 ? '' : 'er'} siden`;
-}
-
-function fmtEventDate(iso: string): string {
-  const t = todayStr(), tm = tomorrowStr();
-  if (iso === t)  return 'I dag';
-  if (iso === tm) return 'I morgen';
-  const [,,d] = iso.split('-').map(Number);
-  const dt = new Date(iso);
-  return `${NO_DAYS_SHORT[dt.getDay()].toUpperCase()} ${d < 10 ? '0'+d : d}`;
 }
 
 function fmtTime(iso: string): string {
@@ -452,7 +431,6 @@ function ScreenCheck({ checked, onClick, label }: {
 }
 
 export default function PageSkjerm({ onBack }: Props) {
-  const { finance }    = useFinance();
   const { items: todos, toggleItem, updateItem } = useTodo();
   const { notify } = useSnackbar();
   // Todos completed on the screen: briefly show the check + confetti before the
@@ -460,8 +438,11 @@ export default function PageSkjerm({ onBack }: Props) {
   // then offer an undo — just like deleting things elsewhere.
   const [completingTodos, setCompletingTodos] = useState<Set<string>>(new Set());
   const completeTodo = (todoId: string, title: string, el: HTMLElement) => {
+    // Gangskjerm er ment å sees på tvers av rommet — raketter fra
+    // avkrysningsboksen som eksploderer og regner ned, ikke en liten smell
+    // på stedet.
     const r = el.getBoundingClientRect();
-    burst(r.left + r.width / 2, r.top + r.height / 2);
+    fireworkRain(r.left + r.width / 2, r.top + r.height / 2);
     setCompletingTodos(s => new Set(s).add(todoId));
     window.setTimeout(async () => {
       await toggleItem(todoId, false); // shown todos are always not-done
@@ -486,9 +467,8 @@ export default function PageSkjerm({ onBack }: Props) {
     await updateItem(editingTodo, { title, deadline: todoDraft.deadline });
     setEditingTodo(null);
   };
-  const { goal: husGoal } = useHusGoal();
-  const { item: weeklyBucketReminder } = useWeeklyBucket();
   const { items: wishItems } = useWish();
+  const { mealPlan, recipes, groceryItems, toggleGroceryItem } = useMatplan();
   const [now, setNow]  = useState(new Date());
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [weather, setWeather]    = useState<WeatherData | null>(null);
@@ -497,23 +477,10 @@ export default function PageSkjerm({ onBack }: Props) {
   const [tommeplanError, setTommeplanError] = useState(false);
   const [aurora, setAurora]           = useState<AuroraData | null>(null);
   const [auroraError, setAuroraError] = useState(false);
-  const { cd, save: saveCd, clear: clearCd, loading: cdLoading } = useCountdown();
-  // Trend-meldingen fra Trening → Statistikk. Dataene er allerede live via
-  // TreningProvider (skjermen ligger inni den); `now` tikker hvert sekund, så vi
-  // memoiserer på minutt-grovhet — nok til at tidsavhengige regler («X dager
-  // siden», «det er torsdag») blir aktuelle av seg selv uten refresh.
-  const { sessions: trSessions, records: trRecords, goals: trGoals, categories: trCategories } = useTrening();
-  const trCatGroups = useMemo(
-    () => Object.fromEntries(trCategories.filter(c => !c.archived).map(c => [c.name, c.groups])),
-    [trCategories]);
-  const minuteBucket = Math.floor(now.getTime() / 60000);
-  const treningPulse = useMemo(
-    () => computePulse(trSessions, trRecords, trGoals, trCatGroups),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [trSessions, trRecords, trGoals, trCatGroups, minuteBucket],
-  );
+  const { items: countdowns, add: addCd, update: updateCd, remove: removeCd, restore: restoreCd, loading: cdLoading } = useCountdowns();
+  const cd = countdowns[0] ?? null;
   const [cdEditing, setCdEditing] = useState(false);
-  const [cdDraft, setCdDraft]     = useState<Countdown>(cd ?? EMPTY_COUNTDOWN);
+  const [cdDraft, setCdDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
   const [winW, setWinW] = useState(() => window.innerWidth);
   const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>(() => {
     const w = window.innerWidth;
@@ -522,7 +489,7 @@ export default function PageSkjerm({ onBack }: Props) {
     return 'desktop';  // Only true desktops at 1400px+
   });
 
-  useEffect(() => { if (!cdEditing) setCdDraft(cd ?? EMPTY_COUNTDOWN); }, [cd, cdEditing]);
+  useEffect(() => { if (!cdEditing) setCdDraft(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT); }, [cd, cdEditing]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -605,101 +572,89 @@ export default function PageSkjerm({ onBack }: Props) {
 
   const handleSaveCd = () => {
     if (!cdDraft.label.trim() || !cdDraft.date) return;
-    saveCd({ label: cdDraft.label.trim(), date: cdDraft.date });
+    if (cd) void updateCd(cd.id, { label: cdDraft.label.trim(), date: cdDraft.date });
+    else void addCd({ label: cdDraft.label.trim(), date: cdDraft.date });
     setCdEditing(false);
   };
 
   const handleRemoveCd = () => {
+    if (!cd) return;
     const prev = cd;
-    void clearCd();
-    if (prev) notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void saveCd(prev) });
+    void removeCd(cd.id);
+    notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(prev) });
   };
 
   const today = todayStr();
   const WHO: Record<string, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
 
-  const todoEvents: AnyEvent[] = todos
-    .filter(t => !t.done && t.deadline)
+  // Gangskjerm viser nå kun i dag for kalenderhendelser — ikke kommende dager.
+  const todayCalEvents: AnyEvent[] = calEvents
+    .map(e => ({ ...e, source: e.source as string, overdueSince: undefined as string | undefined }))
+    .filter(e => e.start.slice(0, 10) === today)
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+  // Gjøremål-boksen viser derimot ALLE aktive gjøremål, ikke bare dagens —
+  // fjernet datofilteret fra forrige økt. Inkluderer også gjøremål uten
+  // deadline (todoEvents/AnyEvent var kalender-hendelse-formet og krevde en
+  // dato, så dette er en egen, enklere liste bygget direkte fra todos).
+  interface TodoRow {
+    todoId: string; title: string; color: string; who?: string;
+    time?: string; overdueSince?: string; priority: Priority; deadline?: string;
+  }
+  const activeTodoRows: TodoRow[] = todos
+    .filter(t => !t.done)
     .map(t => {
-      // Overdue if the DB already rolled the deadline forward (overdue_days > 0),
-      // the deadline date is past (catches the rollover the instant midnight passes,
-      // without waiting for the cron ≈01:05), OR it has a time today that has already
-      // passed — so timed todos stay (red) instead of vanishing the moment their time ticks by.
-      const overdue = t.overdue_days > 0
-        || t.deadline! < today
-        || (!!t.time && new Date(`${t.deadline}T${t.time}:00`) < now);
-      const timed   = !!t.time && !overdue;
-      const start   = overdue ? today : timed ? `${t.deadline}T${t.time}:00` : t.deadline!;
-      // Original due date is invariant under rollover: deadline - overdue_days.
-      // Don't derive it from `today`: between local midnight and the cron (≈01:05 Oslo)
-      // the stored overdue_days is still yesterday's count, so `today - overdue_days`
-      // under-reports by a day and ties the sort (pushing newly-overdue items above
-      // ones that have been overdue longer).
+      // Samme «forfalt»-logikk som før — bare uten kravet om at deadline er i dag.
+      const overdue = !!t.deadline && (
+        t.overdue_days > 0
+        || t.deadline < today
+        || (!!t.time && new Date(`${t.deadline}T${t.time}:00`) < now)
+      );
       const overdueSince = !overdue ? undefined : (() => {
         const d = new Date(t.deadline! + 'T00:00:00');
         d.setDate(d.getDate() - t.overdue_days);
         return localIso(d);
       })();
       return {
-        id: `todo-${t.id}`, title: t.title, start,
-        allDay: overdue || !timed, source: 'todo',
+        todoId: t.id, title: t.title,
         color: PRIORITY_COLOR[t.priority] ?? SOURCE_COLOR.todo,
         who: t.who !== 'f' ? WHO[t.who] : undefined,
-        overdueSince, todoId: t.id,
+        time: (!overdue && t.time) ? t.time : undefined,
+        overdueSince, priority: t.priority, deadline: t.deadline,
       };
+    })
+    .sort((a, b) => {
+      const aOvd = a.overdueSince ? 1 : 0;
+      const bOvd = b.overdueSince ? 1 : 0;
+      if (aOvd !== bOvd) return bOvd - aOvd;
+      // Among overdue todos: longest overdue (earliest original deadline) first
+      if (aOvd && bOvd) return a.overdueSince!.localeCompare(b.overdueSince!);
+      // Otherwise: priority first, then soonest deadline, undated last
+      const pOrder = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+      if (pOrder !== 0) return pOrder;
+      if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline) || (a.time ?? '').localeCompare(b.time ?? '');
+      if (a.deadline) return -1;
+      if (b.deadline) return 1;
+      return a.title.localeCompare(b.title);
     });
 
-  const allEvents: AnyEvent[] = [
-    ...calEvents.map(e => ({ ...e, source: e.source as string, overdueSince: undefined as string | undefined })),
-    ...todoEvents,
-  ].filter(e => {
-    const d = e.start.slice(0,10);
-    if (d < today) return false;
-    // Keep timed events visible until they finish, not just until they start.
-    // Events without an end (e.g. todos) fall back to their start time.
-    if (!e.allDay) return new Date(e.end ?? e.start) > new Date();
-    return true;
-  })
-   .sort((a, b) => {
-     const aOvd = a.source === 'todo' && !!a.overdueSince ? 1 : 0;
-     const bOvd = b.source === 'todo' && !!b.overdueSince ? 1 : 0;
-     if (aOvd !== bOvd) return bOvd - aOvd;
-     // Among overdue todos: longest overdue (earliest original deadline) first
-     if (aOvd && bOvd) return a.overdueSince!.localeCompare(b.overdueSince!);
-     return new Date(a.start).getTime() - new Date(b.start).getTime();
-   });
+  // Dagens middag — fra Middagsplanleggerens ukeplan (MatplanContext).
+  const todayMealPlan = mealPlan.find(mp => mp.date === today);
+  const todayRecipe   = todayMealPlan ? recipes.find(r => r.id === todayMealPlan.recipeId) : undefined;
 
-  const bpHistory = finance.M.map((em, i) => {
-    const el      = finance.L.length > 0 ? finance.L[Math.min(i, finance.L.length - 1)] : null;
-    const equity  = (em.assets - em.boligLaan) + (el ? el.assets - el.boligLaan : 0);
-    const annual  = em.salary + (el ? el.salary : 0);
-    const maxLoan = Math.max(0, annual * 5 - (em.annetLaan + (el ? el.annetLaan : 0)));
-    return { m: em.month, v: equity + maxLoan };
-  });
-  const bpCurrent    = bpHistory.length ? bpHistory[bpHistory.length - 1].v : 0;
-  // undefined (not 0) when there isn't enough logged history — the tiles render "—" so a real
-  // zero-change period reads differently from "we don't have the data yet".
-  const bpLastMonth  = bpHistory.length >= 2  ? bpCurrent - bpHistory[bpHistory.length - 2].v  : undefined;
-  const bpLastYear   = bpHistory.length >= 13 ? bpCurrent - bpHistory[bpHistory.length - 13].v : undefined;
-  const bpSinceStart = bpHistory.length >= 2  ? bpCurrent - bpHistory[0].v : undefined;
-  const bpRemaining  = Math.max(0, husGoal - bpCurrent);
-
-  const lastM = finance.M[finance.M.length - 1];
-  const lastL = finance.L[finance.L.length - 1];
-  const bpEquity   = lastM && lastL ? (lastM.assets - lastM.boligLaan) + (lastL.assets - lastL.boligLaan) : 0;
-  const bpLoanCap  = bpCurrent - bpEquity;
-
-  // Positiv formue (net worth) = eiendeler − boliglån − annet lån. Shown as its own "utvikling"
-  // next to kjøpekraft so the screen tracks real formuesvekst, not just låne­kapasitet.
-  const nwHistory = finance.M.map((em, i) => {
-    const el = finance.L.length > 0 ? finance.L[Math.min(i, finance.L.length - 1)] : null;
-    const nw = (em.assets - em.boligLaan - em.annetLaan) + (el ? el.assets - el.boligLaan - el.annetLaan : 0);
-    return { m: em.month, v: nw };
-  });
-  const nwCurrent    = nwHistory.length ? nwHistory[nwHistory.length - 1].v : 0;
-  const nwLastMonth  = nwHistory.length >= 2  ? nwCurrent - nwHistory[nwHistory.length - 2].v  : undefined;
-  const nwLastYear   = nwHistory.length >= 13 ? nwCurrent - nwHistory[nwHistory.length - 13].v : undefined;
-  const nwSinceStart = nwHistory.length >= 2  ? nwCurrent - nwHistory[0].v : undefined;
+  // Handleliste-forhåndsvisning — samme grupperingslogikk som HandlelisteCard
+  // (src/pages/middag/HandlelisteCard.tsx) bruker, gjenbrukt her via
+  // groupByNameUnit så middag-ingredienser fra flere planlagte middager denne
+  // uken vises som én rad, ikke duplisert. Kun ukjøpte varer, ingen +/- eller
+  // legg-til her — dette er et utdrag, full redigering skjer på Handleliste-siden.
+  const previewFreeform = groceryItems.filter(g => !g.mealPlanId && !g.stapleItemId && !g.done);
+  const previewMeals    = groupByNameUnit(groceryItems.filter(g => g.mealPlanId && !g.done));
+  const previewStaples  = groceryItems.filter(g => g.stapleItemId && !g.done);
+  const previewRows: { key: string; name: string; amount: number | null; unit: string | null; approx?: boolean; toggle: () => void }[] = [
+    ...previewFreeform.map(g => ({ key: g.id, name: g.name, amount: g.amount, unit: g.unit, toggle: () => void toggleGroceryItem(g.id) })),
+    ...previewMeals.map(group => ({ key: group.key, name: group.name, amount: group.amount, unit: group.unit, approx: group.approx, toggle: () => group.ids.forEach(id => void toggleGroceryItem(id)) })),
+    ...previewStaples.map(g => ({ key: g.id, name: g.name, amount: g.amount, unit: g.unit, toggle: () => void toggleGroceryItem(g.id) })),
+  ];
 
   const timeStr = now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
   const secStr  = now.toLocaleTimeString('nb-NO', { second: '2-digit' }).replace(/.*:/, '');
@@ -783,7 +738,7 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 1: Clock · Weather · Countdown · Fact ── (compact — natural height, no stretch) */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.1fr 1.3fr 0.6fr 0.6fr 0.6fr 0.6fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.1fr 1.3fr 0.7fr 0.7fr 0.7fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Clock */}
         <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, padding: screenSize === 'tablet' ? '12px 16px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 4 : 8, position: 'relative', overflow: 'hidden' }}>
@@ -936,7 +891,7 @@ export default function PageSkjerm({ onBack }: Props) {
             <div style={eyebrow}>Nedtelling</div>
             {cd && (
               <div style={{ display: 'flex', gap: 2 }}>
-                <button onClick={() => { setCdDraft(cd); setCdEditing(e => !e); }}
+                <button onClick={() => { setCdDraft({ label: cd.label, date: cd.date }); setCdEditing(e => !e); }}
                   aria-label="Rediger nedtelling"
                   style={{ background:'transparent', border:0, cursor:'pointer', color:'var(--ink-4)', fontSize: 16, padding:'2px 4px', lineHeight:1 }}>✎</button>
                 <button onClick={handleRemoveCd}
@@ -966,7 +921,7 @@ export default function PageSkjerm({ onBack }: Props) {
               </>
             ) : (
               <button
-                onClick={() => { setCdDraft(EMPTY_COUNTDOWN); setCdEditing(true); }}
+                onClick={() => { setCdDraft(EMPTY_COUNTDOWN_DRAFT); setCdEditing(true); }}
                 style={{
                   background: 'transparent', cursor: 'pointer', textAlign: 'left',
                   border: '1px dashed var(--ink-4)', borderRadius: 6, padding: '10px 12px',
@@ -989,55 +944,18 @@ export default function PageSkjerm({ onBack }: Props) {
           )}
         </div>
 
-        {/* Ting vi vil gjøre + trening-puls — samme kort-stil som resten av skjermen.
-            Øverst en tilfeldig «ting vi vil gjøre» (ukens, samme overalt), under den
-            trend-meldingen fra Trening → Statistikk. Begge live via realtime. */}
-        <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 12 : 16 }}>
-          {weeklyBucketReminder && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <div style={eyebrow}>🎯 Ting vi vil gjøre</div>
-              <div style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: screenSize === 'tablet' ? 18 : 22, lineHeight: 1.3, color: 'var(--ink)' }}>
-                {weeklyBucketReminder.title}
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
-                noe {weeklyBucketReminder.who === 'M' ? 'Andreas' : weeklyBucketReminder.who === 'L' ? 'Taran' : 'vi'} vil gjøre
-              </div>
-            </div>
-          )}
-
-          {weeklyBucketReminder && treningPulse && (
-            <div style={{ height: 1, background: 'var(--line)', flexShrink: 0 }} />
-          )}
-
-          {treningPulse && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: treningPulse.color, flexShrink: 0 }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <div style={{ ...eyebrow, fontSize: 12, color: treningPulse.color }}>🏋️ {treningPulse.from}</div>
-                <div style={{ fontSize: screenSize === 'tablet' ? 14 : 16, lineHeight: 1.35, color: 'var(--ink-2)' }}>
-                  {treningPulse.text}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!weeklyBucketReminder && !treningPulse && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
-              Ingen ting vi vil gjøre eller treningsdata ennå
-            </div>
-          )}
-        </div>
 
         {/* Tømmeplan — Iris Salten sin kalender for Storgata 88 H303, skrapet
             server-side (api/tommeplan.ts). Skraping er skjørt: hvis Iris endrer
             HTML-strukturen sin slutter parsingen å finne noe, og handleren
             svarer med en feil i stedet for tomme/gale data — boksen viser da
-            en enkel melding i stedet for å late som alt er i orden. */}
+            en enkel melding i stedet for å late som alt er i orden. Filtrert
+            til kun neste plast-tømming — matavfall/andre typer vises ikke her. */}
         <div style={{
           ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
           display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12,
         }}>
-          <div style={eyebrow}>🗑️ Tømmeplan</div>
+          <div style={eyebrow}>♻️ Neste plast</div>
 
           {tommeplanError && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Utilgjengelig akkurat nå</div>
@@ -1045,40 +963,16 @@ export default function PageSkjerm({ onBack }: Props) {
           {!tommeplanError && !tommeplan && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>…</div>
           )}
-          {!tommeplanError && tommeplan && tommeplan.pickups.length === 0 && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen kommende tømming funnet</div>
-          )}
 
-          {!tommeplanError && tommeplan && tommeplan.pickups.length > 0 && (() => {
-            const [next, ...rest] = tommeplan.pickups;
-            const upcoming = rest.slice(0, 3);
+          {!tommeplanError && tommeplan && (() => {
+            const nextPlast = tommeplan.pickups.find(p => p.types.some(t => t.category === 'plast'));
+            if (!nextPlast) return (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen kommende plasttømming funnet</div>
+            );
             return (
-              <>
-                <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}>
-                  {next.weekday} {next.dateLabel}
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {next.types.map(t => (
-                    <span key={t.name} style={{
-                      display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 20,
-                      background: `${WASTE_COLOR[t.category]}22`, border: `1px solid ${WASTE_COLOR[t.category]}55`,
-                      fontSize: 12, fontWeight: 600, color: WASTE_COLOR[t.category],
-                    }}>
-                      <span aria-hidden="true">{WASTE_ICON[t.category]}</span>{t.name}
-                    </span>
-                  ))}
-                </div>
-                {upcoming.length > 0 && (
-                  <div style={{ marginTop: 2, paddingTop: 8, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {upcoming.map(p => (
-                      <div key={p.date} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>
-                        <span>{p.weekday.slice(0, 3)} {p.dateLabel}</span>
-                        <span style={{ textAlign: 'right' }}>{p.types.map(t => t.name).join(' + ')}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
+              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}>
+                {nextPlast.weekday} {nextPlast.dateLabel}
+              </div>
             );
           })()}
         </div>
@@ -1114,35 +1008,76 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── Row 2: Calendar — grows to fill ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
+      {/* ── Row 2: Kalender (i dag) + Gjøremål (i dag) — grows to fill ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
-        {/* Calendar */}
+        {/* Kalender — kun i dag, ikke kommende dager */}
         <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={eyebrow}>Kalender</div>
+            <div style={eyebrow}>Kalender · i dag</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● LIVE</div>
           </div>
 
-          {allEvents.length === 0 ? (
+          {todayCalEvents.length === 0 ? (
             <div style={{ padding: '20px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>
-              Ingen kommende hendelser
+              Ingen hendelser i dag
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', ...(isTablet ? { flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : {}) }}>
-              {(isTablet ? allEvents : allEvents.slice(0, 6)).map((e, i) => {
-                const dateKey = e.start.slice(0,10);
-                const isT  = dateKey === today;
-                const isTm = dateKey === tomorrowStr();
-                const isTodo = e.source === 'todo' && !!e.todoId;
+              {todayCalEvents.map((e, i) => (
+                <div key={e.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '11px 10px',
+                  borderBottom: i < todayCalEvents.length - 1 ? '1px solid var(--line)' : '0',
+                  borderLeft: `3px solid ${e.color}`,
+                  background: 'rgba(120,120,120,0.08)',
+                  borderRadius: 4, marginBottom: 1,
+                }}>
+                  {!e.allDay && (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, flexShrink: 0, color: 'var(--ink-3)' }}>
+                      {fmtTime(e.start)}
+                    </span>
+                  )}
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {e.title}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: e.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.who ?? SOURCE_LABEL[e.source] ?? e.source}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-                // Inline editor — swaps in for this row while its todo is being edited.
-                if (isTodo && editingTodo === e.todoId) {
+        {/* Gjøremål — alle aktive (ikke bare dagens), med avkrysning + skjermbredt konfetti */}
+        <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={eyebrow}>✅ Gjøremål</div>
+            {activeTodoRows.length > 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>{activeTodoRows.length}</span>
+            )}
+          </div>
+
+          {activeTodoRows.length === 0 ? (
+            <div style={{ padding: '20px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>
+              Ingen aktive gjøremål
+            </div>
+          ) : (
+            <div style={{
+              display: 'flex', flexDirection: 'column',
+              overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch',
+              ...(isTablet
+                ? { flex: 1, minHeight: 0 }
+                : { maxHeight: screenSize === 'desktop' ? 320 : 260 }),
+            }}>
+              {activeTodoRows.map((row, i) => {
+                if (editingTodo === row.todoId) {
                   return (
-                    <div key={e.id} style={{
+                    <div key={row.todoId} style={{
                       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                       padding: '9px 10px', marginBottom: 1, borderRadius: 4,
-                      borderLeft: `${isT ? 3 : 2}px solid ${e.color}`,
+                      borderLeft: `3px solid ${row.color}`,
                       background: 'var(--surface-2)',
                     }}>
                       <input className="input" value={todoDraft.title} autoFocus
@@ -1161,58 +1096,35 @@ export default function PageSkjerm({ onBack }: Props) {
                 }
 
                 return (
-                  <div key={e.id} style={{
+                  <div key={row.todoId} style={{
                     display: 'flex', alignItems: 'center', gap: 14,
-                    padding: isT ? '13px 10px' : '9px 10px',
-                    borderBottom: i < allEvents.length-1 ? '1px solid var(--line)' : '0',
-                    borderLeft: `${isT ? 3 : 2}px solid ${e.color}`,
-                    background: e.source === 'todo' && e.overdueSince
-                      ? 'rgba(192,57,43,0.45)'
-                      : isT ? 'rgba(120,120,120,0.08)' : 'transparent',
-                    borderRadius: 4,
-                    marginBottom: 1,
-                    opacity: !isT && !isTm ? 0.65 : 1,
+                    padding: '11px 10px',
+                    borderBottom: i < activeTodoRows.length - 1 ? '1px solid var(--line)' : '0',
+                    borderLeft: `3px solid ${row.color}`,
+                    background: row.overdueSince ? 'rgba(192,57,43,0.45)' : 'rgba(120,120,120,0.08)',
+                    borderRadius: 4, marginBottom: 1,
                   }}>
-                    {isTodo ? (
-                      <ScreenCheck
-                        checked={completingTodos.has(e.todoId!)}
-                        onClick={(ev) => completeTodo(e.todoId!, e.title, ev.currentTarget)}
-                        label={`Fullfør «${e.title}»`}
-                      />
-                    ) : (
-                      <span style={{ width: 22, flexShrink: 0 }} aria-hidden="true" />
-                    )}
+                    <ScreenCheck
+                      checked={completingTodos.has(row.todoId)}
+                      onClick={(ev) => completeTodo(row.todoId, row.title, ev.currentTarget)}
+                      label={`Fullfør «${row.title}»`}
+                    />
                     <span
-                      onClick={isTodo ? () => startEditTodo(e.todoId!) : undefined}
-                      title={isTodo ? 'Trykk for å endre frist' : undefined}
+                      onClick={() => startEditTodo(row.todoId)}
+                      title="Trykk for å endre navn/frist"
                       style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: isT ? 700 : 500,
-                        flexShrink: 0, width: 76, letterSpacing: '0.04em',
-                        color: isT ? e.color : 'var(--ink-4)',
-                        cursor: isTodo ? 'pointer' : 'default',
-                      }}>{fmtEventDate(dateKey)}</span>
-                    <span
-                      onClick={isTodo ? () => startEditTodo(e.todoId!) : undefined}
-                      title={isTodo ? 'Trykk for å endre navn' : undefined}
-                      style={{
-                        flex: 1, minWidth: 0, fontSize: isT ? 20 : isTm ? 17 : 16,
-                        fontWeight: isT ? 700 : isTm ? 500 : 400,
+                        flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, cursor: 'pointer',
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        cursor: isTodo ? 'pointer' : 'default',
                       }}>
-                      {e.title}
+                      {row.title}
                     </span>
-                    {!e.allDay && (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, flexShrink: 0, color: isT ? 'var(--ink-3)' : 'var(--ink-4)' }}>
-                        {fmtTime(e.start)}
+                    {row.time && (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, flexShrink: 0, color: 'var(--ink-3)' }}>
+                        {row.time}
                       </span>
                     )}
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: e.color, flexShrink: 1, minWidth: 0, maxWidth: '46%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: isT ? 1 : 0.75 }}>
-                      {e.source === 'todo'
-                        ? e.overdueSince
-                          ? `Gjøremål · ${e.who ?? 'Felles'} · forfalt ${fmtOverdue(e.overdueSince)}`
-                          : `Gjøremål · ${e.who ?? 'Felles'}`
-                        : (e.who ?? SOURCE_LABEL[e.source] ?? e.source)}
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: row.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.overdueSince ? `${row.who ?? 'Felles'} · forfalt ${fmtOverdue(row.overdueSince)}` : (row.who ?? 'Felles')}
                     </span>
                   </div>
                 );
@@ -1222,99 +1134,57 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── Row 3: Kjøpekraft — full-width horizontal banner under Calendar ── */}
-      <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, minWidth: 0, ...(isTablet ? { flex: '0 0 auto' } : {}), padding: screenSize === 'tablet' ? '12px 18px' : screenSize === 'desktop' ? '18px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={eyebrowDark}>Kjøpekraft 🏡</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: screenSize === 'desktop' ? 32 : screenSize === 'tablet' ? 18 : 24, fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: '#E8EFF7' }}>{fmtKr(bpCurrent)}</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'rgba(207,224,239,0.4)' }}>/ {fmtKr(husGoal)}</span>
-            </div>
-          </div>
+      {/* ── Row 3: Dagens middag + Handleliste (Middagsplanleggeren) ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
-          <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
-            {bpEquity > 0 && <div style={{ width: (bpEquity / husGoal * 100) + '%', background: '#7AB394', transition: 'width 0.4s' }} />}
-            {bpLoanCap > 0 && <div style={{ width: (bpLoanCap / husGoal * 100) + '%', background: '#4A80C4', transition: 'width 0.4s' }} />}
-          </div>
-
-          <div style={{
-            flex: 1,
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr 1fr' : isNarrowTablet ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)',
-            gridTemplateRows: isNarrowTablet ? '1fr 1fr' : 'auto',
-            gap: 1,
-            background: 'rgba(255,255,255,0.06)',
-            borderRadius: 6,
-            overflow: 'hidden',
-          }}>
-            {(() => {
-              const tileStyle: React.CSSProperties = {
-                background: 'var(--ink-fixed)', display: 'flex', flexDirection: 'column',
-                justifyContent: 'center', padding: '10px 14px', gap: 5,
-              };
-              const labelStyle: React.CSSProperties = {
-                fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
-                color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em',
-              };
-              const deltaColor = (v: number | undefined) => v === undefined ? 'rgba(207,224,239,0.3)' : v > 0 ? '#7AB394' : v < 0 ? '#E07070' : 'rgba(207,224,239,0.6)';
-              const deltaStr   = (v: number | undefined) => v === undefined ? '—' : `${v > 0 ? '+' : ''}${fmtKr(v)}`;
-
-              const valueTiles = [
-                { label: 'Egenkapital',   v: bpEquity,    dot: '#7AB394' },
-                { label: 'Lånekapasitet', v: bpLoanCap,   dot: '#4A80C4' },
-                { label: 'Gjenstår',      v: bpRemaining, dot: 'rgba(207,224,239,0.25)' },
-              ];
-              // Each period shows both developments: buying power (🏡) and net worth / positiv formue (💰)
-              const deltaTiles = [
-                { label: 'Siste mnd',    bp: bpLastMonth,  nw: nwLastMonth  },
-                { label: 'Siste 12 mnd', bp: bpLastYear,   nw: nwLastYear   },
-                { label: 'Siden start',  bp: bpSinceStart, nw: nwSinceStart },
-              ];
-              return (
-                <>
-                  {valueTiles.map(({ label, v, dot }) => (
-                    <div key={label} style={tileStyle}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <div style={{ width: 6, height: 6, borderRadius: 1, background: dot, flexShrink: 0 }} />
-                        <span style={labelStyle}>{label}</span>
-                      </div>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: 'rgba(207,224,239,0.75)' }}>
-                        {fmtKr(v)}
-                      </span>
-                    </div>
-                  ))}
-                  {deltaTiles.map(({ label, bp, nw }) => (
-                    <div key={label} style={tileStyle}>
-                      <span style={labelStyle}>{label}</span>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        {([['🏡', 'Kjøpekraft', bp], ['💰', 'Formue', nw]] as const).map(([icon, name, v]) => (
-                          <div key={name} style={{
-                            display: 'flex',
-                            flexDirection: isMobile ? 'column' : 'row',
-                            alignItems: isMobile ? 'flex-start' : 'baseline',
-                            justifyContent: 'space-between', gap: isMobile ? 1 : 8,
-                          }}>
-                            <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
-                              <span style={{ fontSize: 11, flexShrink: 0 }} aria-hidden="true">{icon}</span>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.5)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
-                            </span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: deltaColor(v), whiteSpace: 'nowrap', flexShrink: 0 }}>
-                              {deltaStr(v)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </>
-              );
-            })()}
-          </div>
-
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', letterSpacing: '0.04em' }}>
-            <span>💰 «Formue» = positiv formue (eiendeler − all gjeld)</span>
-          </div>
+        {/* Dagens middag — fra ukeplanen (Middag → Ukeplan) */}
+        <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
+          <div style={eyebrow}>🍽️ Dagens middag</div>
+          {todayRecipe ? (
+            <>
+              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}>
+                {todayRecipe.name}
+              </div>
+              {todayRecipe.cookTimeMinutes != null && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>⏱ {todayRecipe.cookTimeMinutes} min</div>
+              )}
+            </>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen middag planlagt i dag</div>
+          )}
         </div>
+
+        {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
+        <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={eyebrow}>🛒 Handleliste</div>
+            {previewRows.length > 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>{previewRows.length} varer</span>
+            )}
+          </div>
+          {previewRows.length === 0 ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingenting på handlelisten</div>
+          ) : (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 8,
+              maxHeight: screenSize === 'tablet' ? 140 : screenSize === 'desktop' ? 220 : 180,
+              overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch',
+            }}>
+              {previewRows.map(r => (
+                <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <ScreenCheck checked={false} onClick={r.toggle} label={`Merk «${r.name}» som kjøpt`} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
+                  {(r.amount != null || r.unit) && (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)', flexShrink: 0 }}>
+                      {r.amount ?? ''}{r.approx ? '+' : ''} {r.unit ?? ''}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── Year ticker ── */}
       <div style={{ paddingTop: 4 }}>

@@ -707,6 +707,39 @@ alter publication supabase_realtime add table public.grocery_items;
 create index grocery_items_meal_plan_idx   on public.grocery_items (meal_plan_id);
 create index grocery_items_staple_item_idx on public.grocery_items (staple_item_id);
 
+-- [CONFIRMED] scripts/grocery-dedupe-migration.sql — lets syncGroceryList()
+-- (MatplanContext.tsx) rely on the database for idempotency (upsert +
+-- onConflict) instead of a client-side existence check, which wasn't safe
+-- against two clients running the sync at the same time. NULLs are never
+-- equal to each other in a unique index, so this doesn't block multiple
+-- freeform/meal rows with staple_item_id = null, or vice versa.
+create unique index grocery_items_meal_name_uidx on public.grocery_items (meal_plan_id, name);
+create unique index grocery_items_staple_uidx     on public.grocery_items (staple_item_id);
+
+
+-- ============================================================================
+-- DOMAIN: Nedtelling (useCountdowns, Dashboard.tsx, Skjerm.tsx)
+-- ============================================================================
+-- [CONFIRMED] scripts/countdowns-migration.sql — erstatter den gamle
+-- enkelt-verdien i settings (key='countdown', se SUPERSEDED under). En liste
+-- fordi Gangskjerm etter hvert skal la deg bla mellom flere nedtellinger
+-- (swipe — ikke bygget ennå); i dag vises/redigeres bare den nærmeste.
+
+create table public.countdowns (
+  id          uuid primary key default gen_random_uuid(),
+  label       text not null,
+  date        date not null,
+  created_at  timestamptz default now()
+);
+
+alter table public.countdowns enable row level security;
+create policy "authenticated_countdowns_all" on public.countdowns
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.countdowns to authenticated;
+alter publication supabase_realtime add table public.countdowns;
+
+create index countdowns_date_idx on public.countdowns (date);
+
 
 -- ============================================================================
 -- SUPERSEDED / OBSOLETE — do NOT create these; listed for historical context
@@ -745,6 +778,9 @@ create index grocery_items_staple_item_idx on public.grocery_items (staple_item_
 -- • categories, snapshots (scripts/portfolio-import.sql)
 --     — Orphaned portfolio-tracker tables, no longer read/written by any app
 --       code. Excluded from this reconstruction per your instruction.
+-- • settings key='countdown' (single {label,date} value)
+--     — replaced by the countdowns table (scripts/countdowns-migration.sql),
+--       which also migrates this row's data over before deleting it.
 
 
 -- ============================================================================

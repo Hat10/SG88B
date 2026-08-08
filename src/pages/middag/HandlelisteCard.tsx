@@ -14,19 +14,22 @@ const removeBtnStyle: React.CSSProperties = {
   minWidth: 32, minHeight: 32, display: 'grid', placeItems: 'center',
 };
 
-function GroceryRow({ item, onToggle, onRemove }: { item: GroceryItem; onToggle: () => void; onRemove: () => void }) {
+function GroceryRow({ name, amount, approx, unit, done, onToggle, onRemove }: {
+  name: string; amount: number | null; approx?: boolean; unit: string | null; done: boolean;
+  onToggle: () => void; onRemove: () => void;
+}) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-      background: item.done ? 'var(--surface-2)' : 'var(--bg)', border: '1px solid var(--line)', borderRadius: 6,
-      opacity: item.done ? 0.55 : 1,
+      background: done ? 'var(--surface-2)' : 'var(--bg)', border: '1px solid var(--line)', borderRadius: 6,
+      opacity: done ? 0.55 : 1,
     }}>
-      <Check on={item.done} onClick={onToggle} />
+      <Check on={done} onClick={onToggle} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 14, color: 'var(--ink)', textDecoration: item.done ? 'line-through' : 'none' }}>{item.name}</span>
-        {(item.amount != null || item.unit) && (
+        <span style={{ fontSize: 14, color: 'var(--ink)', textDecoration: done ? 'line-through' : 'none' }}>{name}</span>
+        {(amount != null || unit) && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>
-            {item.amount ?? ''} {item.unit ?? ''}
+            {amount ?? ''}{approx ? '+' : ''} {unit ?? ''}
           </span>
         )}
       </div>
@@ -66,14 +69,52 @@ function FreeGroceryRow({ item, onToggle, onDecrement, onIncrement, onRemove }: 
   );
 }
 
+export interface MergedGroup {
+  key: string;
+  name: string;
+  unit: string | null;
+  amount: number | null;
+  /** true når minst én rad i gruppen manglet mengde — summen er da et minimum, ikke eksakt. */
+  approx: boolean;
+  done: boolean;
+  ids: string[];
+}
+
+// Samme ingrediens (navn+enhet) fra flere planlagte middager denne uken skal
+// vises som ÉN rad med summert mengde, ikke én rad per middag — men radene i
+// databasen holdes fortsatt separate (én per meal_plan_id), så sporbarhet til
+// hvilken middag som trenger hva består, og fjernes en middag fra ukeplanen
+// forsvinner riktig kun DEN middagens bidrag (on delete cascade). Grupperingen
+// skjer derfor kun her, i visningslaget — se samtalen for hvorfor det er
+// tryggere enn å slå sammen ved innsetting.
+// Ulik enhet slås aldri sammen (nøkkelen inkluderer enheten), så «1 Liter» og
+// «500 ml» melk forblir to rader i stedet for feilaktig 501.
+export function groupByNameUnit(items: GroceryItem[]): MergedGroup[] {
+  const groups = new Map<string, MergedGroup>();
+  for (const g of items) {
+    const key = `${g.name.trim().toLowerCase()}|${(g.unit ?? '').trim().toLowerCase()}`;
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { key, name: g.name, unit: g.unit, amount: g.amount, approx: g.amount == null, done: g.done, ids: [g.id] });
+      continue;
+    }
+    existing.ids.push(g.id);
+    existing.done = existing.done && g.done;
+    if (g.amount == null) existing.approx = true;
+    else existing.amount = (existing.amount ?? 0) + g.amount;
+  }
+  return [...groups.values()];
+}
+
 export default function HandlelisteCard() {
   const { groceryItems, loading, syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem } = useMatplan();
   const [showDone, setShowDone] = useState(false);
   const [newItem, setNewItem] = useState('');
 
   // Genererer manglende rader (planlagte middager denne uken + forfalte
-  // basisvarer) én gang når dataene er klare — idempotent, rører aldri
-  // eksisterende rader. Kjører uansett hvilken side komponenten monteres på.
+  // basisvarer) én gang når dataene er klare — idempotent (databasen håndhever
+  // det, se syncGroceryList), rører aldri eksisterende avhukinger. Kjører
+  // uansett hvilken side komponenten monteres på.
   useEffect(() => {
     if (!loading) void syncGroceryList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,8 +138,10 @@ export default function HandlelisteCard() {
   const linked = groceryItems.filter(g => g.mealPlanId || g.stapleItemId);
   const active = linked.filter(g => !g.done);
   const done   = linked.filter(g => g.done);
-  const fromMeals = active.filter(g => g.mealPlanId);
-  const staples   = active.filter(g => g.stapleItemId);
+  const fromMeals     = groupByNameUnit(active.filter(g => g.mealPlanId));
+  const fromMealsDone = groupByNameUnit(done.filter(g => g.mealPlanId));
+  const staples     = active.filter(g => g.stapleItemId);
+  const staplesDone = done.filter(g => g.stapleItemId);
 
   return (
     <Card eyebrow="Dagligvarer" title="Handleliste">
@@ -138,8 +181,10 @@ export default function HandlelisteCard() {
         <div style={{ marginBottom: staples.length ? 16 : 0 }}>
           <div className="card-eyebrow" style={{ marginBottom: 8 }}>Fra ukens middager</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {fromMeals.map(g => (
-              <GroceryRow key={g.id} item={g} onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
+            {fromMeals.map(group => (
+              <GroceryRow key={group.key} name={group.name} amount={group.amount} approx={group.approx} unit={group.unit} done={group.done}
+                onToggle={() => group.ids.forEach(id => void toggleGroceryItem(id))}
+                onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))} />
             ))}
           </div>
         </div>
@@ -150,7 +195,8 @@ export default function HandlelisteCard() {
           <div className="card-eyebrow" style={{ marginBottom: 8 }}>Basisvarer</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {staples.map(g => (
-              <GroceryRow key={g.id} item={g} onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
+              <GroceryRow key={g.id} name={g.name} amount={g.amount} unit={g.unit} done={g.done}
+                onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
             ))}
           </div>
         </div>
@@ -160,12 +206,18 @@ export default function HandlelisteCard() {
         <div style={{ marginTop: active.length ? 16 : 0 }}>
           <button onClick={() => setShowDone(s => !s)}
             style={{ width: '100%', padding: '8px 0', background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
-            {showDone ? '↑ Skjul handlet' : `↓ Vis handlet (${done.length})`}
+            {showDone ? '↑ Skjul handlet' : `↓ Vis handlet (${fromMealsDone.length + staplesDone.length})`}
           </button>
           {showDone && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-              {done.map(g => (
-                <GroceryRow key={g.id} item={g} onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
+              {fromMealsDone.map(group => (
+                <GroceryRow key={group.key} name={group.name} amount={group.amount} approx={group.approx} unit={group.unit} done={group.done}
+                  onToggle={() => group.ids.forEach(id => void toggleGroceryItem(id))}
+                  onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))} />
+              ))}
+              {staplesDone.map(g => (
+                <GroceryRow key={g.id} name={g.name} amount={g.amount} unit={g.unit} done={g.done}
+                  onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
               ))}
             </div>
           )}

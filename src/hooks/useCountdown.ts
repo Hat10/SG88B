@@ -1,48 +1,62 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-export interface Countdown { label: string; date: string }
+export interface Countdown { id: string; label: string; date: string }
 
-const KEY = 'countdown';
+const fromRow = (r: Record<string, unknown>): Countdown => ({
+  id: r.id as string,
+  label: r.label as string,
+  date: r.date as string,
+});
 
-export function useCountdown() {
-  const [cd, setCd]       = useState<Countdown | null>(null);
+// Liste med nedtellinger — Dashboard.tsx har full CRUD (legg til/rediger/fjern
+// flere), Skjerm.tsx viser foreløpig bare items[0] (nærmeste dato). Swipe
+// mellom flere på Gangskjerm er ikke bygget ennå.
+export function useCountdowns() {
+  const [items, setItems]     = useState<Countdown[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    supabase
-      .from('settings')
-      .select('value')
-      .eq('key', KEY)
-      .maybeSingle()
-      .then(({ data }) => {
-        setCd((data?.value as Countdown | undefined) ?? null);
-        setLoading(false);
-      });
+  const load = async () => {
+    const { data } = await supabase.from('countdowns').select('*').order('date', { ascending: true });
+    setItems(data ? data.map(fromRow) : []);
+  };
 
+  useEffect(() => {
+    (async () => { await load(); setLoading(false); })();
+
+    // Random suffix — this is a bare hook, not a context, so every component
+    // that calls it (Dashboard.tsx alone has 2-3 at once: CountdownPanel +
+    // CountdownAdminSection) gets its own channel. A shared static name here
+    // made the second .on() call land on a channel the first instance had
+    // already subscribed, which throws. See src/hooks/useHusGoal.ts for the
+    // same pattern.
     const channel = supabase
-      .channel(`countdown_${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `key=eq.${KEY}` }, ({ new: row }) => {
-        const r = row as { value?: Countdown } | undefined;
-        setCd(r?.value ?? null);
-      })
+      .channel(`countdowns_${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'countdowns' }, () => { load(); })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const save = async (next: Countdown) => {
-    setCd(next);
-    await supabase
-      .from('settings')
-      .upsert({ key: KEY, value: next }, { onConflict: 'key' });
+  const add = async (c: { label: string; date: string }) => {
+    await supabase.from('countdowns').insert({ label: c.label, date: c.date });
+    await load();
   };
 
-  /** Fjerner nedtellingen helt — ingen rad igjen i settings før en ny lagres. */
-  const clear = async () => {
-    setCd(null);
-    await supabase.from('settings').delete().eq('key', KEY);
+  const update = async (id: string, patch: { label: string; date: string }) => {
+    await supabase.from('countdowns').update({ label: patch.label, date: patch.date }).eq('id', id);
+    await load();
   };
 
-  return { cd, save, clear, loading };
+  const remove = async (id: string) => {
+    await supabase.from('countdowns').delete().eq('id', id);
+    await load();
+  };
+
+  const restore = async (c: Countdown) => {
+    await supabase.from('countdowns').insert({ id: c.id, label: c.label, date: c.date });
+    await load();
+  };
+
+  return { items, loading, add, update, remove, restore };
 }

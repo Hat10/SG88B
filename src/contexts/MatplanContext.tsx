@@ -261,40 +261,52 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   // ── Handleliste ────────────────────────────────────────────────────────────
 
   // Legger til rader for det som mangler — planlagte middager denne uken og
-  // forfalte basisvarer som ikke allerede har en uavhuket rad. Rører aldri
-  // eksisterende rader, så avhukinger/manuelle slettinger består ved re-synk.
+  // forfalte basisvarer. Hva som "mangler" avgjøres av databasen (upsert +
+  // onConflict), ikke av groceryItems-øyeblikksbildet her — to samtidige
+  // kjøringer (to enheter, eller komponenten som monter på nytt ved
+  // sidebytte) kan derfor ikke lenger produsere duplikater. Se
+  // scripts/grocery-dedupe-migration.sql for de unike indeksene dette
+  // forutsetter (grocery_items_meal_name_uidx / grocery_items_staple_uidx).
   const syncGroceryList = async () => {
     const today = todayKey();
     const monday = osloMondayKey();
     const days = new Set(weekDates(monday));
 
     const plannedThisWeek = mealPlan.filter(mp => days.has(mp.date));
-    const toInsert: Record<string, unknown>[] = [];
-
+    const mealRows: Record<string, unknown>[] = [];
     for (const mp of plannedThisWeek) {
       const recipe = recipes.find(r => r.id === mp.recipeId);
       if (!recipe) continue;
-      const existing = groceryItems.filter(g => g.mealPlanId === mp.id);
       for (const ing of recipe.ingredients) {
-        if (existing.some(g => g.name === ing.name)) continue;
-        toInsert.push({
+        mealRows.push({
           name: ing.name, amount: ing.amount, unit: ing.unit,
           meal_plan_id: mp.id, staple_item_id: null,
         });
       }
     }
-
-    for (const s of stapleItems) {
-      if (!isStapleDue(s, today)) continue;
-      const hasActive = groceryItems.some(g => g.stapleItemId === s.id && !g.done);
-      if (hasActive) continue;
-      toInsert.push({
-        name: s.name, amount: s.amount, unit: s.unit,
-        meal_plan_id: null, staple_item_id: s.id,
-      });
+    // En rad som allerede finnes for (meal_plan_id, navn) hoppes bare over —
+    // rører aldri en eksisterende rads avhuking.
+    if (mealRows.length) {
+      await supabase.from('grocery_items')
+        .upsert(mealRows, { onConflict: 'meal_plan_id,name', ignoreDuplicates: true });
     }
 
-    if (toInsert.length) await supabase.from('grocery_items').insert(toInsert);
+    const stapleRows: Record<string, unknown>[] = [];
+    for (const s of stapleItems) {
+      if (!isStapleDue(s, today)) continue;
+      stapleRows.push({
+        name: s.name, amount: s.amount, unit: s.unit,
+        meal_plan_id: null, staple_item_id: s.id, done: false,
+      });
+    }
+    // Én rad per basisvare, for alltid — når den forfaller på nytt etter å ha
+    // vært kjøpt, gjenbrukes samme rad (flippes til done:false, navn/mengde/
+    // enhet friskes opp) i stedet for at det hoper seg opp en ny rad hver gang.
+    if (stapleRows.length) {
+      await supabase.from('grocery_items')
+        .upsert(stapleRows, { onConflict: 'staple_item_id' });
+    }
+
     await load();
   };
 
