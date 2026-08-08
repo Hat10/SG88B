@@ -57,6 +57,11 @@ const MAP_CONTROL: React.CSSProperties = {
 const CTRL_INK = '#3d4250';
 const CTRL_INK_DIM = '#8a8f9c';
 
+// Storgata 88, 8006 Bodø — geokodet via Nominatim (samme kilde som api/search.ts
+// bruker for adressesøk), hardkodet siden adressen er fast og ikke trenger et
+// nytt geokodings-oppslag hver gang «Hjem»-knappen trykkes.
+const HOME_COORDS: [number, number] = [67.285706, 14.395841];
+
 const TYPE_LABELS: Record<string, string> = {
   // Steder & administrative
   'administrative': 'Område',
@@ -469,8 +474,8 @@ export default function Kart() {
     await setPin('bucket', pf.id, lat, lng);
   }, [setPin]);
 
-  const flyTo = useCallback((lat: number, lng: number) => {
-    mapRef.current?.flyTo([lat, lng], 12, { duration: 1.2 });
+  const flyTo = useCallback((lat: number, lng: number, zoom = 12) => {
+    mapRef.current?.flyTo([lat, lng], zoom, { duration: 1.2 });
     if (isMobile) setSheetOpen(false);
   }, [isMobile]);
 
@@ -666,10 +671,23 @@ export default function Kart() {
             />
           </div>
 
+          {/* Home button — sentrerer/zoomer kartet til Storgata 88, 8006 Bodø */}
+          <button
+            onClick={() => flyTo(HOME_COORDS[0], HOME_COORDS[1], 16)}
+            aria-label="Gå til Storgata 88"
+            title="Storgata 88, 8006 Bodø"
+            style={{
+              ...MAP_CONTROL,
+              position: 'absolute', top: 12, right: 12, zIndex: 1000,
+              width: 36, height: 36, display: 'grid', placeItems: 'center',
+              border: 0, cursor: 'pointer', fontSize: 17, padding: 0, color: CTRL_INK,
+            }}
+          >🏠</button>
+
           {/* Zoom control */}
           <div style={{
             ...MAP_CONTROL,
-            position: 'absolute', top: 12, right: 12, zIndex: 1000,
+            position: 'absolute', top: 60, right: 12, zIndex: 1000,
             display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0,
           }}>
             {([['+', () => mapRef.current?.zoomIn()], ['−', () => mapRef.current?.zoomOut()]] as const).map(([sym, fn], i) => (
