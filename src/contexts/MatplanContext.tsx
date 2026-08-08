@@ -64,6 +64,9 @@ interface MatplanCtx {
   restoreStaple: (s: StapleItem) => Promise<void>;
   /** Genererer manglende handlelistevarer for denne uken (planlagte middager + forfalte basisvarer). Idempotent. */
   syncGroceryList: () => Promise<void>;
+  /** Frittstående dagligvare — ikke koblet til en middag eller basisvare. */
+  addGroceryItem: (input: { name: string; amount: number | null }) => Promise<void>;
+  setGroceryAmount: (id: string, amount: number) => Promise<void>;
   toggleGroceryItem: (id: string) => Promise<void>;
   removeGroceryItem: (id: string) => Promise<void>;
 }
@@ -75,7 +78,8 @@ const MatplanContext = createContext<MatplanCtx>({
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
   setMealPlan: noop, clearMealPlan: noop,
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
-  syncGroceryList: noop, toggleGroceryItem: noop, removeGroceryItem: noop,
+  syncGroceryList: noop, addGroceryItem: noop, setGroceryAmount: noop,
+  toggleGroceryItem: noop, removeGroceryItem: noop,
 });
 
 const recipeFromRow = (r: Record<string, unknown>): Recipe => ({
@@ -294,6 +298,18 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     await load();
   };
 
+  const addGroceryItem = async ({ name, amount }: { name: string; amount: number | null }) => {
+    await supabase.from('grocery_items').insert({
+      name, amount, unit: null, meal_plan_id: null, staple_item_id: null,
+    });
+    await load();
+  };
+
+  const setGroceryAmount = async (id: string, amount: number) => {
+    await supabase.from('grocery_items').update({ amount }).eq('id', id);
+    await load();
+  };
+
   const toggleGroceryItem = async (id: string) => {
     const item = groceryItems.find(g => g.id === id);
     if (!item) return;
@@ -318,7 +334,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
       setMealPlan, clearMealPlan,
       addStaple, updateStaple, removeStaple, restoreStaple,
-      syncGroceryList, toggleGroceryItem, removeGroceryItem,
+      syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem,
     }}>
       {children}
     </MatplanContext.Provider>

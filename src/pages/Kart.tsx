@@ -62,8 +62,8 @@ const CTRL_INK_DIM = '#8a8f9c';
 const HOME_COORDS: [number, number] = [67.285706, 14.395841];
 // Terrakotta — bevisst forskjellig fra blått («vil besøke») og grønt (fullført),
 // så hjemmet ikke kan forveksles med et utforsknings-mål på kartet.
-const HOME_COLOR = '#B5563C';
-const homeIcon = makeIcon(HOME_COLOR, '🏠', false, 40);
+const HOME_COLOR = '#85b673';
+const homeIcon = makeIcon(HOME_COLOR, '🏠', true, 32);
 
 const TYPE_LABELS: Record<string, string> = {
   // Steder & administrative

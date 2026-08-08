@@ -680,6 +680,10 @@ create policy "authenticated_staple_items_all" on public.staple_items
 grant select, insert, update, delete on public.staple_items to authenticated;
 alter publication supabase_realtime add table public.staple_items;
 
+-- [CONFIRMED] scripts/matplan-migration.sql, constraint since relaxed by
+-- scripts/grocery-standalone-migration.sql — both link columns null is now
+-- valid too (a freeform item on the standalone dagligvare-handleliste, not
+-- tied to a planned dinner or a staple yet).
 create table public.grocery_items (
   id               uuid primary key default gen_random_uuid(),
   name             text not null,
@@ -690,7 +694,7 @@ create table public.grocery_items (
   staple_item_id   uuid references public.staple_items(id) on delete cascade,
   created_at       timestamptz default now(),
   constraint grocery_items_single_origin check (
-    (meal_plan_id is not null)::int + (staple_item_id is not null)::int = 1
+    (meal_plan_id is not null)::int + (staple_item_id is not null)::int <= 1
   )
 );
 

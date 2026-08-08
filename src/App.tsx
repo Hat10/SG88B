@@ -32,8 +32,9 @@ const PageKart = lazy(() => import('./pages/Kart'));
 const PageBoligflipping = lazy(() => import('./pages/Boligflipping'));
 const PageTrening = lazy(() => import('./pages/Trening'));
 const PageMiddag = lazy(() => import('./pages/Middag'));
+const PageHandleliste = lazy(() => import('./pages/Handleliste'));
 
-type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' | 'okonomi' | 'kalender' | 'skjerm' | 'kart' | 'boligflipping' | 'trening' | 'middag';
+type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' | 'okonomi' | 'kalender' | 'skjerm' | 'kart' | 'boligflipping' | 'trening' | 'middag' | 'handleliste';
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 type ThemeMode = 'auto' | 'light' | 'dark';
@@ -144,6 +145,7 @@ const NAV: NavItem[] = [
   { id: 'gjoremal',          label: '✅ Gjøremål',          group: 'Hverdag' },
   { id: 'trening',      label: '🏋️ Trening',      group: 'Hverdag' },
   { id: 'middag',       label: '🍽️ Middag',       group: 'Hverdag' },
+  { id: 'handleliste',  label: '🛒 Handleliste',   group: 'Hverdag' },
   { id: 'kart',         label: '🗺️ Kart',         group: 'Hverdag' },
   { id: 'boligflipping', label: '🏗️ Boligflipping', group: 'Prosjekter' },
 ];
@@ -156,6 +158,7 @@ const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub:
   gjoremal: { eyebrow: '', title: 'Gjøremål', sub: '' },
   trening: { eyebrow: 'Hverdag', title: 'Trening', sub: '' }, // siden lager sitt eget hode (se HEADLESS_ROUTES)
   middag: { eyebrow: 'Hverdag', title: 'Middag', sub: 'Oppskrifter · Ukeplan · Dagligvarer' },
+  handleliste: { eyebrow: 'Hverdag', title: 'Handleliste', sub: 'Dagligvarer' },
   okonomi: { eyebrow: '', title: 'Forbruk', sub: '' },
   kalender: { eyebrow: 'Hverdag', title: 'Kalender', sub: '' }, // sub is computed live in Page (current month)
   kart:  { eyebrow: 'Utforskning', title: <>Vårt <em>kart</em></>, sub: 'Vil besøke' },
@@ -309,6 +312,7 @@ const PAGE_COMPONENTS: Record<Exclude<Route, 'skjerm'>, React.ComponentType> = {
   boligflipping: PageBoligflipping,
   trening: PageTrening,
   middag: PageMiddag,
+  handleliste: PageHandleliste,
 };
 
 const FULLSCREEN_ROUTES: Route[] = ['kart'];
