@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { fetchPickups } from '../tommeplan';
 
 export const config = { maxDuration: 60 };
 
@@ -256,5 +257,35 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  return res.json({ date: todayOslo, rolledTodos, priced, deals, prunedHistory, bucketRolled });
+  // ─── 4. Auto-create "Ta ut plast" ahead of the next Iris plastic pickup ────
+  // Same source as the "Neste plast" line in the clock box (api/tommeplan.ts,
+  // via the shared fetchPickups()). Deadline = the day before pickup, so the
+  // reminder lands "ta den ut i kveld". Server-side, and gated by a unique
+  // index on (title, deadline) — see scripts/todo-plast-dedupe-migration.sql
+  // — for the same reason the handleliste sync moved off a client-side
+  // existence check: two concurrent cron invocations (or a stray manual
+  // retry) can't produce duplicate rows for the same pickup cycle.
+  let plastTodoSynced = false;
+  {
+    try {
+      const pickups = await fetchPickups();
+      const nextPlast = pickups.find(p => p.date >= todayOslo && p.types.some(t => t.category === 'plast'));
+      if (nextPlast) {
+        const [y, m, day] = nextPlast.date.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, day));
+        dt.setUTCDate(dt.getUTCDate() - 1);
+        const deadline = dt.toISOString().slice(0, 10);
+
+        const { error: plastErr } = await supabase.from('todo_items').upsert(
+          { title: 'Ta ut plast', deadline, who: 'f', priority: 'middels', done: false, overdue_days: 0 },
+          { onConflict: 'title,deadline', ignoreDuplicates: true },
+        );
+        plastTodoSynced = !plastErr;
+      }
+    } catch {
+      // Iris-skraping/parsing feilet denne kjøringen — hopp over, prøv igjen i morgen.
+    }
+  }
+
+  return res.json({ date: todayOslo, rolledTodos, priced, deals, prunedHistory, bucketRolled, plastTodoSynced });
 }

@@ -825,6 +825,39 @@ export default function PageSkjerm({ onBack }: Props) {
   // Rotate through multiple deals every 8s (now ticks every second)
   const activeDeal = deals.length ? deals[Math.floor(now.getTime() / 8000) % deals.length] : null;
 
+  // "Ta ut plast" clock-box state. All date comparisons are plain yyyy-mm-dd
+  // string equality — no Date-object arithmetic on "today" — so there's no
+  // timezone/DST off-by-one to get wrong. today/pickupDate/dayBeforeDate are
+  // all produced the same way the cron produces them (Europe/Oslo calendar
+  // date, or UTC-component date math for "one day back"), so a string match
+  // here is exactly the day match the server means.
+  //   dayBeforeDate < today < pickupDate  → normal (too early)
+  //   today === dayBeforeDate             → "dagen før" state
+  //   today === pickupDate                → "hentedag" state
+  //   today > pickupDate                  → normal (this cycle's pickup is
+  //                                          in the past; tommeplan already
+  //                                          only lists pickups >= today, so
+  //                                          this case can't actually occur)
+  const plastAlert = (() => {
+    if (tommeplanError || !tommeplan) return null;
+    const nextPlast = tommeplan.pickups.find(p => p.types.some(t => t.category === 'plast'));
+    if (!nextPlast) return null;
+
+    const pickupDate = nextPlast.date; // yyyy-mm-dd
+    const [py, pm, pd] = pickupDate.split('-').map(Number);
+    const dayBeforeDate = new Date(Date.UTC(py, pm - 1, pd - 1)).toISOString().slice(0, 10);
+    const today = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
+
+    const isDayBefore = today === dayBeforeDate;
+    const isPickupDay = today === pickupDate;
+    if (!isDayBefore && !isPickupDay) return null;
+
+    // Same (title, deadline) pair the cron writes — deadline is always the
+    // day-before date, on both the "dagen før" and "hentedag" days.
+    const done = todos.some(t => t.title === 'Ta ut plast' && t.deadline === dayBeforeDate && t.done);
+    return { urgent: !done, label: isPickupDay ? 'Plast hentes i dag ⚠️' : 'Plast hentes i morgen ⚠️' };
+  })();
+
   return (
     <div style={{
       boxSizing: 'border-box', background: 'var(--bg)',
@@ -856,7 +889,13 @@ export default function PageSkjerm({ onBack }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.3fr 1.4fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Clock */}
-        <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 3 : 8, position: 'relative', overflow: 'hidden' }}>
+        <div style={{
+          // Fixed red (not the theme-flipping var(--danger), whose dark-mode
+          // value is too light to keep the box's white text readable) —
+          // "ta ut plast i kveld/nå" is un-done and due tonight or today.
+          background: plastAlert?.urgent ? '#C0392B' : 'var(--ink-fixed)',
+          borderRadius: 8, padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 3 : 8, position: 'relative', overflow: 'hidden',
+        }}>
           <div style={eyebrowDark}>Tid nå</div>
           <div style={{ display: 'flex', alignItems: 'baseline', lineHeight: 1 }}>
             <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 36 : 56, fontWeight: 300, letterSpacing: '-0.04em', fontVariantNumeric: 'tabular-nums', color: '#E8EFF7' }}>{timeStr}</span>
@@ -876,6 +915,15 @@ export default function PageSkjerm({ onBack }: Props) {
               </div>
             );
           })()}
+
+          {/* "Ta ut plast" er avhuket, men henting er i morgen/i dag — hold
+              det synlig litt til med en rød påminnelse selv om boksen ikke
+              lenger trenger å rope med hele bakgrunnen. */}
+          {plastAlert && !plastAlert.urgent && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: screenSize === 'tablet' ? 11 : 15, color: '#F87171', letterSpacing: '0.02em', marginTop: screenSize === 'tablet' ? 6 : 10 }}>
+              {plastAlert.label}
+            </div>
+          )}
 
           {/* Deal notice — Hallgeir peeks up when a wishlist item hits a 30-day low */}
           {activeDeal && !isMobile && (
