@@ -1116,8 +1116,8 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) — grows to fill ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
+      {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) + Handleliste — grows to fill ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
         {/* Kalender — kun i dag, ikke kommende dager */}
         <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
@@ -1249,13 +1249,9 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
           )}
         </div>
-      </div>
-
-      {/* ── Row 4: Handleliste (egen rad) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
-        <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
+        <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={eyebrow}>🛒 Handleliste</div>
             {previewRows.length > 0 && (
@@ -1267,8 +1263,10 @@ export default function PageSkjerm({ onBack }: Props) {
           ) : (
             <div style={{
               display: 'flex', flexDirection: 'column', gap: 8,
-              maxHeight: screenSize === 'tablet' ? 140 : screenSize === 'desktop' ? 220 : 180,
               overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch',
+              ...(isTablet
+                ? { flex: 1, minHeight: 0 }
+                : { maxHeight: screenSize === 'desktop' ? 320 : 260 }),
             }}>
               {previewRows.map(r => (
                 <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
