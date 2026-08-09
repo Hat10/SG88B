@@ -4,8 +4,10 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
 import { useCountdowns } from '../hooks/useCountdown';
 import { useMatplan } from '../contexts/MatplanContext';
+import { useTrening, type Trainer, type WorkoutCategory } from '../contexts/TreningContext';
+import { WHO_LABEL, TRAINERS } from '../lib/treningPulse';
 import { groupByNameUnit } from './middag/HandlelisteCard';
-import { fireworkRain } from '../confetti';
+import { fireworkRain, burst } from '../confetti';
 import type { CalEvent } from '../../api/kalender';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -430,6 +432,98 @@ function ScreenCheck({ checked, onClick, label }: {
   );
 }
 
+// Rask registrering rett fra Gangskjerm — gjenbruker TreningContext sin
+// registerSession() (samme logikk som Trening → Registrer), men bare
+// kategori + hvem. Ingen dato/klokkeslett-felt: performedAt settes til nå,
+// bevisst forenklet for et raskt trykk-og-ferdig-flow her, ikke fordi
+// Trening.tsx sin fulle registreringsmodal er endret (den ventende
+// «fjern klokkeslett»-endringen der er en egen, senere oppgave).
+function TreningQuickRegister({ categories, onClose }: { categories: WorkoutCategory[]; onClose: () => void }) {
+  const { registerSession } = useTrening();
+  const { notify } = useSnackbar();
+  const active = categories.filter(c => !c.archived);
+  const [category, setCategory] = useState(active[0]?.name ?? '');
+  const [who, setWho] = useState<Trainer>('M');
+  const [saving, setSaving] = useState(false);
+
+  const optionStyle = (on: boolean): React.CSSProperties => ({
+    padding: '10px 16px', borderRadius: 20, cursor: 'pointer',
+    fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-sans)',
+    border: `1.5px solid ${on ? 'var(--good)' : 'rgba(255,255,255,0.15)'}`,
+    background: on ? 'rgba(122,179,148,0.18)' : 'transparent',
+    color: on ? 'var(--good)' : 'rgba(207,224,239,0.7)',
+  });
+
+  const save = async (el: HTMLElement | null) => {
+    if (!category || saving) return;
+    setSaving(true);
+    try {
+      await registerSession({ category, who, performedAt: new Date().toISOString(), note: null });
+      if (el) { const r = el.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2); }
+      notify(`Registrert · ${category} · ${WHO_LABEL[who]} 💪`);
+      onClose();
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 440, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Huk av en økt</div>
+            <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>Registrer trening</div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
+          >✕</button>
+        </div>
+
+        {active.length === 0 ? (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)' }}>Ingen kategorier funnet — lag en på Trening-siden først.</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Kategori</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {active.map(c => (
+                  <button key={c.id} onClick={() => setCategory(c.name)} style={optionStyle(category === c.name)}>{c.name}</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hvem gjennomførte?</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {TRAINERS.map(w => (
+                  <button key={w} onClick={() => setWho(w)} style={{ ...optionStyle(who === w), flex: 1, textAlign: 'center' }}>{WHO_LABEL[w]}</button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={e => void save(e.currentTarget)}
+              disabled={!category || saving}
+              style={{
+                padding: '13px', borderRadius: 8, border: 0, cursor: 'pointer',
+                fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                background: 'var(--good)', color: '#0B2545',
+                opacity: (!category || saving) ? 0.5 : 1,
+              }}
+            >{saving ? 'Lagrer…' : 'Registrer'}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PageSkjerm({ onBack }: Props) {
   const { items: todos, toggleItem, updateItem } = useTodo();
   const { notify } = useSnackbar();
@@ -474,6 +568,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [weather, setWeather]    = useState<WeatherData | null>(null);
   const [weatherOpen, setWeatherOpen] = useState(false);
   const [recipeModalOpen, setRecipeModalOpen] = useState(false);
+  const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
+  const { categories: trCategories } = useTrening();
   const [tommeplan, setTommeplan]           = useState<TommeplanData | null>(null);
   const [tommeplanError, setTommeplanError] = useState(false);
   const [aurora, setAurora]           = useState<AuroraData | null>(null);
@@ -735,11 +831,17 @@ export default function PageSkjerm({ onBack }: Props) {
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? 12 : 14, fontWeight: 600, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase', flex: 1, textAlign: 'center' }}>
           {isMobile ? 'Skjerm' : 'Felles · Gangskjerm'}
         </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? 12 : 14, color: 'var(--ink-3)' }}>{isMobile ? '' : dateStr}</div>
+        {isMobile ? <div /> : (
+          <button onClick={() => setTreningRegisterOpen(true)} style={{
+            background: 'transparent', border: '1px solid var(--line-2)', borderRadius: 4,
+            color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', fontSize: 13,
+            padding: '5px 12px', cursor: 'pointer', letterSpacing: '0.04em',
+          }}>🏋️ Registrer trening</button>
+        )}
       </div>
 
-      {/* ── Row 1: Clock · Weather · Countdown · Fact ── (compact — natural height, no stretch) */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.3fr 1.4fr 0.8fr 0.8fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+      {/* ── Row 1: Clock (m. tømmeplan) · Weather ── (compact — natural height, no stretch) */}
+      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.3fr 1.4fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Clock */}
         <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, padding: screenSize === 'tablet' ? '12px 16px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 4 : 8, position: 'relative', overflow: 'hidden' }}>
@@ -898,6 +1000,31 @@ export default function PageSkjerm({ onBack }: Props) {
             </>
           )}
         </div>
+      </div>
+
+      {/* ── Row 2: Dagens middag + Nedtelling + Nordlysvarsel ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+
+        {/* Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn —
+            trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
+        <button
+          onClick={() => { if (todayRecipe) setRecipeModalOpen(true); }}
+          style={{
+            ...cell, width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
+            cursor: todayRecipe ? 'pointer' : 'default',
+            padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
+            display: 'flex', flexDirection: 'column', gap: 4,
+          }}
+        >
+          <div style={eyebrow}>🍽️ Dagens middag</div>
+          {todayRecipe ? (
+            <div style={{ fontSize: screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 14 : 17, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {todayRecipe.name}
+            </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen middag planlagt i dag</div>
+          )}
+        </button>
 
         {/* Countdown */}
         <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
@@ -958,7 +1085,6 @@ export default function PageSkjerm({ onBack }: Props) {
           )}
         </div>
 
-
         {/* Nordlys — Kp-indeks fra NOAA (observert, ikke flerdags-prognose)
             kombinert med skydekke fra Yr/met.no for Bodø. Ren heuristikk, ikke
             et offisielt varsel — se api/nordlys.ts for poengmodellen. */}
@@ -990,8 +1116,8 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── Row 2: Kalender (i dag) + Gjøremål (i dag) — grows to fill ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
+      {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) — grows to fill ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
         {/* Kalender — kun i dag, ikke kommende dager */}
         <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 10 : 14 }}>
@@ -1125,29 +1251,8 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── Row 3: Dagens middag + Handleliste (Middagsplanleggeren) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
-
-        {/* Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn —
-            trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
-        <button
-          onClick={() => { if (todayRecipe) setRecipeModalOpen(true); }}
-          style={{
-            ...cell, width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
-            cursor: todayRecipe ? 'pointer' : 'default',
-            padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
-            display: 'flex', flexDirection: 'column', gap: 4,
-          }}
-        >
-          <div style={eyebrow}>🍽️ Dagens middag</div>
-          {todayRecipe ? (
-            <div style={{ fontSize: screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 14 : 17, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {todayRecipe.name}
-            </div>
-          ) : (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen middag planlagt i dag</div>
-          )}
-        </button>
+      {/* ── Row 4: Handleliste (egen rad) ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
         <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
@@ -1272,6 +1377,67 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Dagens middag: full oppskrift ── */}
+      {recipeModalOpen && todayRecipe && (
+        <div
+          onClick={() => setRecipeModalOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 640, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Dagens middag</div>
+                <div style={{ fontSize: 26, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>{todayRecipe.name}</div>
+                {todayRecipe.cookTimeMinutes != null && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', marginTop: 6 }}>⏱ {todayRecipe.cookTimeMinutes} min</div>
+                )}
+              </div>
+              <button
+                onClick={() => setRecipeModalOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
+              >✕</button>
+            </div>
+
+            {todayRecipe.ingredients.length > 0 && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Ingredienser</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {todayRecipe.ingredients.map((ing, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 15, color: '#E8EFF7', paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <span>{ing.name}</span>
+                      {(ing.amount != null || ing.unit) && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', flexShrink: 0 }}>
+                          {ing.amount ?? ''} {ing.unit ?? ''}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {todayRecipe.instructions && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Fremgangsmåte</div>
+                <div style={{ fontSize: 15, lineHeight: 1.6, color: 'rgba(207,224,239,0.85)', whiteSpace: 'pre-wrap' }}>{todayRecipe.instructions}</div>
+              </div>
+            )}
+
+            {todayRecipe.ingredients.length === 0 && !todayRecipe.instructions && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.4)' }}>Ingen detaljer lagt til for denne oppskriften ennå.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Registrer trening (rask, fra headeren) ── */}
+      {treningRegisterOpen && (
+        <TreningQuickRegister categories={trCategories} onClose={() => setTreningRegisterOpen(false)} />
       )}
     </div>
   );
