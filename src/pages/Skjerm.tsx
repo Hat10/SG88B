@@ -473,6 +473,7 @@ export default function PageSkjerm({ onBack }: Props) {
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [weather, setWeather]    = useState<WeatherData | null>(null);
   const [weatherOpen, setWeatherOpen] = useState(false);
+  const [recipeModalOpen, setRecipeModalOpen] = useState(false);
   const [tommeplan, setTommeplan]           = useState<TommeplanData | null>(null);
   const [tommeplanError, setTommeplanError] = useState(false);
   const [aurora, setAurora]           = useState<AuroraData | null>(null);
@@ -738,7 +739,7 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 1: Clock · Weather · Countdown · Fact ── (compact — natural height, no stretch) */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.1fr 1.3fr 0.7fr 0.7fr 0.7fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.3fr 1.4fr 0.8fr 0.8fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Clock */}
         <div style={{ background: 'var(--ink-fixed)', borderRadius: 8, padding: screenSize === 'tablet' ? '12px 16px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 4 : 8, position: 'relative', overflow: 'hidden' }}>
@@ -748,6 +749,19 @@ export default function PageSkjerm({ onBack }: Props) {
             <span style={{ fontSize: screenSize === 'desktop' ? 32 : screenSize === 'tablet' ? 16 : 24, fontWeight: 300, color: 'rgba(207,224,239,0.4)', marginLeft: 6, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{secStr}</span>
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: screenSize === 'tablet' ? 11 : 16, color: 'rgba(207,224,239,0.5)', textTransform: 'capitalize', letterSpacing: '0.03em' }}>{dateStr}</div>
+
+          {/* Tømmeplan — slått sammen inn i klokke-boksen, én diskret linje.
+              Ingen feilmelding/placeholder her hvis dataene mangler — den
+              tar bare ikke plass når det ikke er noe å vise. */}
+          {!tommeplanError && tommeplan && (() => {
+            const nextPlast = tommeplan.pickups.find(p => p.types.some(t => t.category === 'plast'));
+            if (!nextPlast) return null;
+            return (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: screenSize === 'tablet' ? 15 : 15, color: 'rgba(207,224,239,0.4)', letterSpacing: '0.02em', marginTop: 10 }}>
+                ♻️ Neste plast: {nextPlast.weekday} {nextPlast.dateLabel}
+              </div>
+            );
+          })()}
 
           {/* Deal notice — Hallgeir peeks up when a wishlist item hits a 30-day low */}
           {activeDeal && !isMobile && (
@@ -945,38 +959,6 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
 
 
-        {/* Tømmeplan — Iris Salten sin kalender for Storgata 88 H303, skrapet
-            server-side (api/tommeplan.ts). Skraping er skjørt: hvis Iris endrer
-            HTML-strukturen sin slutter parsingen å finne noe, og handleren
-            svarer med en feil i stedet for tomme/gale data — boksen viser da
-            en enkel melding i stedet for å late som alt er i orden. Filtrert
-            til kun neste plast-tømming — matavfall/andre typer vises ikke her. */}
-        <div style={{
-          ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
-          display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12,
-        }}>
-          <div style={eyebrow}>♻️ Neste plast</div>
-
-          {tommeplanError && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Utilgjengelig akkurat nå</div>
-          )}
-          {!tommeplanError && !tommeplan && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-4)' }}>…</div>
-          )}
-
-          {!tommeplanError && tommeplan && (() => {
-            const nextPlast = tommeplan.pickups.find(p => p.types.some(t => t.category === 'plast'));
-            if (!nextPlast) return (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen kommende plasttømming funnet</div>
-            );
-            return (
-              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}>
-                {nextPlast.weekday} {nextPlast.dateLabel}
-              </div>
-            );
-          })()}
-        </div>
-
         {/* Nordlys — Kp-indeks fra NOAA (observert, ikke flerdags-prognose)
             kombinert med skydekke fra Yr/met.no for Bodø. Ren heuristikk, ikke
             et offisielt varsel — se api/nordlys.ts for poengmodellen. */}
@@ -1118,10 +1100,19 @@ export default function PageSkjerm({ onBack }: Props) {
                       }}>
                       {row.title}
                     </span>
-                    {row.time && (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, flexShrink: 0, color: 'var(--ink-3)' }}>
-                        {row.time}
-                      </span>
+                    {(row.time || row.deadline) && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
+                        {row.time && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, color: 'var(--ink-3)' }}>
+                            {row.time}
+                          </span>
+                        )}
+                        {row.deadline && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>
+                            {new Date(row.deadline + 'T00:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' })}
+                          </span>
+                        )}
+                      </div>
                     )}
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: row.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {row.overdueSince ? `${row.who ?? 'Felles'} · forfalt ${fmtOverdue(row.overdueSince)}` : (row.who ?? 'Felles')}
@@ -1137,22 +1128,26 @@ export default function PageSkjerm({ onBack }: Props) {
       {/* ── Row 3: Dagens middag + Handleliste (Middagsplanleggeren) ── */}
       <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr' : '1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
-        {/* Dagens middag — fra ukeplanen (Middag → Ukeplan) */}
-        <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
+        {/* Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn —
+            trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
+        <button
+          onClick={() => { if (todayRecipe) setRecipeModalOpen(true); }}
+          style={{
+            ...cell, width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
+            cursor: todayRecipe ? 'pointer' : 'default',
+            padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
+            display: 'flex', flexDirection: 'column', gap: 4,
+          }}
+        >
           <div style={eyebrow}>🍽️ Dagens middag</div>
           {todayRecipe ? (
-            <>
-              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 15 : 18, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}>
-                {todayRecipe.name}
-              </div>
-              {todayRecipe.cookTimeMinutes != null && (
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>⏱ {todayRecipe.cookTimeMinutes} min</div>
-              )}
-            </>
+            <div style={{ fontSize: screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 14 : 17, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {todayRecipe.name}
+            </div>
           ) : (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>Ingen middag planlagt i dag</div>
           )}
-        </div>
+        </button>
 
         {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
         <div style={{ ...cell, padding: screenSize === 'tablet' ? '12px 14px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 8 : 12 }}>
