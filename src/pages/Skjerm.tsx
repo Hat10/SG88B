@@ -822,7 +822,7 @@ export default function PageSkjerm({ onBack }: Props) {
     }}>
 
       {/* ── Topbar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
         <button onClick={onBack} style={{
           background: 'transparent', border: '1px solid var(--line-2)', borderRadius: 4,
           color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', fontSize: isMobile ? 12 : 13,
@@ -1120,7 +1120,7 @@ export default function PageSkjerm({ onBack }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
         {/* Kalender — kun i dag, ikke kommende dager */}
-        <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
+        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={eyebrow}>Kalender · i dag</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● LIVE</div>
@@ -1159,7 +1159,7 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
 
         {/* Gjøremål — alle aktive (ikke bare dagens), med avkrysning + skjermbredt konfetti */}
-        <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
+        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={eyebrow}>✅ Gjøremål</div>
             {activeTodoRows.length > 0 && (
@@ -1251,7 +1251,7 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
 
         {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
-        <div style={{ ...cell, minWidth: 0, padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12 }}>
+        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={eyebrow}>🛒 Handleliste</div>
             {previewRows.length > 0 && (
@@ -1285,7 +1285,7 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Year ticker ── */}
-      <div style={{ paddingTop: 4 }}>
+      <div style={{ paddingTop: 4, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{now.getFullYear()}</span>
           <span style={{ fontFamily:'var(--font-mono)', fontSize:14, color:'var(--ink-3)', letterSpacing:'0.06em' }}>dag {daysElapsed} av {daysInYear} · {yearPct.toFixed(1).replace('.',',')}%</span>
