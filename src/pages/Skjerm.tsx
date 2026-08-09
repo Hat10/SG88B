@@ -579,6 +579,11 @@ export default function PageSkjerm({ onBack }: Props) {
   const [cdEditing, setCdEditing] = useState(false);
   const [cdDraft, setCdDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
   const [winW, setWinW] = useState(() => window.innerWidth);
+  // iOS Safari's window.innerHeight/100vh includes space hidden behind the
+  // address bar. visualViewport.height tracks what's actually visible right
+  // now, so it survives the toolbar showing/hiding without a layout jump —
+  // more reliable across iPadOS versions than the 100dvh unit alone.
+  const [viewportH, setViewportH] = useState(() => window.visualViewport?.height ?? window.innerHeight);
   const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>(() => {
     const w = window.innerWidth;
     if (w < 700) return 'mobile';
@@ -592,12 +597,19 @@ export default function PageSkjerm({ onBack }: Props) {
     const handleResize = () => {
       const w = window.innerWidth;
       setWinW(w);
+      setViewportH(window.visualViewport?.height ?? window.innerHeight);
       if (w < 700) setScreenSize('mobile');
       else if (w < 1400) setScreenSize('tablet');  // iPad Pro 12.9" stays tablet
       else setScreenSize('desktop');  // True desktops only
     };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    window.visualViewport?.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+      window.visualViewport?.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -815,8 +827,8 @@ export default function PageSkjerm({ onBack }: Props) {
 
   return (
     <div style={{
-      minHeight: '100vh', background: 'var(--bg)',
-      ...(isTablet ? { height: '100vh', overflow: 'hidden' } : {}),
+      boxSizing: 'border-box', background: 'var(--bg)',
+      ...(isTablet ? { height: `${viewportH}px`, overflow: 'hidden' } : { minHeight: '100vh' }),
       display: 'flex', flexDirection: 'column', padding: tabletPadding, gap: tabletGap,
       overflowX: 'hidden',
     }}>
@@ -829,7 +841,7 @@ export default function PageSkjerm({ onBack }: Props) {
           padding: '5px 12px', cursor: 'default', letterSpacing: '0.04em',
         }}>← Hjem</button>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? 12 : 14, fontWeight: 600, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase', flex: 1, textAlign: 'center' }}>
-          {isMobile ? 'Skjerm' : 'Felles · Gangskjerm'}
+          {isMobile ? 'Skjerm' : 'Hjem · Oversikt'}
         </div>
         {isMobile ? <div /> : (
           <button onClick={() => setTreningRegisterOpen(true)} style={{
@@ -1288,7 +1300,7 @@ export default function PageSkjerm({ onBack }: Props) {
       <div style={{ paddingTop: 4, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{now.getFullYear()}</span>
-          <span style={{ fontFamily:'var(--font-mono)', fontSize:14, color:'var(--ink-3)', letterSpacing:'0.06em' }}>dag {daysElapsed} av {daysInYear} · {yearPct.toFixed(1).replace('.',',')}%</span>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize:14, color:'var(--ink-3)', letterSpacing:'0.06em' }}>Dag {daysElapsed} av {daysInYear} · {yearPct.toFixed(1).replace('.',',')}%</span>
           <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{daysLeft} dager igjen</span>
         </div>
         <div style={{ position: 'relative', height: 3, background: 'var(--line)', borderRadius: 2 }}>

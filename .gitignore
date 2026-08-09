@@ -5,3 +5,4 @@ testdata
 .env.local
 .vercel
 .env*.local
+backups/
