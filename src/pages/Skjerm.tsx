@@ -1120,9 +1120,6 @@ export default function PageSkjerm({ onBack }: Props) {
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
                 Kp {aurora.kp} · {aurora.cloudCover}% skydekke
               </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', opacity: 0.7 }}>
-                Kun synlig når det er mørkt
-              </div>
             </>
           )}
         </div>
