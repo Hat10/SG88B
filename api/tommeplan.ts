@@ -74,37 +74,24 @@ function parsePickups(html: string): Pickup[] {
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Skraper + parser Iris-siden til den fulle, tidssorterte listen over
-// hentinger. Eksportert slik at api/cron/rollover.ts kan lese nøyaktig
-// samme kilde som "Neste plast"-linja i klokke-boksen bruker,
-// i stedet for å vedlikeholde en egen kopi av skrapingen (jf. Prisjakt-
-// dupliseringen lenger opp i rollover.ts — den er kun nødvendig fordi den
-// delte filen der ligger under `_lib`, som Vercel utelater fra bygget.
-// tommeplan.ts har ikke det problemet: det er en vanlig, ikke-understreket
-// fil under /api og kan importeres trygt fra andre funksjoner).
-export async function fetchPickups(): Promise<Pickup[]> {
-  const resp = await fetch(URL, {
-    headers: { 'User-Agent': 'Felles-App/1.0 div@ofrim.no' },
-    signal: AbortSignal.timeout(9000),
-  });
-  if (!resp.ok) throw new Error(`Iris svarte ${resp.status}`);
-  const html = await resp.text();
-  const all = parsePickups(html);
-
-  // Skrapingen fant ingen datoer i det hele tatt — sannsynligvis har Iris
-  // endret HTML-strukturen sin. Behandle det som en feil, ikke en tom (men
-  // gyldig) liste, så kallere kan skille «ingen kommende tømming» fra
-  // «parsingen er ødelagt».
-  if (all.length === 0) throw new Error('Fant ingen tømmedatoer — siden kan ha endret struktur');
-
-  return all;
-}
-
 export default async function handler(_req: any, res: any) {
   try {
-    const all = await fetchPickups();
+    const resp = await fetch(URL, {
+      headers: { 'User-Agent': 'Felles-App/1.0 div@ofrim.no' },
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!resp.ok) throw new Error(`Iris svarte ${resp.status}`);
+    const html = await resp.text();
+
+    const all = parsePickups(html);
     const todayOslo = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
     const upcoming = all.filter(p => p.date >= todayOslo).slice(0, 8);
+
+    // Skrapingen fant ingen datoer i det hele tatt — sannsynligvis har Iris
+    // endret HTML-strukturen sin. Behandle det som en feil, ikke en tom (men
+    // gyldig) liste, så frontend kan skille «ingen kommende tømming» fra
+    // «parsingen er ødelagt».
+    if (all.length === 0) throw new Error('Fant ingen tømmedatoer — siden kan ha endret struktur');
 
     res.setHeader('Cache-Control', 's-maxage=3600');
     res.status(200).json({ address: ADDRESS, pickups: upcoming, updatedAt: new Date().toISOString() });

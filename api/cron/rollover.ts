@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { fetchPickups } from '../tommeplan';
+import * as cheerio from 'cheerio';
 
 export const config = { maxDuration: 60 };
 
@@ -77,6 +77,91 @@ async function fetchPrisjaktPrice(url: string): Promise<PrisjaktResult | null> {
   }
 
   return null;
+}
+
+// Iris tømmeplan scraper — inlined (duplicated in api/tommeplan.ts) for the
+// same reason as the Prisjakt scraper above: Vercel bundles each file under
+// /api as its own isolated function, and a cross-file import between two
+// sibling route files (`../tommeplan`) resolves fine in `tsc`/local dev but
+// 404s at runtime once deployed (ERR_MODULE_NOT_FOUND) — confirmed by an
+// actual failed cron run, not just a theoretical risk. Keep the two copies
+// in sync; the parsing logic is small and Iris rarely changes its markup.
+const TOMMEPLAN_URL = 'https://iris-salten.no/privat/tommeplan/?lookup=3f31203b-fd52-4343-afdb-7eff87b1d24e&address=Storgata%2088%20H0303&municipality=Bod%C3%B8%20kommune';
+
+const MONTHS_NO = [
+  'januar', 'februar', 'mars', 'april', 'mai', 'juni',
+  'juli', 'august', 'september', 'oktober', 'november', 'desember',
+];
+
+interface WasteType {
+  name: string;
+  category: 'plast' | 'mat' | 'papir' | 'rest' | 'glass' | 'hage' | 'annet';
+}
+
+interface Pickup {
+  date: string;       // yyyy-mm-dd
+  weekday: string;
+  dateLabel: string;
+  types: WasteType[];
+}
+
+function categorizeWaste(label: string): WasteType['category'] {
+  const l = label.toLowerCase();
+  if (l.includes('plast')) return 'plast';
+  if (l.includes('mat')) return 'mat';
+  if (l.includes('papir') || l.includes('papp')) return 'papir';
+  if (l.includes('rest')) return 'rest';
+  if (l.includes('glass') || l.includes('metall')) return 'glass';
+  if (l.includes('hage')) return 'hage';
+  return 'annet';
+}
+
+// Kilden oppgir kun dag + måned på hver dato («Onsdag 5. august»), og året
+// separat på måned-overskriften («August 2026») — de kombineres her.
+function parsePickups(html: string): Pickup[] {
+  const $ = cheerio.load(html);
+  const out: Pickup[] = [];
+
+  $('.calendar__item').each((_, monthEl) => {
+    const titleText = $(monthEl).find('.calendar__title').first().text().trim().toLowerCase();
+    const titleMatch = titleText.match(/([a-zæøå]+)\s+(\d{4})/);
+    if (!titleMatch) return;
+    const monthIdx = MONTHS_NO.indexOf(titleMatch[1]);
+    const year = Number(titleMatch[2]);
+    if (monthIdx < 0 || !Number.isFinite(year)) return;
+
+    $(monthEl).find('.calendar__list > li').each((_, li) => {
+      const dateText = $(li).find('.calendar__date').first().text().trim();
+      const dayMatch = dateText.match(/(\d{1,2})\./);
+      if (!dayMatch) return;
+      const day = Number(dayMatch[1]);
+      const weekday = dateText.split(/\s+/)[0] ?? '';
+
+      const types: WasteType[] = [];
+      $(li).find('.calendar__fraction .calendar__label').each((_, labelEl) => {
+        const name = $(labelEl).text().trim();
+        if (name) types.push({ name, category: categorizeWaste(name) });
+      });
+      if (!types.length) return;
+
+      const date = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      out.push({ date, weekday, dateLabel: `${day}. ${MONTHS_NO[monthIdx]}`, types });
+    });
+  });
+
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function fetchPickups(): Promise<Pickup[]> {
+  const resp = await fetch(TOMMEPLAN_URL, {
+    headers: { 'User-Agent': 'Felles-App/1.0 div@ofrim.no' },
+    signal: AbortSignal.timeout(9000),
+  });
+  if (!resp.ok) throw new Error(`Iris svarte ${resp.status}`);
+  const html = await resp.text();
+  const all = parsePickups(html);
+  if (all.length === 0) throw new Error('Fant ingen tømmedatoer — siden kan ha endret struktur');
+  return all;
 }
 
 export default async function handler(req: any, res: any) {
@@ -258,13 +343,14 @@ export default async function handler(req: any, res: any) {
   }
 
   // ─── 4. Auto-create "Ta ut plast" ahead of the next Iris plastic pickup ────
-  // Same source as the "Neste plast" line in the clock box (api/tommeplan.ts,
-  // via the shared fetchPickups()). Deadline = the day before pickup, so the
-  // reminder lands "ta den ut i kveld". Server-side, and gated by a unique
-  // index on (title, deadline) — see scripts/todo-plast-dedupe-migration.sql
-  // — for the same reason the handleliste sync moved off a client-side
-  // existence check: two concurrent cron invocations (or a stray manual
-  // retry) can't produce duplicate rows for the same pickup cycle.
+  // Same underlying source as the "Neste plast" line in the clock box
+  // (api/tommeplan.ts) — see the inlined fetchPickups()/parsePickups() above.
+  // Deadline = the day before pickup, so the reminder lands "ta den ut i
+  // kveld". Server-side, and gated by a unique index on (title, deadline) —
+  // see scripts/todo-plast-dedupe-migration.sql — for the same reason the
+  // handleliste sync moved off a client-side existence check: two concurrent
+  // cron invocations (or a stray manual retry) can't produce duplicate rows
+  // for the same pickup cycle.
   let plastTodoSynced = false;
   {
     try {
