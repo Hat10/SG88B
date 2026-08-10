@@ -1287,7 +1287,9 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
     <>
       <div className="page-head">
         <div>
-          <div className="page-sub">Oversikt</div>
+          <div className="page-sub">
+            Oversikt <span className="meta">• {year}</span>
+          </div>
           <h1 className="page-title">Slik trener <em>{isPerson ? WHO_LABEL[who] : 'dere'}</em></h1>
         </div>
         <div className="page-actions">
@@ -1395,7 +1397,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
         <div className="card col-12">
           <div className="section-h">
             <h3>Hvor ofte trener dere hva?</h3>
-            <span className="meta">{year}</span>
           </div>
           {byCategory.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
@@ -1442,7 +1443,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
         <div className="card col-12">
           <div className="section-h">
             <h3>Når trener dere?</h3>
-            <span className="meta">{year}</span>
           </div>
           {inPeriod.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
