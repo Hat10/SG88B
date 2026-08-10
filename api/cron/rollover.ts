@@ -363,7 +363,7 @@ export default async function handler(req: any, res: any) {
         const deadline = dt.toISOString().slice(0, 10);
 
         const { error: plastErr } = await supabase.from('todo_items').upsert(
-          { title: 'Ta ut plast', deadline, who: 'f', priority: 'middels', done: false, overdue_days: 0 },
+          { title: 'Ta ut plast', deadline, who: 'f', priority: 'høy', done: false, overdue_days: 0 },
           { onConflict: 'title,deadline', ignoreDuplicates: true },
         );
         plastTodoSynced = !plastErr;
