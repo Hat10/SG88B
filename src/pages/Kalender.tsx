@@ -6,7 +6,7 @@ import type { CalEvent } from '../../api/kalender';
 
 const SOURCE_META = {
   andreas: { label: 'Andreas', color: '#4A80C4' },
-  taran:   { label: 'Taran',   color: '#6B2FA0' },
+  taran:   { label: 'Taran',   color: '#C97A8B' },
   felles:  { label: 'Felles', color: '#7AB394' },
   todo:    { label: 'Gjøremål', color: '#C9963A' },
 } as const;

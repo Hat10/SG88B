@@ -11,7 +11,7 @@ import HusPrognose from './HusPrognose';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const M_COL = '#3B82B8';
-const L_COL = '#A066C2';
+const L_COL = '#C97A8B';
 const C_COL = '#7AB394';
 
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];

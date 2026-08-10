@@ -16,7 +16,7 @@ export interface CalEvent {
 
 const FEEDS = [
   { env: 'CAL_ANDREAS', source: 'andreas', color: '#4A80C4' },
-  { env: 'CAL_TARAN',   source: 'taran',   color: '#6B2FA0' },
+  { env: 'CAL_TARAN',   source: 'taran',   color: '#C97A8B' },
   { env: 'CAL_FELLES',  source: 'felles',  color: '#7AB394' },
 ] as const;
 

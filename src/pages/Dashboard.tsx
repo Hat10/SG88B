@@ -21,7 +21,7 @@ const NO_MONTHS       = ['januar','februar','mars','april','mai','juni','juli','
 const WEEK_LABELS     = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
 
 const SOURCE_COLOR: Record<string, string> = {
-  andreas: '#4A80C4', taran: '#6B2FA0', felles: '#7AB394', todo: '#C9963A',
+  andreas: '#4A80C4', taran: '#C97A8B', felles: '#7AB394', todo: '#C9963A',
 };
 const PRIORITY_COLOR: Record<string, string> = {
   høy: '#C0392B', middels: '#C9963A', lav: 'var(--ink-4)',
