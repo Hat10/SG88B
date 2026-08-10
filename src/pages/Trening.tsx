@@ -11,7 +11,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
 import type { Who } from '../data';
 import {
-  WHO_LABEL, TRAINERS, pad, dayKey, fmtNum, startOfWeek, median,
+  WHO_LABEL, TRAINERS, pad, dayKey, fmtNum, median,
   weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
@@ -64,14 +64,6 @@ const WHO_INITIAL: Record<'M' | 'L', string> = { M: 'A', L: 'T' }; // Andreas, T
 function WhoAvatar({ who, size = 24 }: { who: Trainer; size?: number }) {
   const style = { width: size, height: size, fontSize: size * 0.38 };
   return <div className={`avatar avatar-${who.toLowerCase()}`} style={style}>{WHO_INITIAL[who]}</div>;
-}
-
-function isoWeek(d: Date): number {
-  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7) + 3); // torsdagen i uka
-  const firstThu = new Date(Date.UTC(x.getUTCFullYear(), 0, 4));
-  firstThu.setUTCDate(firstThu.getUTCDate() - ((firstThu.getUTCDay() + 6) % 7) + 3);
-  return 1 + Math.round((x.getTime() - firstThu.getTime()) / (7 * 86400000));
 }
 
 function fmtDay(iso: string): string {
@@ -1142,7 +1134,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
   const { notify } = useSnackbar();
   const colorFor = useCatColor();
 
-  const [period, setPeriod] = useState<'maned' | 'ar'>('ar');
   const [viewWho, setViewWho] = useState<Who>('f');
   const [logCount, setLogCount] = useState(8);
   const [month, setMonth] = useState(thisMonthStart);
@@ -1176,17 +1167,9 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
 
   const daysTrainedYear = useMemo(() => new Set(thisYear.map(s => dayKey(new Date(s.startedAt)))).size, [thisYear]);
 
-  const inPeriod = useMemo(() => done.filter(s => {
-    const d = new Date(s.startedAt);
-    return period === 'ar'
-      ? d.getFullYear() === year
-      : (d.getFullYear() === month.getFullYear() && d.getMonth() === month.getMonth());
-  }), [done, period, year, month]);
-
-  const periodLabel = period === 'ar'
-    ? String(year)
-    : month.toLocaleDateString('nb-NO',
-        month.getFullYear() === year ? { month: 'long' } : { month: 'long', year: 'numeric' });
+  const inPeriod = useMemo(
+    () => done.filter(s => new Date(s.startedAt).getFullYear() === year),
+    [done, year]);
 
   const daysTrained = useMemo(() => new Set(inPeriod.map(s => dayKey(new Date(s.startedAt)))).size, [inPeriod]);
 
@@ -1230,30 +1213,18 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
     return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
   }, [inPeriod]);
 
-  // ── Søylediagram: 12 uker eller 12 måneder ──
-  const bars = useMemo(() => {
-    if (period === 'ar') {
-      return Array.from({ length: 12 }, (_, i) => {
-        const d = new Date(year, i, 1);
-        const inMonth = done.filter(s => { const x = new Date(s.startedAt); return x.getFullYear() === year && x.getMonth() === i; });
-        return {
-          key: `m${i}`,
-          label: d.toLocaleDateString('nb-NO', { month: 'short' }).slice(0, 3),
-          total: inMonth.length,
-          m: inMonth.filter(s => s.who === 'M').length,
-          l: inMonth.filter(s => s.who === 'L').length,
-        };
-      });
-    }
-    const first = startOfWeek(new Date());
-    first.setDate(first.getDate() - 7 * 11);
-    return Array.from({ length: 12 }, (_, i) => {
-      const from = new Date(first); from.setDate(from.getDate() + 7 * i);
-      const to = new Date(from); to.setDate(to.getDate() + 7);
-      const inWeek = done.filter(s => { const t = new Date(s.startedAt).getTime(); return t >= from.getTime() && t < to.getTime(); });
-      return { key: `w${i}`, label: `u${isoWeek(from)}`, total: inWeek.length, m: inWeek.filter(s => s.who === 'M').length, l: inWeek.filter(s => s.who === 'L').length };
-    });
-  }, [done, period, year]);
+  // ── Søylediagram: 12 måneder ──
+  const bars = useMemo(() => Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(year, i, 1);
+    const inMonth = done.filter(s => { const x = new Date(s.startedAt); return x.getFullYear() === year && x.getMonth() === i; });
+    return {
+      key: `m${i}`,
+      label: d.toLocaleDateString('nb-NO', { month: 'short' }).slice(0, 3),
+      total: inMonth.length,
+      m: inMonth.filter(s => s.who === 'M').length,
+      l: inMonth.filter(s => s.who === 'L').length,
+    };
+  }), [done, year]);
   const barMax = Math.max(1, ...bars.map(b => b.total));
 
   // ── Kalender ──
@@ -1338,10 +1309,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
               </button>
             ))}
           </div>
-          <div className="tr-seg">
-            <button className={period === 'maned' ? 'on' : ''} onClick={() => setPeriod('maned')}>Måned</button>
-            <button className={period === 'ar' ? 'on' : ''} onClick={() => setPeriod('ar')}>År</button>
-          </div>
         </div>
       </div>
 
@@ -1423,7 +1390,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
             {isPerson
               ? <>Dagene {WHO_LABEL[who]} trente.</>
               : <><strong>{WHO_INITIAL.M}+{WHO_INITIAL.L}</strong> betyr at begge trente den dagen.</>}
-            {period === 'maned' && <> ← → bytter måned for hele siden — kortene merket «{periodLabel}» følger med.</>}
           </div>
           <div className="tr-cal">
             {cells.map(c => (
@@ -1439,7 +1405,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
         <div className="card col-12">
           <div className="section-h">
             <h3>Hvor ofte trener dere hva?</h3>
-            <span className="meta" style={{ textTransform: 'capitalize' }}>{periodLabel}</span>
+            <span className="meta">{year}</span>
           </div>
           {byCategory.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
@@ -1488,7 +1454,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
             <h3>Når trener dere?</h3>
             <div className="row" style={{ gap: 12, alignItems: 'baseline' }}>
               <span className="meta">typisk start {typicalStart ?? '—'}</span>
-              <span className="meta" style={{ textTransform: 'capitalize' }}>{periodLabel}</span>
+              <span className="meta">{year}</span>
             </div>
           </div>
           {inPeriod.length === 0 ? (
@@ -1620,9 +1586,9 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
         {/* Søylediagram */}
         <div className="card col-12">
           <div className="section-h">
-            <h3>Økter per {period === 'ar' ? 'måned' : 'uke'}</h3>
+            <h3>Økter per måned</h3>
             <div className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span className="meta">Siste 12 {period === 'ar' ? 'måneder' : 'uker'}</span>
+              <span className="meta">Siste 12 måneder</span>
               <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> Andreas</span>
               <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> Taran</span>
             </div>
