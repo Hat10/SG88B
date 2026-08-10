@@ -233,15 +233,14 @@ function Modal({ eyebrow, title, onClose, children, footer, width = 520 }: {
 // ─── Når + hvem — delt av «Registrer» og «Rediger» ──────────────────────────
 
 const toDateInput = (iso: string) => dayKey(new Date(iso));
-const toTimeInput = (iso: string) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
-/** Tolker dato + klokkeslett fra <input>-feltene: gyldig, og ikke fram i tid. */
-function readWhen(date: string, time: string) {
-  const at = new Date(`${date}T${time || '00:00'}`);
+/** Tolker dato fra <input>-feltet: gyldig, og ikke fram i tid. */
+function readWhen(date: string) {
+  const at = new Date(`${date}T00:00`);
   const ok = !isNaN(at.getTime());
   const future = ok && at.getTime() > Date.now() + 60000;
   const valid = ok && !future;
-  const error = !ok ? 'Ugyldig dato eller klokkeslett' : future ? 'Tidspunktet ligger fram i tid' : null;
+  const error = !ok ? 'Ugyldig dato' : future ? 'Datoen ligger fram i tid' : null;
   return { at, valid, error };
 }
 
@@ -276,9 +275,9 @@ function WhoPicker({ who, setWho }: { who: Trainer; setWho: (w: Trainer) => void
   );
 }
 
-/** Dato + klokkeslett med «I dag» / «I går»-snarveier. */
-function WhenFields({ date, setDate, time, setTime, error }: {
-  date: string; setDate: (s: string) => void; time: string; setTime: (s: string) => void; error: string | null;
+/** Dato med «I dag» / «I går»-snarveier. */
+function WhenFields({ date, setDate, error }: {
+  date: string; setDate: (s: string) => void; error: string | null;
 }) {
   const today = dayKey(new Date());
   const yesterday = dayKey(new Date(Date.now() - 86400000));
@@ -289,15 +288,9 @@ function WhenFields({ date, setDate, time, setTime, error }: {
         <button className={'tr-chip' + (date === today ? ' on' : '')} onClick={() => setDate(today)}>I dag</button>
         <button className={'tr-chip' + (date === yesterday ? ' on' : '')} onClick={() => setDate(yesterday)}>I går</button>
       </div>
-      <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-        <div className="col" style={{ gap: 6, flex: 1, minWidth: 150 }}>
-          <label className="card-eyebrow" htmlFor="tr-when-date">Dato</label>
-          <input id="tr-when-date" className="input" type="date" value={date} max={today} onChange={e => setDate(e.target.value)} />
-        </div>
-        <div className="col" style={{ gap: 6, flex: 1, minWidth: 120 }}>
-          <label className="card-eyebrow" htmlFor="tr-when-time">Klokkeslett</label>
-          <input id="tr-when-time" className="input" type="time" value={time} onChange={e => setTime(e.target.value)} />
-        </div>
+      <div className="col" style={{ gap: 6 }}>
+        <label className="card-eyebrow" htmlFor="tr-when-date">Dato</label>
+        <input id="tr-when-date" className="input" type="date" value={date} max={today} onChange={e => setDate(e.target.value)} />
       </div>
       {error && <div className="card-meta" style={{ color: 'var(--danger)' }}>{error}</div>}
     </div>
@@ -326,11 +319,10 @@ function RegisterModal({ categories, presetCategory, onClose }: {
   const [category, setCategory] = useState(presetCategory ?? options[0]?.name ?? '');
   const [who, setWho] = useState<Trainer>('M');
   const [date, setDate] = useState(() => dayKey(new Date()));
-  const [time, setTime] = useState(() => toTimeInput(new Date().toISOString()));
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const { at, valid, error } = readWhen(date, time);
+  const { at, valid, error } = readWhen(date);
   const canSave = valid && category.trim().length > 0;
   const whoLabel = WHO_LABEL[who];
 
@@ -379,7 +371,7 @@ function RegisterModal({ categories, presetCategory, onClose }: {
         <span className="card-meta">Loggføres på {whoLabel}.</span>
       </div>
 
-      <WhenFields date={date} setDate={setDate} time={time} setTime={setTime} error={error} />
+      <WhenFields date={date} setDate={setDate} error={error} />
 
       <div className="col" style={{ gap: 6 }}>
         <label className="card-eyebrow" htmlFor="tr-reg-note">Notat <span style={{ opacity: 0.5 }}>(valgfritt)</span></label>
@@ -413,11 +405,10 @@ function EditSessionModal({ session, categories, onClose }: {
   const [category, setCategory] = useState(session.category);
   const [who, setWho] = useState<Trainer>(session.who);
   const [date, setDate] = useState(() => toDateInput(session.startedAt));
-  const [time, setTime] = useState(() => toTimeInput(session.startedAt));
   const [note, setNote] = useState(session.note ?? '');
   const [saving, setSaving] = useState(false);
 
-  const { at, valid, error } = readWhen(date, time);
+  const { at, valid, error } = readWhen(date);
   const canSave = valid && category.trim().length > 0;
 
   const del = async () => {
@@ -471,7 +462,7 @@ function EditSessionModal({ session, categories, onClose }: {
         <WhoPicker who={who} setWho={setWho} />
       </div>
 
-      <WhenFields date={date} setDate={setDate} time={time} setTime={setTime} error={error} />
+      <WhenFields date={date} setDate={setDate} error={error} />
 
       <div className="col" style={{ gap: 6 }}>
         <label className="card-eyebrow" htmlFor="tr-edit-note">Notat <span style={{ opacity: 0.5 }}>(valgfritt)</span></label>
@@ -933,11 +924,6 @@ function GoalModal({ goal, exercises, onClose }: {
   const [titleTouched, setTitleTouched] = useState(!!goal);
   const [saving, setSaving] = useState(false);
 
-  // Tidsbaserte måltyper (timer/minutter) er tatt ut nå som varighet ikke lenger
-  // registreres — men vis den likevel om et eksisterende mål er av den typen.
-  const kinds = GOAL_KINDS.filter(k =>
-    (k.v !== 'hours_year' && k.v !== 'minutes_week') || k.v === goal?.kind);
-
   const info = goalKindInfo(kind);
   const num = Number(target.replace(',', '.'));
   const numOk = isFinite(num) && num > 0;
@@ -996,7 +982,7 @@ function GoalModal({ goal, exercises, onClose }: {
             setKind(next);
             setTarget(String(goalKindInfo(next).suggest));
           }}>
-          {kinds.map(k => <option key={k.v} value={k.v}>{k.label}</option>)}
+          {GOAL_KINDS.map(k => <option key={k.v} value={k.v}>{k.label}</option>)}
         </select>
         <span className="card-meta">{info.hint}</span>
       </div>
@@ -1219,14 +1205,6 @@ const thisMonthStart = () => {
   return d;
 };
 
-/** Tid på døgnet, grovt nok til at én tidlig økt ikke får sin egen bøtte. */
-const TIME_BUCKETS = [
-  { label: 'Morgen',      hint: 'før 10',   from: 0,  to: 10 },
-  { label: 'Formiddag',   hint: '10–14',    from: 10, to: 14 },
-  { label: 'Ettermiddag', hint: '14–20',    from: 14, to: 20 },
-  { label: 'Kveld',       hint: 'etter 20', from: 20, to: 24 },
-];
-
 /** Én rad per registrert økt. Nyest først. */
 function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSession }[] {
   return done.map(s => ({ key: s.id, session: s }));
@@ -1312,29 +1290,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map(c => c.name), [categories, byCategory]);
 
-  // ── Muskelgrupper ──
-  // Antall økter per muskelgruppe (Push/Pull/Legs/Cardio …). En økt teller i hver
-  // gruppa kategorien treffer, så en Fullkropp-økt teller i Push, Pull og Legs.
-  const definedGroups = useMemo(
-    () => [...new Set(categories.filter(c => !c.archived).flatMap(c => c.groups))].sort((a, b) => a.localeCompare(b, 'nb')),
-    [categories]);
-  const byGroup = useMemo(() => {
-    const catTags = new Map(categories.map(c => [c.name, c.groups]));
-    const rows = new Map<string, { group: string; n: number; m: number; l: number; last: number }>();
-    for (const s of inPeriod) {
-      for (const g of (catTags.get(s.category) ?? [])) {
-        const r = rows.get(g) ?? { group: g, n: 0, m: 0, l: 0, last: 0 };
-        r.n += 1;
-        if (s.who === 'M') r.m += 1; else r.l += 1;
-        r.last = Math.max(r.last, new Date(s.startedAt).getTime());
-        rows.set(g, r);
-      }
-    }
-    return [...rows.values()].sort((a, b) => b.n - a.n);
-  }, [inPeriod, categories]);
-  const groupMax = Math.max(1, ...byGroup.map(g => g.n));
-  const missingGroups = definedGroups.filter(g => !byGroup.some(x => x.group === g));
-
   // ── Rytme ──
   const byWeekday = useMemo(() => {
     const counts = Array.from({ length: 7 }, () => 0);
@@ -1342,17 +1297,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
     return counts;
   }, [inPeriod]);
   const weekdayMax = Math.max(1, ...byWeekday);
-
-  const byTimeOfDay = useMemo(() => {
-    const buckets = TIME_BUCKETS.map(b => ({ ...b, n: 0 }));
-    for (const s of inPeriod) {
-      const h = new Date(s.startedAt).getHours();
-      const hit = buckets.find(b => h >= b.from && h < b.to);
-      if (hit) hit.n += 1;
-    }
-    return buckets;
-  }, [inPeriod]);
-  const todMax = Math.max(1, ...byTimeOfDay.map(b => b.n));
 
   const typicalStart = useMemo(() => {
     const mid = median(inPeriod.map(s => {
@@ -1619,52 +1563,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           )}
         </div>
 
-        {/* Muskelgrupper */}
-        {definedGroups.length > 0 && (
-          <div className="card col-12">
-            <div className="section-h">
-              <h3>Per muskelgruppe</h3>
-              <span className="meta" style={{ textTransform: 'capitalize' }}>{periodLabel}</span>
-            </div>
-            {byGroup.length === 0 ? (
-              <div className="card-meta">Ingen tagget økt i perioden</div>
-            ) : (
-              <>
-                <div className="col" style={{ gap: 12 }}>
-                  {byGroup.map(g => (
-                    <div key={g.group} className="col" style={{ gap: 5 }}>
-                      <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
-                        <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-                          <span style={{ fontSize: 13, fontWeight: 500 }}>{g.group}</span>
-                          <span className="mono tabular" style={{ fontSize: 11, color: 'var(--ink-2)' }}>
-                            {g.n} {g.n === 1 ? 'økt' : 'økter'}
-                          </span>
-                        </div>
-                        <span className="mono tabular" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
-                          {fmtSince(g.last || undefined)}{isPerson ? '' : ` · ${WHO_INITIAL.M} ${g.m} / ${WHO_INITIAL.L} ${g.l}`}
-                        </span>
-                      </div>
-                      <div className="prog tall"><i style={{ width: `${(g.n / groupMax) * 100}%`, background: 'var(--accent)' }} /></div>
-                    </div>
-                  ))}
-                </div>
-                {missingGroups.length > 0 && (
-                  <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
-                    <span className="card-meta">Ikke trent i perioden:</span>
-                    {missingGroups.map(g => (
-                      <span key={g} className="tag outline" style={{ opacity: 0.6 }}>{g}</span>
-                    ))}
-                  </div>
-                )}
-                <div className="card-meta" style={{ marginTop: 10 }}>
-                  En økt teller i hver gruppa den treffer — en Fullkropp-økt teller i både Push, Pull og Legs.
-                  Derfor kan summen bli mer enn antall økter. Tagg kategoriene i «Rediger kategori».
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Rytme */}
         <div className="card col-12">
           <div className="section-h">
@@ -1677,40 +1575,23 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           {inPeriod.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
           ) : (
-            <div className="row" style={{ gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div className="col grow" style={{ gap: 10, minWidth: 260, flex: 2 }}>
-                <span className="card-eyebrow">Ukedag</span>
-                <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 90 }}>
-                  {byWeekday.map((n, i) => (
-                    <div key={WEEKDAYS[i]} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
-                      <span className="mono tabular" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{n || ''}</span>
-                      <div
-                        title={`${WEEKDAYS[i]}: ${n} økter`}
-                        style={{
-                          width: '100%', borderRadius: '3px 3px 0 0', minHeight: n ? 4 : 2,
-                          height: `${(n / weekdayMax) * 100}%`,
-                          background: n === weekdayMax && n > 0 ? 'var(--accent-deep)' : 'var(--accent-soft)',
-                        }}
-                      />
-                      <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{WEEKDAYS[i]}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="col grow" style={{ gap: 10, minWidth: 220, flex: 1 }}>
-                <span className="card-eyebrow">Tid på døgnet</span>
-                <div className="col" style={{ gap: 8 }}>
-                  {byTimeOfDay.map(b => (
-                    <div key={b.label} className="col" style={{ gap: 4 }}>
-                      <div className="row between">
-                        <span style={{ fontSize: 12.5 }}>{b.label} <span className="card-meta">{b.hint}</span></span>
-                        <span className="mono tabular" style={{ fontSize: 10, color: 'var(--ink-3)' }}>{b.n}×</span>
-                      </div>
-                      <div className="prog"><i style={{ width: `${(b.n / todMax) * 100}%` }} /></div>
-                    </div>
-                  ))}
-                </div>
+            <div className="col" style={{ gap: 10 }}>
+              <span className="card-eyebrow">Ukedag</span>
+              <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 90 }}>
+                {byWeekday.map((n, i) => (
+                  <div key={WEEKDAYS[i]} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
+                    <span className="mono tabular" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{n || ''}</span>
+                    <div
+                      title={`${WEEKDAYS[i]}: ${n} økter`}
+                      style={{
+                        width: '100%', borderRadius: '3px 3px 0 0', minHeight: n ? 4 : 2,
+                        height: `${(n / weekdayMax) * 100}%`,
+                        background: n === weekdayMax && n > 0 ? 'var(--accent-deep)' : 'var(--accent-soft)',
+                      }}
+                    />
+                    <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{WEEKDAYS[i]}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

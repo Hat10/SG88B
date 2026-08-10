@@ -216,8 +216,6 @@ export const GOAL_KINDS: GoalKindInfo[] = [
   { v: 'sessions_year',  label: 'Økter i år',         hint: 'Teller fullførte økter hittil i år',                      unit: 'økter', who: 'alle',   suggest: 150, titleSuffix: ' i år' },
   { v: 'sessions_month', label: 'Økter denne måneden',hint: 'Teller fullførte økter i inneværende måned',              unit: 'økter', who: 'alle',   suggest: 12,  titleSuffix: ' denne måneden' },
   { v: 'sessions_total', label: 'Økter totalt',       hint: 'Teller alle fullførte økter noensinne',                   unit: 'økter', who: 'alle',   suggest: 500, titleSuffix: ' totalt' },
-  { v: 'hours_year',     label: 'Timer trent i år',   hint: 'Summerer målt tid på øktene hittil i år',                 unit: 'timer', who: 'alle',   suggest: 100, decimals: true, titleSuffix: ' i år' },
-  { v: 'minutes_week',   label: 'Minutter denne uka', hint: 'Summerer målt tid på øktene denne uka',                   unit: 'min',   who: 'alle',   suggest: 180, titleSuffix: ' denne uka' },
   { v: 'weekly_streak',  label: 'Uker på rad',        hint: `Teller uker på rad der hver av dere har minst ${STREAK_MIN_SESSIONS} økter`, unit: 'uker', who: 'alle', suggest: 8, titleSuffix: ' på rad' },
 ];
 
