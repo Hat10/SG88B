@@ -366,6 +366,13 @@ const SOURCE_COLOR: Record<string, string> = {
 const PRIORITY_COLOR: Record<string, string> = {
   høy: '#C0392B', middels: '#C9963A', lav: 'var(--ink-4)',
 };
+// Per-person label color for the Gjøremål-boksen — deliberately separate from
+// PRIORITY_COLOR (the stripe keeps showing priority; the "Felles"/"Andreas"/
+// "Taran" text should show who instead). Felles stays a neutral grey rather
+// than a third saturated color, so the two named people still stand out.
+const WHO_TEXT_COLOR: Record<string, string> = {
+  f: 'var(--ink-4)', M: SOURCE_COLOR.andreas, L: SOURCE_COLOR.taran,
+};
 const PRIORITY_ORDER: Record<Priority, number> = { høy: 0, middels: 1, lav: 2 };
 const SOURCE_LABEL: Record<string, string> = {
   andreas: 'Andreas', taran: 'Taran', felles: 'Felles', todo: 'Gjøremål',
@@ -707,7 +714,7 @@ export default function PageSkjerm({ onBack }: Props) {
   // deadline (todoEvents/AnyEvent var kalender-hendelse-formet og krevde en
   // dato, så dette er en egen, enklere liste bygget direkte fra todos).
   interface TodoRow {
-    todoId: string; title: string; color: string; who?: string;
+    todoId: string; title: string; color: string; whoColor: string; who?: string;
     time?: string; overdueSince?: string; priority: Priority; deadline?: string;
   }
   const activeTodoRows: TodoRow[] = todos
@@ -727,6 +734,7 @@ export default function PageSkjerm({ onBack }: Props) {
       return {
         todoId: t.id, title: t.title,
         color: PRIORITY_COLOR[t.priority] ?? SOURCE_COLOR.todo,
+        whoColor: WHO_TEXT_COLOR[t.who] ?? WHO_TEXT_COLOR.f,
         who: t.who !== 'f' ? WHO[t.who] : undefined,
         time: (!overdue && t.time) ? t.time : undefined,
         overdueSince, priority: t.priority, deadline: t.deadline,
@@ -1297,7 +1305,7 @@ export default function PageSkjerm({ onBack }: Props) {
                         )}
                       </div>
                     )}
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: row.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: row.whoColor, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {row.overdueSince ? `${row.who ?? 'Felles'} · forfalt ${fmtOverdue(row.overdueSince)}` : (row.who ?? 'Felles')}
                     </span>
                   </div>
