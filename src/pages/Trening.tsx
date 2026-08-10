@@ -1066,19 +1066,20 @@ function GoalModal({ goal, exercises, onClose }: {
   );
 }
 
-// ─── Delt navigasjon: Felles/Andreas/Taran + Registrer økt + Ny kategori ─────
+// ─── Delt navigasjon: Felles/Andreas/Taran + Registrer økt ──────────────────
 //
 // Samme rad, samme oppførsel, uansett om du står på registreringsskjermbildet
 // eller på Statistikk — fanene tar deg rett til Statistikk-visningen for akkurat
-// den personen (ett klikk i stedet for «gå til Statistikk, så velg person»), og
-// «Registrer økt» går alltid til registreringsskjermbildet, uansett hvilken fane
-// som er aktiv nå.
+// den personen (ett klikk i stedet for «gå til Statistikk, så velg person»).
+// «Registrer økt» sin faktiske handling avhenger av hvor den vises fra —
+// bestemt av hvilken `onRegister` hver kaller sender inn, se PageTrening.
+// Ny kategori er bevisst IKKE med her: den finnes bare via kategori-rutenettet
+// på «Hva har dere trent?»-siden.
 
-function TreningNav({ activeWho, onSelectPerson, onNewCategory, onRegister }: {
+function TreningNav({ activeWho, onSelectPerson, onRegister }: {
   /** Aktiv fane akkurat nå — null på registreringsskjermbildet, som ikke har noe personfilter. */
   activeWho: Who | null;
   onSelectPerson: (w: Who) => void;
-  onNewCategory: () => void;
   onRegister: () => void;
 }) {
   return (
@@ -1090,8 +1091,6 @@ function TreningNav({ activeWho, onSelectPerson, onNewCategory, onRegister }: {
           </button>
         ))}
       </div>
-      <button className="btn ghost sm" onClick={onNewCategory}
-        aria-label="Ny kategori" title="Ny kategori" style={{ minWidth: 30, padding: '4px 8px' }}>+</button>
       <button className="btn primary sm" onClick={onRegister}>Registrer økt</button>
     </>
   );
@@ -1135,7 +1134,7 @@ function Dashboard({ onSelectPerson, onRegister, onNewCategory, onEditCategory }
           {!isMobile && <div className="page-sub" style={{ marginTop: 8 }}>Huk av en kategori når en økt er gjennomført — velg hvem og når.</div>}
         </div>
         <div className="page-actions">
-          <TreningNav activeWho={null} onSelectPerson={onSelectPerson} onNewCategory={onNewCategory} onRegister={() => onRegister()} />
+          <TreningNav activeWho={null} onSelectPerson={onSelectPerson} onRegister={() => onRegister()} />
         </div>
       </div>
 
@@ -1241,10 +1240,13 @@ function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSes
   return done.map(s => ({ key: s.id, session: s }));
 }
 
-function Statistikk({ viewWho, onSelectPerson, onNewCategory, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
-  viewWho: Who; onSelectPerson: (w: Who) => void; onNewCategory: () => void;
+function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
+  viewWho: Who; onSelectPerson: (w: Who) => void;
+  /** Navigasjonsradens «Registrer økt» — tar deg til «Hva har dere trent?», ikke rett til modalen. */
+  onGoToDashboard: () => void;
   onNewRecord: () => void; onOpenRecord: (pr: PR) => void;
   onNewGoal: () => void; onEditGoal: (g: WorkoutGoal) => void; onEditSession: (s: WorkoutSession) => void;
+  /** Åpner registreringsmodalen direkte — brukt av «Siste økter»-kortets egen knapp. */
   onRegister: () => void;
 }) {
   const { categories, sessions, records, goals, loading, removeGoal, restoreGoal, removeSession, restoreSession } = useTrening();
@@ -1410,7 +1412,7 @@ function Statistikk({ viewWho, onSelectPerson, onNewCategory, onNewRecord, onOpe
           <h1 className="page-title">Slik trener <em>{isPerson ? WHO_LABEL[who] : 'dere'}</em></h1>
         </div>
         <div className="page-actions">
-          <TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onNewCategory={onNewCategory} onRegister={onRegister} />
+          <TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} />
         </div>
       </div>
 
@@ -1795,7 +1797,7 @@ export default function PageTrening() {
         : <Statistikk
             viewWho={viewWho}
             onSelectPerson={goToStats}
-            onNewCategory={() => openCategory(null)}
+            onGoToDashboard={() => { setView('okter'); window.scrollTo({ top: 0 }); }}
             onNewRecord={() => { setRecordPreset(undefined); setRecordOpen(true); }}
             onOpenRecord={pr => setDetail(pr)}
             onNewGoal={() => { setEditGoal(null); setGoalOpen(true); }}
