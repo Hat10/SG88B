@@ -11,7 +11,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
 import type { Who } from '../data';
 import {
-  WHO_LABEL, TRAINERS, pad, dayKey, fmtNum, median,
+  WHO_LABEL, TRAINERS, dayKey, fmtNum,
   weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
@@ -1203,16 +1203,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
   }, [inPeriod]);
   const weekdayMax = Math.max(1, ...byWeekday);
 
-  const typicalStart = useMemo(() => {
-    const mid = median(inPeriod.map(s => {
-      const d = new Date(s.startedAt);
-      return d.getHours() * 60 + d.getMinutes();
-    }));
-    if (mid === null) return null;
-    const m = Math.round(mid);
-    return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
-  }, [inPeriod]);
-
   // ── Søylediagram: 12 måneder ──
   const bars = useMemo(() => Array.from({ length: 12 }, (_, i) => {
     const d = new Date(year, i, 1);
@@ -1452,10 +1442,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
         <div className="card col-12">
           <div className="section-h">
             <h3>Når trener dere?</h3>
-            <div className="row" style={{ gap: 12, alignItems: 'baseline' }}>
-              <span className="meta">typisk start {typicalStart ?? '—'}</span>
-              <span className="meta">{year}</span>
-            </div>
+            <span className="meta">{year}</span>
           </div>
           {inPeriod.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
