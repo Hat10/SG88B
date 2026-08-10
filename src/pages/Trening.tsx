@@ -11,11 +11,11 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
 import type { Who } from '../data';
 import {
-  WHO_LABEL, TRAINERS, dayKey, fmtNum,
+  WHO_LABEL, TRAINERS, dayKey, fmtNum, startOfWeek,
   weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
-import { burst } from '../confetti';
+import { burst, rain, fireworkRain } from '../confetti';
 
 // ─── Farge per kategori ──────────────────────────────────────────────────────
 //
@@ -254,12 +254,72 @@ function WhenFields({ date, setDate, error }: {
   );
 }
 
+// ─── Belønning: Tarans ukentlige styrkemål ──────────────────────────────────
+//
+// Ikke koblet til workout_goals — ingen eksisterende GoalKind kan uttrykke «N
+// økter i akkurat denne uka» med en terskel vi styrer selv (weekly_streak sin
+// uke-terskel er STREAK_MIN_SESSIONS, en global konstant delt av hele appen,
+// ikke noe et enkeltmål kan sette). Egen, lettvekts konstant og telling holdt
+// utenfor mål-motoren i stedet.
+
+const TARAN_STRENGTH_GOAL_PER_WEEK = 2;
+
+// Kategoriene har ingen «styrke»-tagging lenger (fjernet sammen med
+// muskelgruppe-funksjonaliteten). Denne må derfor oppdateres manuelt her
+// dersom flere styrke-kategorier kommer til — i dag bare «Styrketrening» av
+// de fire aktive (Fjelltur, Styrketrening, Cardio, Yoga/Pilates).
+const STRENGTH_CATEGORIES = new Set(['Styrketrening']);
+
+type MiniSession = Pick<WorkoutSession, 'startedAt' | 'completedAt' | 'who' | 'category'>;
+
+/** Antall fullførte styrkeøkter `who` har i uka (mandag–søndag) som inneholder `at`. */
+function strengthSessionsInWeek(sessions: MiniSession[], who: Trainer, at: Date): number {
+  const from = startOfWeek(at).getTime();
+  const to = from + 7 * 86400000;
+  return sessions.filter(s => {
+    if (!s.completedAt || s.who !== who || !STRENGTH_CATEGORIES.has(s.category)) return false;
+    const t = new Date(s.startedAt).getTime();
+    return t >= from && t < to;
+  }).length;
+}
+
+/** Uker på rad, til og med uka rundt `at`, der `who` nådde ukemålet. */
+function strengthWeekStreak(sessions: MiniSession[], who: Trainer, at: Date): number {
+  let cursor = startOfWeek(at);
+  let n = 0;
+  while (strengthSessionsInWeek(sessions, who, cursor) >= TARAN_STRENGTH_GOAL_PER_WEEK) {
+    n++;
+    cursor = new Date(cursor.getTime() - 7 * 86400000);
+  }
+  return n;
+}
+
+const pickRandom = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+const STRENGTH_GOAL_MESSAGES: ((weeks: number) => string)[] = [
+  weeks => weeks >= 2 ? `Ukemålet i boks — ${weeks} uker på rad nå! 💪` : `Ukemålet er i boks denne uka! 💪`,
+  weeks => weeks >= 2
+    ? `${weeks} uker på rad med ${TARAN_STRENGTH_GOAL_PER_WEEK}+ styrkeøkter — stø kurs!`
+    : `${TARAN_STRENGTH_GOAL_PER_WEEK} styrkeøkter denne uka — akkurat i mål!`,
+  weeks => `Nice! Styrkemålet for uka er nådd${weeks >= 2 ? ` — ${weeks} uker på rad` : ''} 🎉`,
+  weeks => weeks >= 2
+    ? `Solid! ${weeks} uker på rad nå med styrkemålet i boks.`
+    : `Der har vi det — ${TARAN_STRENGTH_GOAL_PER_WEEK} styrkeøkter denne uka!`,
+];
+
+const OTHER_TRAINING_MESSAGES: ((category: string) => string)[] = [
+  cat => `Kjempefint at du var på ${cat} i dag! 🙌`,
+  cat => `${cat} i boks — bra jobba!`,
+  cat => `Fint at du fikk inn ${cat} i dag!`,
+  cat => `${cat} avhuket — godt gjort!`,
+];
+
 // ─── Registrer en gjennomført økt ────────────────────────────────────────────
 
 function RegisterModal({ categories, presetCategory, onClose }: {
   categories: WorkoutCategory[]; presetCategory?: string; onClose: () => void;
 }) {
-  const { registerSession } = useTrening();
+  const { registerSession, sessions } = useTrening();
   const { notify } = useSnackbar();
   const isMobile = useIsMobile();
 
@@ -288,8 +348,36 @@ function RegisterModal({ categories, presetCategory, onClose }: {
     setSaving(true);
     try {
       await registerSession({ category, who, performedAt: at.toISOString(), note: note.trim() || null });
-      if (el) { const r = el.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2); }
-      notify(`Registrert · ${category} · ${whoLabel} · ${fmtDay(at.toISOString())} 💪`);
+
+      let message = `Registrert · ${category} · ${whoLabel} · ${fmtDay(at.toISOString())} 💪`;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+
+        // Tarans belønningssystem — kun for henne, og maks én feiring per
+        // registrering (else if, ikke uavhengige if-er).
+        if (who === 'L' && STRENGTH_CATEGORIES.has(category)) {
+          // "Akkurat nå": uka regnes ut fra det virkelige tidspunktet, ikke fra
+          // `at` (den registrerte datoen) — en tilbakedatert økt fra forrige
+          // uke skal ikke kunne utløse denne ukas gratulasjon.
+          const now = new Date();
+          const withNew: MiniSession[] = [...sessions, { startedAt: at.toISOString(), completedAt: at.toISOString(), who, category }];
+          const weeklyCount = strengthSessionsInWeek(withNew, 'L', now);
+          if (weeklyCount === TARAN_STRENGTH_GOAL_PER_WEEK) {
+            const weeks = strengthWeekStreak(withNew, 'L', now);
+            message = pickRandom(STRENGTH_GOAL_MESSAGES)(weeks);
+            fireworkRain(cx, cy);
+          } else {
+            burst(cx, cy);
+          }
+        } else if (who === 'L') {
+          message = pickRandom(OTHER_TRAINING_MESSAGES)(category);
+          rain();
+        } else {
+          burst(cx, cy);
+        }
+      }
+      notify(message);
       onClose();
     } finally { setSaving(false); }
   };
