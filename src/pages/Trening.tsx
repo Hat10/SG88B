@@ -1409,10 +1409,10 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
       let bg = 'var(--surface-2)', fg = 'var(--ink-4)', bfg = 'transparent', badge = '';
       if (who?.has('M') && who.has('L')) {
         bg = 'var(--tr-both)'; fg = 'var(--bg)'; bfg = 'var(--bg)';
-        badge = 'M+L';
+        badge = `${WHO_INITIAL.M}+${WHO_INITIAL.L}`;
       }
-      else if (who?.has('M'))            { bg = 'var(--accent-soft)'; fg = 'var(--accent-deep)'; bfg = 'var(--accent-deep)'; badge = 'M'; }
-      else if (who?.has('L'))            { bg = 'var(--tr-solo-l)';   fg = 'var(--ink-2)';       bfg = 'var(--ink)';         badge = 'L'; }
+      else if (who?.has('M'))            { bg = 'var(--accent-soft)'; fg = 'var(--accent-deep)'; bfg = 'var(--accent-deep)'; badge = WHO_INITIAL.M; }
+      else if (who?.has('L'))            { bg = 'var(--tr-solo-l)';   fg = 'var(--ink-2)';       bfg = 'var(--ink)';         badge = WHO_INITIAL.L; }
       out.push({ key: k, day: d, badge, bg, fg, bfg });
     }
     return out;
@@ -1544,8 +1544,8 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
                 <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: WHO_COLOR[who] }}>●</b> {WHO_LABEL[who]}</span>
               ) : (
                 <>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> M</span>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> L</span>
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> {WHO_INITIAL.M}</span>
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> {WHO_INITIAL.L}</span>
                   <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--tr-both)' }}>●</b> begge</span>
                 </>
               )}
@@ -1559,7 +1559,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           <div className="card-meta" style={{ marginBottom: 8 }}>
             {isPerson
               ? <>Dagene {WHO_LABEL[who]} trente.</>
-              : <><strong>M+L</strong> betyr at begge trente den dagen.</>}
+              : <><strong>{WHO_INITIAL.M}+{WHO_INITIAL.L}</strong> betyr at begge trente den dagen.</>}
             {period === 'maned' && <> ← → bytter måned for hele siden — kortene merket «{periodLabel}» følger med.</>}
           </div>
           <div className="tr-cal">
@@ -1593,7 +1593,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
                         </span>
                       </div>
                       <span className="mono tabular" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
-                        {Math.round((c.n / Math.max(1, catSessions)) * 100)} %{isPerson ? '' : ` · M ${c.m} / L ${c.l}`}
+                        {Math.round((c.n / Math.max(1, catSessions)) * 100)} %{isPerson ? '' : ` · ${WHO_INITIAL.M} ${c.m} / ${WHO_INITIAL.L} ${c.l}`}
                       </span>
                     </div>
                     <div className="prog tall">
@@ -1641,7 +1641,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
                           </span>
                         </div>
                         <span className="mono tabular" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
-                          {fmtSince(g.last || undefined)}{isPerson ? '' : ` · M ${g.m} / L ${g.l}`}
+                          {fmtSince(g.last || undefined)}{isPerson ? '' : ` · ${WHO_INITIAL.M} ${g.m} / ${WHO_INITIAL.L} ${g.l}`}
                         </span>
                       </div>
                       <div className="prog tall"><i style={{ width: `${(g.n / groupMax) * 100}%`, background: 'var(--accent)' }} /></div>
