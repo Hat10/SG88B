@@ -277,8 +277,11 @@ alter publication supabase_realtime add table public.settings;
 -- The original TEMPLATE-based model from scripts/trening-migration.sql /
 -- scripts/trening-goals-migration.sql (workout_templates table, template_id/
 -- template_name on sessions) was fully replaced — see "Superseded" section.
--- All four tables below are subscribed to by TreningContext.tsx via a single
--- `.channel('trening_realtime')`, confirmed by scripts/trening-rebuild.sql.
+-- earned_badges (scripts/trening-badges-migration.sql) was added later, for
+-- the badge system — same realtime-subscription pattern as the other four.
+-- All five tables below are subscribed to by TreningContext.tsx via a single
+-- `.channel('trening_realtime')`, confirmed by scripts/trening-rebuild.sql
+-- (four of five) and scripts/trening-badges-migration.sql (the fifth).
 
 -- [CONFIRMED] scripts/trening-rebuild.sql
 create table public.workout_categories (
@@ -383,6 +386,26 @@ create policy "authenticated_workout_goals_all" on public.workout_goals
   for all using (auth.role() = 'authenticated');
 grant select, insert, update, delete on public.workout_goals to authenticated;
 alter publication supabase_realtime add table public.workout_goals;
+
+-- [CONFIRMED] scripts/trening-badges-migration.sql
+-- badge_key is not an FK into any table — the badge catalogue (key, terskel,
+-- ikon, tekst) lives in BADGE_DEFS in Trening.tsx, not in the database.
+-- unique(who, badge_key) makes `insert ... on conflict do nothing` idempotent,
+-- so the client can safely re-check-and-award on every registration without
+-- risking a duplicate unlock (and duplicate celebration) for the same badge.
+create table public.earned_badges (
+  id          uuid primary key default gen_random_uuid(),
+  who         text not null check (who in ('M','L')),
+  badge_key   text not null,
+  earned_at   timestamptz not null default now(),
+  unique (who, badge_key)
+);
+
+alter table public.earned_badges enable row level security;
+create policy "authenticated_earned_badges_all" on public.earned_badges
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.earned_badges to authenticated;
+alter publication supabase_realtime add table public.earned_badges;
 
 
 -- ============================================================================

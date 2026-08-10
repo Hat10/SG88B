@@ -314,12 +314,79 @@ const OTHER_TRAINING_MESSAGES: ((category: string) => string)[] = [
   cat => `${cat} avhuket — godt gjort!`,
 ];
 
+// ─── Badges: milepæler for begge ─────────────────────────────────────────────
+//
+// Egen tabell (earned_badges), ikke koblet til workout_goals — samme
+// begrunnelse som Tarans ukemål over. Katalogen (nøkkel/terskel/ikon/tekst)
+// bor her i koden; earned_badges er bare beviset på når noen faktisk nådde
+// en av dem. Sjekkes ved hver registrering, for begge likt.
+//
+// Rekkefølgen på lista er bevisst stigende «imponerende-het» — når flere
+// badges låses opp i samme registrering (typisk første gang funksjonen
+// rulles ut, og noen retroaktivt kvalifiserer for flere på én gang), feires
+// bare den siste kvalifiserte i lista, ikke alle samtidig.
+
+interface BadgeCtx { sessions: MiniSession[]; records: WorkoutRecord[]; categories: WorkoutCategory[]; who: Trainer }
+
+const totalCompleted = (ctx: BadgeCtx) => ctx.sessions.filter(s => s.completedAt && s.who === ctx.who).length;
+const triedCategory = (ctx: BadgeCtx, names: string[]) =>
+  ctx.sessions.some(s => s.completedAt && s.who === ctx.who && names.includes(s.category));
+// weekStreak leser bare completedAt/startedAt/who — MiniSession dekker det,
+// selv om den ikke er en fullverdig WorkoutSession.
+const personalWeekStreak = (ctx: BadgeCtx) => weekStreak(ctx.sessions as WorkoutSession[], [ctx.who]);
+
+interface BadgeDef {
+  key: string;
+  icon: string;
+  label: string;
+  message: string;
+  isEarned: (ctx: BadgeCtx) => boolean;
+}
+
+const BADGE_DEFS: BadgeDef[] = [
+  { key: 'forste_okt', icon: '🌱', label: 'Første økt', message: 'Første økt i loggen — sånn skal det se ut! 🌱',
+    isEarned: ctx => totalCompleted(ctx) >= 1 },
+  { key: 'totalt_5', icon: '⭐', label: '5 økter', message: '5 økter i loggen! ⭐',
+    isEarned: ctx => totalCompleted(ctx) >= 5 },
+  { key: 'ukestreak_1', icon: '📅', label: '1 uke på rad', message: 'Første fulle treningsuke i boks! 📅',
+    isEarned: ctx => personalWeekStreak(ctx) >= 1 },
+  { key: 'forste_fjelltur', icon: '⛰️', label: 'Første fjelltur', message: 'Første fjelltur logget — nydelig! ⛰️',
+    isEarned: ctx => triedCategory(ctx, ['Fjelltur']) },
+  { key: 'forste_yoga_cardio', icon: '🧘', label: 'Første yoga/cardio', message: 'Første yoga- eller cardioøkt i boks! 🧘',
+    isEarned: ctx => triedCategory(ctx, ['Yoga/Pilates', 'Cardio']) },
+  { key: 'totalt_25', icon: '🔥', label: '25 økter', message: '25 økter — stø kurs! 🔥',
+    isEarned: ctx => totalCompleted(ctx) >= 25 },
+  { key: 'ukestreak_4', icon: '🗓️', label: '4 uker på rad', message: '4 uker på rad — det begynner å bli en vane! 🗓️',
+    isEarned: ctx => personalWeekStreak(ctx) >= 4 },
+  { key: 'alle_kategorier', icon: '🎯', label: 'Prøvd alle kategorier', message: 'Alle kategoriene prøvd — allsidig! 🎯',
+    isEarned: ctx => ctx.categories.filter(c => !c.archived).every(c => triedCategory(ctx, [c.name])) },
+  { key: 'forste_rekord', icon: '🏅', label: 'Første rekord', message: 'Første rekord logget! 🏅',
+    isEarned: ctx => ctx.records.some(r => r.who === ctx.who) },
+  { key: 'totalt_50', icon: '💯', label: '50 økter', message: '50 økter — imponerende! 💯',
+    isEarned: ctx => totalCompleted(ctx) >= 50 },
+  { key: 'ukestreak_12', icon: '🏆', label: '12 uker på rad', message: '12 uker på rad — tre måneder rett gjennom! 🏆',
+    isEarned: ctx => personalWeekStreak(ctx) >= 12 },
+  { key: 'totalt_100', icon: '💎', label: '100 økter', message: '100 økter i loggen! 💎',
+    isEarned: ctx => totalCompleted(ctx) >= 100 },
+  { key: 'ukestreak_26', icon: '👑', label: '26 uker på rad', message: '26 uker på rad — et halvt år uten avbrudd! 👑',
+    isEarned: ctx => personalWeekStreak(ctx) >= 26 },
+];
+
+/** Badges `who` kvalifiserer for akkurat nå, men ikke har fra før. */
+function checkBadges(
+  sessions: MiniSession[], records: WorkoutRecord[], categories: WorkoutCategory[],
+  who: Trainer, alreadyEarned: Set<string>,
+): BadgeDef[] {
+  const ctx: BadgeCtx = { sessions, records, categories, who };
+  return BADGE_DEFS.filter(b => !alreadyEarned.has(b.key) && b.isEarned(ctx));
+}
+
 // ─── Registrer en gjennomført økt ────────────────────────────────────────────
 
 function RegisterModal({ categories, presetCategory, onClose }: {
   categories: WorkoutCategory[]; presetCategory?: string; onClose: () => void;
 }) {
-  const { registerSession, sessions } = useTrening();
+  const { registerSession, sessions, records, earnedBadges, awardBadges } = useTrening();
   const { notify } = useSnackbar();
   const isMobile = useIsMobile();
 
@@ -353,15 +420,29 @@ function RegisterModal({ categories, presetCategory, onClose }: {
       if (el) {
         const r = el.getBoundingClientRect();
         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const withNew: MiniSession[] = [...sessions, { startedAt: at.toISOString(), completedAt: at.toISOString(), who, category }];
 
-        // Tarans belønningssystem — kun for henne, og maks én feiring per
-        // registrering (else if, ikke uavhengige if-er).
-        if (who === 'L' && STRENGTH_CATEGORIES.has(category)) {
+        // Badges gjelder begge og har høyest prioritet — så maks én feiring
+        // per registrering uansett hvor mange ting som stemmer samtidig
+        // (else if-kjede under, ikke uavhengige if-er).
+        const alreadyEarned = new Set(earnedBadges.filter(b => b.who === who).map(b => b.badgeKey));
+        const candidates = checkBadges(withNew, records, categories, who, alreadyEarned).map(b => b.key);
+        const newlyEarned = candidates.length > 0 ? await awardBadges(who, candidates) : [];
+
+        if (newlyEarned.length > 0) {
+          // Databasen (ikke `candidates`) er fasit på hva som faktisk var nytt.
+          // Flere kan låses opp samtidig (typisk første gang funksjonen er i
+          // bruk) — feir bare den mest imponerende, siste i BADGE_DEFS' stigende
+          // rekkefølge.
+          const top = BADGE_DEFS.filter(b => newlyEarned.includes(b.key)).pop()!;
+          message = top.message;
+          fireworkRain(cx, cy);
+        } else if (who === 'L' && STRENGTH_CATEGORIES.has(category)) {
+          // Tarans ukentlige styrkemål — kun for henne.
           // "Akkurat nå": uka regnes ut fra det virkelige tidspunktet, ikke fra
           // `at` (den registrerte datoen) — en tilbakedatert økt fra forrige
           // uke skal ikke kunne utløse denne ukas gratulasjon.
           const now = new Date();
-          const withNew: MiniSession[] = [...sessions, { startedAt: at.toISOString(), completedAt: at.toISOString(), who, category }];
           const weeklyCount = strengthSessionsInWeek(withNew, 'L', now);
           if (weeklyCount === TARAN_STRENGTH_GOAL_PER_WEEK) {
             const weeks = strengthWeekStreak(withNew, 'L', now);
@@ -1249,7 +1330,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
   /** Åpner registreringsmodalen direkte — brukt av «Siste økter»-kortets egen knapp. */
   onRegister: () => void;
 }) {
-  const { categories, sessions, records, goals, loading, removeGoal, restoreGoal, removeSession, restoreSession } = useTrening();
+  const { categories, sessions, records, goals, earnedBadges, loading, removeGoal, restoreGoal, removeSession, restoreSession } = useTrening();
   const { confirm } = useConfirm();
   const { notify } = useSnackbar();
   const colorFor = useCatColor();
@@ -1364,7 +1445,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     return out;
   }, [done, month]);
 
-  const pulse = useMemo(() => computePulse(sessions, records, goals), [sessions, records, goals]);
+  const pulse = useMemo(() => computePulse(sessions, records, goals, viewWho), [sessions, records, goals, viewWho]);
+
+  // Felles trekker fra begges badges (samme trainers-scoping som resten av
+  // siden); Andreas/Taran ser bare sine egne.
+  const myBadges = useMemo(
+    () => earnedBadges.filter(b => (isPerson ? b.who === who : true)),
+    [earnedBadges, isPerson, who]);
 
   const prs = useMemo(() => buildPRs(records), [records]);
   const visiblePrs = isPerson ? prs.filter(p => p.who === who) : prs;
@@ -1420,9 +1507,21 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
         <div style={{ padding: '40px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
           Ingen registrerte økter ennå — huk av en økt så fylles dette ut.
         </div>
-      ) : pulse && (
-        <div className="note" style={{ borderLeftColor: pulse.color }}>
-          {pulse.text}<span className="note-from">{pulse.from}</span>
+      ) : (pulse || myBadges.length > 0) && (
+        <div className="note" style={{ borderLeftColor: pulse?.color ?? 'var(--accent-deep)' }}>
+          {pulse && <>{pulse.text}<span className="note-from">{pulse.from}</span></>}
+          {myBadges.length > 0 && (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: pulse ? 10 : 0 }}>
+              {myBadges.map(b => {
+                const def = BADGE_DEFS.find(d => d.key === b.badgeKey);
+                if (!def) return null;
+                return (
+                  <span key={`${b.who}-${b.badgeKey}`} title={`${def.label}${isPerson ? '' : ` · ${WHO_LABEL[b.who]}`}`}
+                    style={{ fontSize: 17, fontStyle: 'normal', lineHeight: 1 }}>{def.icon}</span>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

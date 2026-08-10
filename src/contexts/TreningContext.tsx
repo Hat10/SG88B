@@ -92,11 +92,23 @@ export interface WorkoutGoal {
   deadline: string | null;
 }
 
+/**
+ * Når en badge faktisk ble låst opp. Selve badge-katalogen (nøkkel, terskel,
+ * ikon, tekst) bor i BADGE_DEFS i Trening.tsx — denne raden er bare beviset
+ * på at `who` nådde `badgeKey` på et gitt tidspunkt.
+ */
+export interface EarnedBadge {
+  who: Trainer;
+  badgeKey: string;
+  earnedAt: string;
+}
+
 interface TreningCtx {
   categories: WorkoutCategory[];
   sessions: WorkoutSession[];
   records: WorkoutRecord[];
   goals: WorkoutGoal[];
+  earnedBadges: EarnedBadge[];
   loading: boolean;
   addCategory: (c: { name: string; color: string | null }) => Promise<void>;
   updateCategory: (id: string, patch: Partial<Omit<WorkoutCategory, 'id'>>) => Promise<void>;
@@ -119,17 +131,25 @@ interface TreningCtx {
   updateGoal: (id: string, patch: Partial<Omit<WorkoutGoal, 'id'>>) => Promise<void>;
   removeGoal: (id: string) => Promise<void>;
   restoreGoal: (g: WorkoutGoal) => Promise<void>;
+  /**
+   * Prøver å låse opp `keys` for `who` — `insert ... on conflict do nothing`,
+   * så allerede oppnådde badges i lista er trygge å sende med på nytt.
+   * Returnerer kun nøklene som faktisk var NYE (databasen er fasit, ikke en
+   * lokal sjekk mot `earnedBadges`, som kan være i etterkant av innsettingen).
+   */
+  awardBadges: (who: Trainer, keys: string[]) => Promise<string[]>;
 }
 
 const noop = async () => {};
 
 const TreningContext = createContext<TreningCtx>({
-  categories: [], sessions: [], records: [], goals: [], loading: true,
+  categories: [], sessions: [], records: [], goals: [], earnedBadges: [], loading: true,
   addCategory: noop, updateCategory: noop, removeCategory: noop, restoreCategory: noop,
   registerSession: noop, saveLoggedSession: noop,
   removeSession: noop, restoreSession: noop,
   addRecord: noop, removeRecord: noop, restoreRecord: noop,
   addGoal: noop, updateGoal: noop, removeGoal: noop, restoreGoal: noop,
+  awardBadges: async () => [],
 });
 
 const categoryFromRow = (r: Record<string, unknown>): WorkoutCategory => ({
@@ -176,24 +196,33 @@ const goalFromRow = (r: Record<string, unknown>): WorkoutGoal => ({
   deadline: (r.deadline as string | null) ?? null,
 });
 
+const earnedBadgeFromRow = (r: Record<string, unknown>): EarnedBadge => ({
+  who: (r.who as Trainer) ?? 'M',
+  badgeKey: r.badge_key as string,
+  earnedAt: r.earned_at as string,
+});
+
 export function TreningProvider({ children }: { children: React.ReactNode }) {
-  const [categories, setCategories] = useState<WorkoutCategory[]>([]);
-  const [sessions,   setSessions]   = useState<WorkoutSession[]>([]);
-  const [records,    setRecords]    = useState<WorkoutRecord[]>([]);
-  const [goals,      setGoals]      = useState<WorkoutGoal[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const [categories,   setCategories]   = useState<WorkoutCategory[]>([]);
+  const [sessions,     setSessions]     = useState<WorkoutSession[]>([]);
+  const [records,      setRecords]      = useState<WorkoutRecord[]>([]);
+  const [goals,        setGoals]        = useState<WorkoutGoal[]>([]);
+  const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
+  const [loading,      setLoading]      = useState(true);
 
   const load = async () => {
-    const [{ data: cat }, { data: ses }, { data: rec }, { data: gol }] = await Promise.all([
+    const [{ data: cat }, { data: ses }, { data: rec }, { data: gol }, { data: bdg }] = await Promise.all([
       supabase.from('workout_categories').select('*').order('sort_order').order('name'),
       supabase.from('workout_sessions').select('*').order('started_at', { ascending: false }),
       supabase.from('workout_records').select('*').order('date', { ascending: false }),
       supabase.from('workout_goals').select('*').order('created_at'),
+      supabase.from('earned_badges').select('*').order('earned_at'),
     ]);
     if (cat) setCategories(cat.map(categoryFromRow));
     if (ses) setSessions(ses.map(sessionFromRow));
     if (rec) setRecords(rec.map(recordFromRow));
     if (gol) setGoals(gol.map(goalFromRow));
+    if (bdg) setEarnedBadges(bdg.map(earnedBadgeFromRow));
   };
 
   useEffect(() => {
@@ -205,6 +234,7 @@ export function TreningProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_sessions' },   () => { load(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_records' },     () => { load(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_goals' },       () => { load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'earned_badges' },       () => { load(); })
       .subscribe();
 
     // En registrering kan ha kommet inn på den andre telefonen mens skjermen lå
@@ -346,13 +376,26 @@ export function TreningProvider({ children }: { children: React.ReactNode }) {
     await load();
   };
 
+  // ── Badges ─────────────────────────────────────────────────────────────────
+
+  const awardBadges = async (who: Trainer, keys: string[]): Promise<string[]> => {
+    if (keys.length === 0) return [];
+    const { data } = await supabase
+      .from('earned_badges')
+      .upsert(keys.map(badge_key => ({ who, badge_key })), { onConflict: 'who,badge_key', ignoreDuplicates: true })
+      .select('badge_key');
+    await load();
+    return (data ?? []).map(r => r.badge_key as string);
+  };
+
   return (
     <TreningContext.Provider value={{
-      categories, sessions, records, goals, loading,
+      categories, sessions, records, goals, earnedBadges, loading,
       addCategory, updateCategory, removeCategory, restoreCategory,
       registerSession, saveLoggedSession, removeSession, restoreSession,
       addRecord, removeRecord, restoreRecord,
       addGoal, updateGoal, removeGoal, restoreGoal,
+      awardBadges,
     }}>
       {children}
     </TreningContext.Provider>

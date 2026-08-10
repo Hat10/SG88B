@@ -194,7 +194,11 @@ it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
         bump(fired, rule.id.replace(/-g\d+$/, '-*'));
         add(firedIn, rule.id.replace(/-g\d+$/, '-*'), scen.name);
       }
-      const p = pickPulse(rules);
+      // Rotasjonen er et tilfeldig valg nå (ett per sidebesøk), ikke lenger en
+      // datobasert indeks — d/SIM_DAYS gir en deterministisk, jevnt fordelt
+      // rand-sekvens over kjøringa i stedet for å stole på ekte Math.random(),
+      // så dekningssjekkene under ikke blir avhengige av flaks.
+      const p = pickPulse(rules, () => d / SIM_DAYS);
       if (p) {
         const id = rules.find(x => x.text === p.text)!.id.replace(/-g\d+$/, '-*');
         bump(picked, id);
@@ -232,10 +236,13 @@ it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
   expect(frozen.map(x => `${x.name}: bare ${x.distinct} melding(er) på ${SIM_DAYS} døgn`))
     .toEqual([]);
 
-  // Regelsettet skal ikke krympe uten at noen tar stilling til det. 17 familier nå
-  // (etter at kategori-etterslep ble fjernet sammen med muskelgruppe-tagging, ned
-  // fra 18); terskelen holder samme slakk som før — én familie, typisk mal-foran,
-  // trenger ikke fyre i akkurat dette scenarioutvalget.
-  expect(all.length).toBeGreaterThanOrEqual(16);
-  expect(samples.size).toBeGreaterThanOrEqual(16);
+  // Regelsettet skal ikke krympe uten at noen tar stilling til det. ny-rekord-*
+  // er nå én familie PER (øvelse, person, enhet) i stedet for én fast familie
+  // totalt, så tallet under er ikke lenger et fast antall kodegrener — det
+  // reflekterer også hvor mange distinkte øvelser/enheter scenarioene under
+  // faktisk bruker (i dag: Benkpress i både kg og reps, se linje ~90).
+  // 17 familier nå; terskelen holder samme slakk som før — én familie, typisk
+  // mal-foran, trenger ikke fyre i akkurat dette scenarioutvalget.
+  expect(all.length).toBeGreaterThanOrEqual(17);
+  expect(samples.size).toBeGreaterThanOrEqual(17);
 });

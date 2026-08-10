@@ -116,7 +116,7 @@ const CASES: Case[] = [
       sessions: routine([0, 1, 2, 3, 4, 5], 2, ['M', 'L']), goals: [goal('sessions_year', 100)] }) },
   { id: 'mal-bak', anchor: SAT, build: () => ({
       sessions: routine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 1, ['M', 'L']), goals: [goal('sessions_year', 400)] }) },
-  { id: 'ny-rekord', anchor: SAT, build: () => ({
+  { id: 'ny-rekord-Benkpress-M-kg', anchor: SAT, build: () => ({
       sessions: routine([0, 1, 2], 2, ['M', 'L']), records: [rec(1, 'M', 100)] }) },
   { id: 'okt-milepal', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2, 3, 4, 5, 6], 2, ['M', 'L']) }) },
   { id: 'beste-streak', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2], 3, ['M', 'L']) }) },
@@ -148,12 +148,14 @@ it('hver regel kan komme med i rotasjonsbåndet og bli vist når døgnet ruller'
         + `\n     alle regler = [${rules.filter(r => r.weight >= 5).sort((a, b) => pulseScore(b) - pulseScore(a)).map(r => `${baseId(r.id)}(${pulseScore(r)})`).join(', ')}]`);
     }
 
-    // Rull døgnet fem dager: band.length ≤ 5, så fem sammenhengende døgn treffer
-    // hver plass i båndet minst én gang. Regelen skal dukke opp underveis.
+    // Rotasjonen er et tilfeldig valg nå (ett per sidebesøk), ikke lenger en
+    // datobasert indeks — så i stedet for å rulle klokka, styrer vi selve
+    // trekningen: band.length ≤ 5, og fem jevnt fordelte rand-verdier (0/5,
+    // 1/5, …, 4/5) treffer garantert hver plass i båndet minst én gang, akkurat
+    // som fem sammenhengende dager gjorde under den gamle datobaserte ordningen.
     const shown = new Set<string>();
     for (let d = 0; d < 5; d++) {
-      vi.setSystemTime(new Date(c.anchor + d * DAY));
-      const p = pickPulse(rules);
+      const p = pickPulse(rules, () => d / 5);
       if (p) shown.add(baseId(rules.find(r => r.text === p.text)!.id));
     }
     if (!shown.has(c.id)) notShown.push(c.id);

@@ -1,6 +1,7 @@
-// Regelsettet bak info-boksen på Trening → Statistikk, og den samme boksen på
-// Gangskjermen. Alt her er rene funksjoner uten React, så begge sidene kan dele
-// én implementasjon i stedet for å ha hver sin som driver fra hverandre.
+// Regelsettet bak info-boksen på Trening → Statistikk. Alt her er rene
+// funksjoner uten React. (Kommentaren nevnte tidligere en tilsvarende boks på
+// Gangskjermen — den finnes ikke i dag; Skjerm.tsx importerer bare
+// WHO_LABEL/TRAINERS herfra, aldri computePulse.)
 //
 // Familiene er Etterslep og Mål/milepæler. Rotasjonsmeldinger er med
 // vilje utelatt: hvem rekkefølgen venter på hører hjemme på hero-kortet på
@@ -9,8 +10,8 @@
 // Utvelgelse: hver regel har en vekt 0–100 for hvor mye den er verdt akkurat
 // nå. Hendelser (rekorder, milepæler) aldres med `fade()` i stedet for å ha et
 // hardt vindu, tilstander står fast. Påminnelser får et påslag, men kan ikke
-// blokkere positive meldinger. Toppsjiktet deler på plassen med én bytting i
-// døgnet. Se `pickPulse` for detaljene.
+// blokkere positive meldinger. Toppsjiktet deler på plassen — ett tilfeldig
+// valg per sidebesøk, stabilt gjennom besøket. Se `pickPulse` for detaljene.
 //
 // Dette erstattet et rent prioritetssystem der påminnelser slo alt positivt og
 // bare eksakt like prioriteter byttet på. Der ble en fersk rekord skjult av
@@ -386,9 +387,26 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const andList = (parts: string[]) =>
   parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} og ${parts[parts.length - 1]}`;
 
-export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[]): PulseRule[] {
-  const done = sessions.filter(s => s.completedAt);
+export function buildPulseRules(
+  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[], viewWho: Who = 'f',
+): PulseRule[] {
+  // 'f' (Felles) leser fra begge, som før default-oppførselen var. Et
+  // personlig viewWho scoper til bare den ene — trainers=[viewWho] gjør at
+  // etterslep/streak-reglene under (som ellers itererer TRAINERS) bare
+  // regner ut status for den personen, i stedet for å feilaktig vise «X har
+  // ingen økter ennå» om den andre bare fordi dataen deres ble filtrert bort.
+  const trainers: Trainer[] = viewWho === 'f' ? TRAINERS : [viewWho];
+  const isPersonal = viewWho !== 'f';
+
+  // allDone brukes bare for felles-mål (kind='f'), som skal vise kombinert
+  // fremgang uansett hvilken fane man står på — resten av funksjonen bruker
+  // `done`, scopet til trainers.
+  const allDone = sessions.filter(s => s.completedAt);
+  const done = allDone.filter(s => trainers.includes(s.who));
   if (done.length === 0) return [];
+
+  const mineRecords = isPersonal ? records.filter(r => r.who === viewWho) : records;
+  const mineGoals = isPersonal ? goals.filter(g => g.who === 'f' || g.who === viewWho) : goals;
 
   const rules: PulseRule[] = [];
   const now = Date.now();
@@ -415,7 +433,7 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
   // Siste økt finnes med max, ikke ved å plukke den første i lista: rekkefølgen
   // på `sessions` er ikke en del av kontrakten her, selv om Supabase leverer dem
   // nyest først i dag.
-  const status = TRAINERS.map(who => {
+  const status = trainers.map(who => {
     const times = done.filter(s => s.who === who).map(s => new Date(s.startedAt).getTime());
     if (times.length === 0) return { who, days: null as number | null, gap: null as number | null, overdue: Infinity };
     const days = Math.floor((now - Math.max(...times)) / DAY);
@@ -451,8 +469,8 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
 
   // Streak-kravet er tre økter hver, så en advarsel først på søndag kommer for
   // seint til å kunne reddes. Den går fra lørdag, og sier hvem som mangler hva.
-  const wStreak = weekStreak(done);
-  const short = TRAINERS
+  const wStreak = weekStreak(done, trainers);
+  const short = trainers
     .map(who => ({ who, missing: streakShortfall(done, who) }))
     .filter(x => x.missing > 0);
   if (wStreak >= 2 && short.length > 0 && weekday >= 5) {
@@ -469,13 +487,15 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
   const last4 = done.filter(s => new Date(s.startedAt).getTime() >= now - 28 * DAY).length / 4;
   if (done.length >= 20 && perWeek > 0 && last4 < perWeek * 0.7) {
     rules.push({ id: 'under-snitt', tone: 'warn', weight: 40, from: 'Trenden',
-      text: `Siste fire uker ligger på ${fmtNum(last4)} økter i uka — under snittet deres på ${fmtNum(perWeek)}.` });
+      text: `Siste fire uker ligger på ${fmtNum(last4)} økter i uka — under snittet ${isPersonal ? 'ditt' : 'deres'} på ${fmtNum(perWeek)}.` });
   }
 
   // ── Mål ──────────────────────────────────────────────────────────────────
+  // allDone (ikke det scopede `done`) her: et felles mål skal vise kombinert
+  // fremgang uansett hvilken fane man ser det fra.
   const yearProgress = (now - new Date(year, 0, 1).getTime()) / (365 * DAY);
-  for (const g of goals) {
-    const st = goalStatus(g, done, records);
+  for (const g of mineGoals) {
+    const st = goalStatus(g, allDone, records);
 
     if (st.done) {
       // Et rekordmål vet nøyaktig når det ble nådd, så feiringa tones ned med
@@ -514,16 +534,25 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
   }
 
   // ── Milepæler ────────────────────────────────────────────────────────────
-  // Nyeste registrering som fortsatt er den beste i sin øvelse. Enheten er en
-  // del av sammenligninga — ellers kunne en reps-rekord skygge for kg-rekorden
-  // i samme øvelse, stikk i strid med hvordan rekordmål regnes.
-  const latestPR = [...records]
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .find(r => r.value === Math.max(...records
-      .filter(x => x.exercise === r.exercise && x.who === r.who && x.unit === r.unit)
-      .map(x => x.value)));
-  if (latestPR) {
-    rules.push({ id: 'ny-rekord', tone: 'good', weight: fade(95, ageDays(latestPR.date), 14),
+  // Én regel PER ØVELSE (og person, og enhet) som har en gjeldende PR — ikke
+  // bare den aller nyeste på tvers av alle øvelser. Uten dette var alle andre
+  // øvelsers rekorder strukturelt usynlige i rotasjonen så lenge én bestemt
+  // øvelse tilfeldigvis hadde den ferskeste PR-en. Enheten er en del av
+  // grupperinga — ellers kunne en reps-rekord skygge for kg-rekorden i samme
+  // øvelse, stikk i strid med hvordan rekordmål regnes.
+  const prGroups = new Map<string, WorkoutRecord[]>();
+  for (const r of mineRecords) {
+    const k = `${r.exercise} ${r.who} ${r.unit}`;
+    if (!prGroups.has(k)) prGroups.set(k, []);
+    prGroups.get(k)!.push(r);
+  }
+  for (const group of prGroups.values()) {
+    const best = Math.max(...group.map(r => r.value));
+    // Nyeste rad som fortsatt treffer gjeldende PR i denne øvelsen — samme
+    // «ferskeste gjeldende instans»-logikk som før, bare per gruppe nå.
+    const latestPR = [...group].sort((a, b) => b.date.localeCompare(a.date)).find(r => r.value === best)!;
+    rules.push({ id: `ny-rekord-${latestPR.exercise}-${latestPR.who}-${latestPR.unit}`, tone: 'good',
+      weight: fade(95, ageDays(latestPR.date), 14),
       from: 'Ny rekord',
       text: `${WHO_LABEL[latestPR.who]} satte ny rekord i ${latestPR.exercise}: ${fmtNum(latestPR.value)} ${latestPR.unit}. 💪` });
   }
@@ -538,23 +567,31 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
     const age = ageDays(passedOn);
     rules.push({ id: 'okt-milepal', tone: 'good', weight: fade(80, age, 30, 25), from: 'Milepæl',
       text: age < 14
-        ? `Dere passerte ${reached} loggførte økter sammen. Det er ganske mange timer på gymmen.`
-        : `${done.length} loggførte økter sammen — ${reached} passerte dere i ${new Date(passedOn).toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' })}.` });
+        ? (isPersonal
+            ? `Du passerte ${reached} loggførte økter. Det er ganske mange timer på gymmen.`
+            : `Dere passerte ${reached} loggførte økter sammen. Det er ganske mange timer på gymmen.`)
+        : (isPersonal
+            ? `${done.length} loggførte økter — ${reached} passerte du i ${new Date(passedOn).toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' })}.`
+            : `${done.length} loggførte økter sammen — ${reached} passerte dere i ${new Date(passedOn).toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' })}.`) });
   }
 
-  if (wStreak >= 2 && wStreak === bestWeekStreak(done)) {
+  if (wStreak >= 2 && wStreak === bestWeekStreak(done, trainers)) {
     // En løpende streak slår sin egen rekord hver eneste uke, så uten aldring
     // sto denne setninga i boksen hver dag i månedsvis. Nå topper den seg den
     // dagen uka faktisk ble sikret, og gir gradvis plass til noe annet.
-    const extended = streakExtendedOn(done);
+    const extended = streakExtendedOn(done, trainers);
     // Het «Ny rekord» før, men nå som den kan stå rett før eller etter den
     // faktiske rekordmeldinga trenger den sin egen etikett.
     rules.push({ id: 'beste-streak', tone: 'good',
       weight: extended === null ? 40 : fade(80, ageDays(extended), 4), from: 'Lengste rekke',
-      text: `${wStreak} uker på rad med ${STREAK_MIN_SESSIONS} økter hver — det er den lengste rekka deres til nå.` });
+      text: isPersonal
+        ? `${wStreak} uker på rad med ${STREAK_MIN_SESSIONS} økter i uka — det er den lengste rekka din til nå.`
+        : `${wStreak} uker på rad med ${STREAK_MIN_SESSIONS} økter hver — det er den lengste rekka deres til nå.` });
   } else if (MILESTONE_WEEKS.includes(wStreak)) {
     rules.push({ id: 'streak-milepal', tone: 'good', weight: 70, from: 'Milepæl',
-      text: `${wStreak} uker på rad der dere begge har minst ${STREAK_MIN_SESSIONS} økter i uka.` });
+      text: isPersonal
+        ? `${wStreak} uker på rad med minst ${STREAK_MIN_SESSIONS} økter i uka.`
+        : `${wStreak} uker på rad der dere begge har minst ${STREAK_MIN_SESSIONS} økter i uka.` });
   }
 
   const monthCounts = new Map<string, number>();
@@ -567,7 +604,9 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
   const bestOther = Math.max(0, ...[...monthCounts].filter(([k]) => k !== thisMonthKey).map(([, v]) => v));
   if (thisMonth > bestOther && monthCounts.size > 1 && thisMonth >= 4) {
     rules.push({ id: 'beste-maned', tone: 'good', weight: 55, from: 'Beste måned',
-      text: `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er den travleste måneden deres hittil — ${thisMonth} økter.` });
+      text: isPersonal
+        ? `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er din travleste måned hittil — ${thisMonth} økter.`
+        : `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er den travleste måneden deres hittil — ${thisMonth} økter.` });
   }
 
   // ── Fallback ─────────────────────────────────────────────────────────────
@@ -590,11 +629,15 @@ export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutReco
  *     men kan ikke lenger blokkere: en fersk rekord (95) slår «ingen økter denne
  *     uka» (60 + 12), mens et lengre etterslep (90 + 12) slår rekorden.
  *  3. Alt innenfor ROTATION_BAND poeng fra toppen, maks MAX_ROTATION regler,
- *     deler på plassen — én bytting i døgnet. Da får også nummer to og tre
- *     luft, i stedet for at boksen står på samme setning i ukevis.
+ *     deler på plassen — ett tilfeldig valg, trukket på nytt hver gang
+ *     `pickPulse` kalles. Da får også nummer to og tre luft, i stedet for at
+ *     boksen står på samme setning i ukevis.
  *
- * Døgnet er UTC-basert (heltallsdivisjon på epoch), så byttet skjer ved norsk
- * midnatt ± en time. Det er godt nok for en boks som dette.
+ * Kalles fra en `useMemo` i Trening.tsx som bare kjører på nytt når data
+ * endrer seg (i praksis: ved hvert sidebesøk) — så valget står stille gjennom
+ * ett besøk, men kan bli et annet neste gang siden lastes. Ingen annen del av
+ * appen leser denne meldinga (kun ett kall-sted, se filens toppkommentar), så
+ * det finnes ingen konsistens på tvers av flater å ta hensyn til her.
  */
 /** Poengsummen som avgjør plasseringa: vekt pluss et påslag for påminnelser. */
 export const pulseScore = (r: PulseRule) => r.weight + (r.tone === 'warn' ? WARN_BONUS : 0);
@@ -614,10 +657,16 @@ export function pulseBand(rules: PulseRule[]): PulseRule[] {
     .slice(0, MAX_ROTATION);
 }
 
-export function pickPulse(rules: PulseRule[]): Pulse | null {
+/**
+ * `rand` er injiserbar (default ekte `Math.random`) rent for testbarhet — så
+ * testene kan bevise «alle båndmedlemmer er nåbare» deterministisk med en
+ * styrt sekvens, i stedet for å stole på at nok tilfeldige trekk treffer alle
+ * innen et gitt antall forsøk.
+ */
+export function pickPulse(rules: PulseRule[], rand: () => number = Math.random): Pulse | null {
   const band = pulseBand(rules);
   if (band.length === 0) return null;
-  const pick = band[Math.floor(Date.now() / DAY) % band.length];
+  const pick = band[Math.floor(rand() * band.length)];
   return {
     color: pick.tone === 'warn' ? 'var(--warn)' : 'var(--good)',
     from: pick.from,
@@ -627,6 +676,8 @@ export function pickPulse(rules: PulseRule[]): Pulse | null {
 }
 
 /** Meldingen som skal vises nå, eller null når det ikke finnes økter ennå. */
-export function computePulse(sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[]): Pulse | null {
-  return pickPulse(buildPulseRules(sessions, records, goals));
+export function computePulse(
+  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[], viewWho: Who = 'f',
+): Pulse | null {
+  return pickPulse(buildPulseRules(sessions, records, goals, viewWho));
 }

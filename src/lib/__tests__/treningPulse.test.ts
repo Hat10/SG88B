@@ -228,10 +228,15 @@ describe('regler bygget fra øktlogg', () => {
   });
 
   it('blander ikke reps-rekord inn i kg-rekorden for samme øvelse', () => {
+    // Ulik enhet i samme øvelse gir nå to uavhengige regler (én per øvelse+
+    // person+enhet), ikke én felles regel som må velge mellom dem — sterkere
+    // garanti enn før, da begge kunne konkurrere om å bli «den nyeste» og
+    // testen bare kunne akseptere begge utfall.
     const s = [...fullWeek(1), ...fullWeek(2)];
-    const text = buildPulseRules(s, [rec(100, dayKey(new Date()), 'M', 'kg'),
-      rec(200, dayKey(new Date()), 'M', 'reps')], []).find(x => x.id === 'ny-rekord')!.text;
-    expect(text).toMatch(/200 reps|100 kg/);
+    const rules = buildPulseRules(s, [rec(100, dayKey(new Date()), 'M', 'kg'),
+      rec(200, dayKey(new Date()), 'M', 'reps')], []);
+    expect(rules.find(x => x.id === 'ny-rekord-Benkpress-M-kg')!.text).toContain('100 kg');
+    expect(rules.find(x => x.id === 'ny-rekord-Benkpress-M-reps')!.text).toContain('200 reps');
   });
 });
 
@@ -261,18 +266,15 @@ describe('utvelgelse av melding', () => {
     expect(pickPulse([])).toBeNull();
   });
 
-  it('bytter mellom likeverdige meldinger fra dag til dag', () => {
+  it('varierer mellom likeverdige meldinger over flere kall', () => {
+    // Rotasjonen er et tilfeldig valg trukket på nytt hvert kall (ett per
+    // sidebesøk i praksis), ikke lenger en datobasert indeks — så testen
+    // trekker mange ganger i stedet for å simulere dager. 200 trekk gjør
+    // sjansen for å aldri se ett av tre likeverdige medlemmer forsvinnende
+    // liten ((2/3)^200), uten å være avhengig av systemklokka.
     const band = [rule('a', 'good', 60), rule('b', 'good', 55), rule('c', 'good', 50)];
     const seen = new Set<string>();
-    vi.useFakeTimers();
-    try {
-      for (let d = 0; d < 6; d++) {
-        vi.setSystemTime(new Date(Date.UTC(2026, 6, 20 + d, 12)));
-        seen.add(pickPulse(band)!.text);
-      }
-    } finally {
-      vi.useRealTimers();
-    }
+    for (let i = 0; i < 200; i++) seen.add(pickPulse(band)!.text);
     expect(seen).toEqual(new Set(['a', 'b', 'c']));
   });
 
