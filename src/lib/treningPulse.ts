@@ -219,8 +219,15 @@ export const GOAL_KINDS: GoalKindInfo[] = [
   { v: 'weekly_streak',  label: 'Uker på rad',        hint: `Teller uker på rad der hver av dere har minst ${STREAK_MIN_SESSIONS} økter`, unit: 'uker', who: 'alle', suggest: 8, titleSuffix: ' på rad' },
 ];
 
+// Ikke lenger valgbare for nye mål (varighet registreres ikke), men eksisterende
+// mål av disse typene finnes fortsatt i basen og må vises med riktig enhet.
+const LEGACY_GOAL_KINDS: GoalKindInfo[] = [
+  { v: 'hours_year',   label: 'Timer trent i år',   hint: 'Summerer målt tid på øktene hittil i år', unit: 'timer', who: 'alle', suggest: 100, decimals: true, titleSuffix: ' i år' },
+  { v: 'minutes_week', label: 'Minutter denne uka', hint: 'Summerer målt tid på øktene denne uka',    unit: 'min',   who: 'alle', suggest: 180, titleSuffix: ' denne uka' },
+];
+
 export const goalKindInfo = (k: GoalKind): GoalKindInfo =>
-  GOAL_KINDS.find(x => x.v === k) ?? GOAL_KINDS[1];
+  GOAL_KINDS.find(x => x.v === k) ?? LEGACY_GOAL_KINDS.find(x => x.v === k) ?? GOAL_KINDS[1];
 
 export interface GoalStatus {
   /** Hvor langt de er kommet, i målets enhet. */
@@ -379,14 +386,7 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const andList = (parts: string[]) =>
   parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} og ${parts[parts.length - 1]}`;
 
-export function buildPulseRules(
-  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[],
-  // Kategori → muskelgruppene den treffer (Fullkropp = ['Push','Pull','Legs']).
-  // Lar «kategori-etterslep» spore hvor lenge siden hver muskelgruppe ble trent,
-  // så en Fullkropp-økt teller som at Push/Pull/Legs også ble gjort. Tom map ⇒
-  // hver kategori er sin egen gruppe (uendret oppførsel; slik testene kjører).
-  categoryGroups: Record<string, string[]> = {},
-): PulseRule[] {
+export function buildPulseRules(sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[]): PulseRule[] {
   const done = sessions.filter(s => s.completedAt);
   if (done.length === 0) return [];
 
@@ -466,62 +466,6 @@ export function buildPulseRules(
     rules.push({ id: 'tom-uke', tone: 'warn', weight: 60, from: 'Vennlig påminnelse',
       text: `Ingen økter denne uka ennå, og det er allerede ${new Date().toLocaleDateString('nb-NO', { weekday: 'long' })}.` });
   }
-  // Muskelgruppe-etterslep, PER PERSON. En Fullkropp-økt (gruppene Push/Pull/Legs)
-  // teller som at alle tre ble trent — så gruppene, ikke enkeltkategoriene, spores.
-  // Uten tagger faller en kategori tilbake til å være sin egen gruppe (identisk med
-  // den gamle regelen, og slik testene kjører). Per person betyr at gjør du cardio,
-  // men den andre ikke, får den andre likevel et cardio-varsel.
-  const groupsOf = (cat: string): string[] => {
-    const g = categoryGroups[cat];
-    return g && g.length ? g : [cat];
-  };
-  // Bare grupper som faktisk er tagget (ikke fallback-kategorier) kan gi et «aldri
-  // trent»-varsel, så vi ikke maser om at noen aldri har gjort en enkeltkategori.
-  const taggedGroups = new Set<string>();
-  for (const tags of Object.values(categoryGroups)) for (const g of tags) taggedGroups.add(g);
-
-  const lastPG: Record<Trainer, Map<string, number>> = { M: new Map(), L: new Map() };
-  const allGroups = new Set<string>(taggedGroups);
-  for (const s of done) {
-    if (!s.category) continue;
-    const t = new Date(s.startedAt).getTime();
-    for (const g of groupsOf(s.category)) {
-      allGroups.add(g);
-      const m = lastPG[s.who];
-      m.set(g, Math.max(m.get(g) ?? 0, t));
-    }
-  }
-
-  if (allGroups.size >= 3) {
-    const perPerson: Record<Trainer, number> = { M: 0, L: 0 };
-    for (const s of done) perPerson[s.who] += 1;
-
-    // Verste lapse: en gruppe én av dem har trent før, men ikke på 21+ dager.
-    let lapse: { who: Trainer; grp: string; days: number } | null = null;
-    for (const p of TRAINERS) for (const g of allGroups) {
-      const ts = lastPG[p].get(g);
-      if (!ts) continue;
-      const days = Math.floor((now - ts) / DAY);
-      if (days >= 21 && (!lapse || days > lapse.days)) lapse = { who: p, grp: g, days };
-    }
-    if (lapse) {
-      rules.push({ id: 'kategori-etterslep', tone: 'warn', weight: 45, from: 'Balanse',
-        text: `${WHO_LABEL[lapse.who]} har ikke trent ${lapse.grp} på ${lapse.days} dager — det henger etter de andre.` });
-    } else {
-      // En tagget gruppe en jevn trener (8+ økter) aldri har gjort.
-      let miss: { who: Trainer; grp: string } | null = null;
-      for (const p of TRAINERS) {
-        if (perPerson[p] < 8) continue;
-        for (const g of taggedGroups) if (!lastPG[p].get(g)) { miss = { who: p, grp: g }; break; }
-        if (miss) break;
-      }
-      if (miss) {
-        rules.push({ id: 'kategori-etterslep', tone: 'warn', weight: 45, from: 'Balanse',
-          text: `${WHO_LABEL[miss.who]} har ikke trent ${miss.grp} ennå — det henger etter de andre.` });
-      }
-    }
-  }
-
   const last4 = done.filter(s => new Date(s.startedAt).getTime() >= now - 28 * DAY).length / 4;
   if (done.length >= 20 && perWeek > 0 && last4 < perWeek * 0.7) {
     rules.push({ id: 'under-snitt', tone: 'warn', weight: 40, from: 'Trenden',
@@ -683,9 +627,6 @@ export function pickPulse(rules: PulseRule[]): Pulse | null {
 }
 
 /** Meldingen som skal vises nå, eller null når det ikke finnes økter ennå. */
-export function computePulse(
-  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[],
-  categoryGroups: Record<string, string[]> = {},
-): Pulse | null {
-  return pickPulse(buildPulseRules(sessions, records, goals, categoryGroups));
+export function computePulse(sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[]): Pulse | null {
+  return pickPulse(buildPulseRules(sessions, records, goals));
 }

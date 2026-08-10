@@ -123,41 +123,6 @@ function aggregateByCategory(sessions: WorkoutSession[]): Map<string, CatAgg> {
   return map;
 }
 
-/** «Effektivt sist trent» per person per kategori. */
-type EffLast = { at: number; via: string };
-
-/**
- * Når ble hver kategori sist trent per person — med dekning. En kategori regnes
- * som trent av en økt hvis øktas muskelgrupper er et supersett av kategoriens, så
- * en Fullkropp-økt (Push · Pull · Legs) dekker Push. `via` er kategorien som ga
- * treffet (lik kategorien selv = direkte økt). Uten tagger er hver kategori sin
- * egen gruppe, så dekning = kun direkte økter.
- */
-function effectiveLastByCategory(sessions: WorkoutSession[], categories: WorkoutCategory[]): Map<string, Record<Trainer, EffLast | undefined>> {
-  const catG = new Map(categories.map(c => [c.name, c.groups.length ? c.groups : [c.name]]));
-  const groupsOf = (name: string) => catG.get(name) ?? [name];
-  const covers = (session: string, target: string[]) => {
-    const sg = groupsOf(session);
-    return target.every(x => sg.includes(x));
-  };
-  const done = sessions
-    .filter(s => s.completedAt)
-    .map(s => ({ who: s.who, cat: s.category, at: new Date(s.startedAt).getTime() }));
-
-  const out = new Map<string, Record<Trainer, EffLast | undefined>>();
-  for (const c of categories) {
-    const target = groupsOf(c.name);
-    const res: Record<Trainer, EffLast | undefined> = { M: undefined, L: undefined };
-    for (const s of done) {
-      if (!covers(s.cat, target)) continue;
-      const cur = res[s.who];
-      if (!cur || s.at > cur.at) res[s.who] = { at: s.at, via: s.cat };
-    }
-    out.set(c.name, res);
-  }
-  return out;
-}
-
 // ─── Mobil ───────────────────────────────────────────────────────────────────
 
 /** < 768px = mobil. Siden brukes hovedsakelig på gymmen, så mobil er hovedcaset. */
@@ -487,21 +452,7 @@ function CategoryModal({ category, categories, sessions, onClose }: {
   // null = «standard» (CSS-var for kjente navn, ellers nøytral). Ellers en hex.
   const [color, setColor] = useState<string | null>(category ? category.color : CAT_PALETTE[0]);
   const [archived, setArchived] = useState(category?.archived ?? false);
-  const [groups, setGroups] = useState<string[]>(category?.groups ?? []);
-  const [newGroup, setNewGroup] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // Vokabularet av grupper = alt som finnes på tvers av kategoriene, pluss det
-  // som er valgt her (så en nylagt gruppe vises som valgt før den er lagret).
-  const knownGroups = useMemo(
-    () => [...new Set([...categories.flatMap(c => c.groups), ...groups])].sort((a, b) => a.localeCompare(b, 'nb')),
-    [categories, groups]);
-  const toggleGroup = (g: string) => setGroups(gs => gs.includes(g) ? gs.filter(x => x !== g) : [...gs, g]);
-  const addGroup = () => {
-    const g = newGroup.trim();
-    if (g && !groups.includes(g)) setGroups([...groups, g]);
-    setNewGroup('');
-  };
 
   const trimmed = name.trim();
   const clash = categories.some(c => c.id !== category?.id && c.name.trim().toLowerCase() === trimmed.toLowerCase());
@@ -513,10 +464,10 @@ function CategoryModal({ category, categories, sessions, onClose }: {
     setSaving(true);
     try {
       if (category) {
-        await updateCategory(category.id, { name: trimmed, color, archived, groups });
+        await updateCategory(category.id, { name: trimmed, color, archived });
         notify('Kategori oppdatert');
       } else {
-        await addCategory({ name: trimmed, color, groups });
+        await addCategory({ name: trimmed, color });
         notify('Kategori lagt til');
       }
       onClose();
@@ -590,33 +541,6 @@ function CategoryModal({ category, categories, sessions, onClose }: {
             <CatTag category={trimmed || 'Kategori'} lg />
           </CatColorCtx.Provider>
         </div>
-      </div>
-
-      <div className="col" style={{ gap: 8 }}>
-        <div className="row between">
-          <label className="card-eyebrow">Muskelgrupper</label>
-          <span className="card-meta">valgfritt</span>
-        </div>
-        {knownGroups.length > 0 && (
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            {knownGroups.map(g => (
-              <button key={g} type="button" className={'tr-chip' + (groups.includes(g) ? ' on' : '')} onClick={() => toggleGroup(g)}>
-                {groups.includes(g) ? '✓ ' : ''}{g}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="row" style={{ gap: 8 }}>
-          <input className="input sm" value={newGroup} placeholder="Ny gruppe, f.eks. Push"
-            onChange={e => setNewGroup(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addGroup(); } }}
-            style={{ flex: 1, minWidth: 0 }} />
-          <button className="btn sm" type="button" onClick={addGroup} disabled={!newGroup.trim()}>+ Legg til</button>
-        </div>
-        <span className="card-meta">
-          En økt «dekker» en annen kategori når gruppene er et supersett — så Fullkropp (Push · Pull · Legs)
-          teller som at Push også ble trent. Påvirker «sist trent» og påminnelser, ikke tellingen.
-        </span>
       </div>
 
       {category && (
@@ -1073,7 +997,6 @@ function Dashboard({ onStats, onRegister, onNewCategory, onEditCategory }: {
   const isMobile = useIsMobile();
 
   const agg = useMemo(() => aggregateByCategory(sessions), [sessions]);
-  const effLast = useMemo(() => effectiveLastByCategory(sessions, categories), [sessions, categories]);
   // Sist gjort øverst. «Aldri trent» (last = 0) faller til bunnen; likt eller
   // urørt tie-brytes på den faste rekkefølgen (sort_order).
   const active = useMemo(() =>
@@ -1150,15 +1073,14 @@ function Dashboard({ onStats, onRegister, onNewCategory, onEditCategory }: {
 
                 <div className="col" style={{ gap: 5 }}>
                   {TRAINERS.map(w => {
-                    const e = effLast.get(c.name)?.[w];
+                    const last = a.lastBy[w];
                     const cnt = a.count[w];
-                    const via = e && e.via !== c.name ? e.via : null;
                     return (
                       <div key={w} className="row" style={{ gap: 7, alignItems: 'center' }}>
                         <span className={`avatar avatar-${w.toLowerCase()}`} style={{ width: 17, height: 17, fontSize: 8.5, flexShrink: 0 }}>{WHO_INITIAL[w]}</span>
                         <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
-                          {e
-                            ? <>{cnt > 0 ? `${cnt}× · ` : ''}{fmtSince(e.at)}{via ? <span style={{ opacity: 0.7 }}> · via {via}</span> : null}</>
+                          {last
+                            ? <>{cnt > 0 ? `${cnt}× · ` : ''}{fmtSince(last)}</>
                             : 'ingen ennå'}
                         </span>
                       </div>
@@ -1362,10 +1284,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
     return out;
   }, [done, month]);
 
-  const catGroups = useMemo(
-    () => Object.fromEntries(categories.filter(c => !c.archived).map(c => [c.name, c.groups])),
-    [categories]);
-  const pulse = useMemo(() => computePulse(sessions, records, goals, catGroups), [sessions, records, goals, catGroups]);
+  const pulse = useMemo(() => computePulse(sessions, records, goals), [sessions, records, goals]);
 
   const prs = useMemo(() => buildPRs(records), [records]);
   const visiblePrs = isPerson ? prs.filter(p => p.who === who) : prs;

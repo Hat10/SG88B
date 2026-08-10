@@ -267,8 +267,10 @@ alter publication supabase_realtime add table public.settings;
 -- DOMAIN: Trening (TreningContext, treningPulse.ts, Trening.tsx)
 -- ============================================================================
 -- Current live model is the CATEGORY-based one from scripts/trening-rebuild.sql,
--- layered with scripts/trening-muskelgrupper-migration.sql and
--- scripts/trening-note-migration.sql. scripts/trening-tillegg-migration.sql
+-- layered with scripts/trening-note-migration.sql.
+-- scripts/trening-muskelgrupper-migration.sql (muscle_groups column) was
+-- later reverted by scripts/trening-fjern-muskelgrupper-migration.sql — see
+-- "Superseded" section. scripts/trening-tillegg-migration.sql
 -- (extra_started_at/extra_minutes, a "continue session" feature) is
 -- deliberately NOT applied here — see "Superseded" section; it'll come back
 -- as its own properly-wired task later.
@@ -278,15 +280,14 @@ alter publication supabase_realtime add table public.settings;
 -- All four tables below are subscribed to by TreningContext.tsx via a single
 -- `.channel('trening_realtime')`, confirmed by scripts/trening-rebuild.sql.
 
--- [CONFIRMED] scripts/trening-rebuild.sql + scripts/trening-muskelgrupper-migration.sql
+-- [CONFIRMED] scripts/trening-rebuild.sql
 create table public.workout_categories (
   id             uuid primary key default gen_random_uuid(),
   name           text not null unique,
   color          text,
   sort_order     int not null default 0,
   archived       boolean not null default false,
-  created_at     timestamptz default now(),
-  muscle_groups  text[] not null default '{}'
+  created_at     timestamptz default now()
 );
 
 alter table public.workout_categories enable row level security;
@@ -295,17 +296,14 @@ create policy "authenticated_workout_categories_all" on public.workout_categorie
 grant select, insert, update, delete on public.workout_categories to authenticated;
 alter publication supabase_realtime add table public.workout_categories;
 
--- [CONFIRMED] Base 6 rows from scripts/trening-rebuild.sql
--- (name, sort_order), muscle_groups merged in from
--- scripts/trening-muskelgrupper-migration.sql's follow-up UPDATE — combined
--- into one INSERT here since this targets a fresh, empty database.
-insert into public.workout_categories (name, sort_order, muscle_groups) values
-  ('Push',       0, '{Push}'),
-  ('Pull',       1, '{Pull}'),
-  ('Legs',       2, '{Legs}'),
-  ('Fullkropp',  3, '{Push,Pull,Legs}'),
-  ('Overkropp',  4, '{Push,Pull}'),
-  ('Cardio',     5, '{Cardio}')
+-- [CONFIRMED] Base 6 rows from scripts/trening-rebuild.sql (name, sort_order).
+insert into public.workout_categories (name, sort_order) values
+  ('Push',       0),
+  ('Pull',       1),
+  ('Legs',       2),
+  ('Fullkropp',  3),
+  ('Overkropp',  4),
+  ('Cardio',     5)
 on conflict (name) do nothing;
 
 -- [CONFIRMED] scripts/trening-rebuild.sql, extended by
@@ -762,6 +760,12 @@ create index countdowns_date_idx on public.countdowns (date);
 --     — the entire template-based Trening model from scripts/trening-migration.sql
 --       and scripts/trening-goals-migration.sql. Fully dropped and replaced
 --       by the category-based model in scripts/trening-rebuild.sql.
+-- • workout_categories.muscle_groups (scripts/trening-muskelgrupper-migration.sql)
+--     — dropped by scripts/trening-fjern-muskelgrupper-migration.sql. The
+--       coverage feature it powered (a Fullkropp-økt counting as Push/Pull/Legs
+--       too) is removed from the app entirely: the chip editor in «Rediger
+--       kategori», the groups field on WorkoutCategory, and the two
+--       kategori-etterslep pulse rules in treningPulse.ts are all gone.
 -- • workout_sessions.extra_started_at/extra_minutes (scripts/trening-tillegg-migration.sql)
 --     — not superseded, just DEFERRED: intentionally left out of this schema
 --       for now per your instruction. Revisit as its own task when the

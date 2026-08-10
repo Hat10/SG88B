@@ -4,7 +4,7 @@
 // «kan en melding bli underprioritert bort så den aldri kommer med i rulleringa»
 // — og gjør det på to måter:
 //
-//   1. Per-regel-garanti: for hver av de 18 reglene bygges et scenario som
+//   1. Per-regel-garanti: for hver av de 17 reglene bygges et scenario som
 //      isolerer den, og vi sjekker at regelen faktisk er MED i rotasjonsbåndet
 //      (`pulseBand`), ikke bare at den fyrer. Er den i båndet, blir den garantert
 //      vist innen band.length ≤ 5 døgn — så vi verifiserer også at den dukker opp
@@ -94,11 +94,6 @@ const CASES: Case[] = [
   { id: 'streak-ryker', anchor: SAT, build: () => ({
       sessions: [...routine([1, 2, 3, 4], 3, ['M', 'L']), ...weekSessions(0, 3, ['M']), ...weekSessions(0, 1, ['L'])] }) },
   { id: 'tom-uke', anchor: THU, build: () => ({ sessions: routine([1, 2, 3, 4, 5, 6, 7, 8], 1, ['M', 'L']) }) },
-  { id: 'kategori-etterslep', anchor: SAT, build: () => ({
-      sessions: [
-        ...routine([0, 1, 2, 3], 1, ['M', 'L'], { cat: 'Push' }),
-        ...routine([0, 1, 2, 3], 1, ['M', 'L'], { cat: 'Pull' }),
-        sess(25, 'M', { cat: 'Legs' }), sess(25, 'L', { cat: 'Legs' })] }) },
   { id: 'under-snitt', anchor: SAT, build: () => ({
       // Tungt i uke 5–9, så bare én fersk økt hver. De fire siste ukene er nesten
       // tomme, så snittet for perioden ligger godt under årssnittet.
@@ -170,8 +165,8 @@ it('hver regel kan komme med i rotasjonsbåndet og bli vist når døgnet ruller'
   }
   expect(missing).toEqual([]);
   expect(notShown).toEqual([]);
-  // Alle 18 familiene skal være dekket av et scenario hver.
-  expect(new Set(CASES.map(c => c.id)).size).toBe(18);
+  // Alle 17 familiene skal være dekket av et scenario hver.
+  expect(new Set(CASES.map(c => c.id)).size).toBe(17);
 });
 
 // ── Fuzz ────────────────────────────────────────────────────────────────────

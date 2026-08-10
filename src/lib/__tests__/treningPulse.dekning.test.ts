@@ -232,10 +232,10 @@ it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
   expect(frozen.map(x => `${x.name}: bare ${x.distinct} melding(er) på ${SIM_DAYS} døgn`))
     .toEqual([]);
 
-  // Regelsettet skal ikke krympe uten at noen tar stilling til det. 18 familier nå
-  // (etter at Sammen — sammen-okt/-streak/lenge-siden/aldri — ble fjernet, ned fra
-  // 22); terskelen holder samme slakk som før (opprinnelig 21 av 22 — én familie,
-  // typisk mal-foran, trenger ikke fyre i akkurat dette scenarioutvalget).
-  expect(all.length).toBeGreaterThanOrEqual(17);
-  expect(samples.size).toBeGreaterThanOrEqual(17);
+  // Regelsettet skal ikke krympe uten at noen tar stilling til det. 17 familier nå
+  // (etter at kategori-etterslep ble fjernet sammen med muskelgruppe-tagging, ned
+  // fra 18); terskelen holder samme slakk som før — én familie, typisk mal-foran,
+  // trenger ikke fyre i akkurat dette scenarioutvalget.
+  expect(all.length).toBeGreaterThanOrEqual(16);
+  expect(samples.size).toBeGreaterThanOrEqual(16);
 });

@@ -37,12 +37,6 @@ export interface WorkoutCategory {
   sortOrder: number;
   /** Arkivert ⇒ skjult i velgerne, men beholdt i lista for gjenåpning. */
   archived: boolean;
-  /**
-   * Muskelgruppene kategorien treffer, f.eks. Fullkropp = ['Push','Pull','Legs'].
-   * Brukt til dekning: en økt dekker en annen kategori når gruppene er et
-   * supersett. Påvirker «sist trent» og pulsen — aldri tellingen.
-   */
-  groups: string[];
 }
 
 export interface WorkoutSession {
@@ -104,7 +98,7 @@ interface TreningCtx {
   records: WorkoutRecord[];
   goals: WorkoutGoal[];
   loading: boolean;
-  addCategory: (c: { name: string; color: string | null; groups: string[] }) => Promise<void>;
+  addCategory: (c: { name: string; color: string | null }) => Promise<void>;
   updateCategory: (id: string, patch: Partial<Omit<WorkoutCategory, 'id'>>) => Promise<void>;
   /** Sletter kategorien. Øktradene beholder kategorinavnet, så historikken består. */
   removeCategory: (id: string) => Promise<void>;
@@ -144,7 +138,6 @@ const categoryFromRow = (r: Record<string, unknown>): WorkoutCategory => ({
   color: (r.color as string | null) ?? null,
   sortOrder: (r.sort_order as number | null) ?? 0,
   archived: !!r.archived,
-  groups: Array.isArray(r.muscle_groups) ? (r.muscle_groups as unknown[]).filter((g): g is string => typeof g === 'string') : [],
 });
 
 const sessionFromRow = (r: Record<string, unknown>): WorkoutSession => ({
@@ -227,19 +220,18 @@ export function TreningProvider({ children }: { children: React.ReactNode }) {
 
   // ── Kategorier ─────────────────────────────────────────────────────────────
 
-  const addCategory = async ({ name, color, groups }: { name: string; color: string | null; groups: string[] }) => {
+  const addCategory = async ({ name, color }: { name: string; color: string | null }) => {
     const sortOrder = categories.reduce((m, x) => Math.max(m, x.sortOrder), -1) + 1;
-    await supabase.from('workout_categories').insert({ name, color, sort_order: sortOrder, muscle_groups: groups });
+    await supabase.from('workout_categories').insert({ name, color, sort_order: sortOrder });
     await load();
   };
 
   const updateCategory = async (id: string, patch: Partial<Omit<WorkoutCategory, 'id'>>) => {
     const db: Record<string, unknown> = {};
-    if ('name' in patch)      db.name          = patch.name;
-    if ('color' in patch)     db.color         = patch.color;
-    if ('sortOrder' in patch) db.sort_order    = patch.sortOrder;
-    if ('archived' in patch)  db.archived      = patch.archived;
-    if ('groups' in patch)    db.muscle_groups = patch.groups;
+    if ('name' in patch)      db.name       = patch.name;
+    if ('color' in patch)     db.color      = patch.color;
+    if ('sortOrder' in patch) db.sort_order = patch.sortOrder;
+    if ('archived' in patch)  db.archived   = patch.archived;
     await supabase.from('workout_categories').update(db).eq('id', id);
     await load();
   };
@@ -254,7 +246,7 @@ export function TreningProvider({ children }: { children: React.ReactNode }) {
 
   const restoreCategory = async (c: WorkoutCategory) => {
     await supabase.from('workout_categories').insert({
-      id: c.id, name: c.name, color: c.color, sort_order: c.sortOrder, archived: c.archived, muscle_groups: c.groups,
+      id: c.id, name: c.name, color: c.color, sort_order: c.sortOrder, archived: c.archived,
     });
     await load();
   };
