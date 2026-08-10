@@ -1066,10 +1066,41 @@ function GoalModal({ goal, exercises, onClose }: {
   );
 }
 
+// ─── Delt navigasjon: Felles/Andreas/Taran + Registrer økt + Ny kategori ─────
+//
+// Samme rad, samme oppførsel, uansett om du står på registreringsskjermbildet
+// eller på Statistikk — fanene tar deg rett til Statistikk-visningen for akkurat
+// den personen (ett klikk i stedet for «gå til Statistikk, så velg person»), og
+// «Registrer økt» går alltid til registreringsskjermbildet, uansett hvilken fane
+// som er aktiv nå.
+
+function TreningNav({ activeWho, onSelectPerson, onNewCategory, onRegister }: {
+  /** Aktiv fane akkurat nå — null på registreringsskjermbildet, som ikke har noe personfilter. */
+  activeWho: Who | null;
+  onSelectPerson: (w: Who) => void;
+  onNewCategory: () => void;
+  onRegister: () => void;
+}) {
+  return (
+    <>
+      <div className="tr-seg">
+        {(['f', 'M', 'L'] as Who[]).map(w => (
+          <button key={w} className={activeWho === w ? 'on' : ''} onClick={() => onSelectPerson(w)}>
+            {w === 'f' ? 'Felles' : WHO_LABEL[w]}
+          </button>
+        ))}
+      </div>
+      <button className="btn ghost sm" onClick={onNewCategory}
+        aria-label="Ny kategori" title="Ny kategori" style={{ minWidth: 30, padding: '4px 8px' }}>+</button>
+      <button className="btn primary sm" onClick={onRegister}>Registrer økt</button>
+    </>
+  );
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
-function Dashboard({ onStats, onRegister, onNewCategory, onEditCategory }: {
-  onStats: () => void; onRegister: (category?: string) => void;
+function Dashboard({ onSelectPerson, onRegister, onNewCategory, onEditCategory }: {
+  onSelectPerson: (w: Who) => void; onRegister: (category?: string) => void;
   onNewCategory: () => void; onEditCategory: (c: WorkoutCategory) => void;
 }) {
   const { categories, sessions, loading } = useTrening();
@@ -1104,9 +1135,7 @@ function Dashboard({ onStats, onRegister, onNewCategory, onEditCategory }: {
           {!isMobile && <div className="page-sub" style={{ marginTop: 8 }}>Huk av en kategori når en økt er gjennomført — velg hvem og når.</div>}
         </div>
         <div className="page-actions">
-          <button className="btn sm" onClick={onStats}>Statistikk →</button>
-          <button className="btn sm" onClick={onNewCategory}>+ Ny kategori</button>
-          {!isMobile && <button className="btn primary" onClick={() => onRegister()}>+ Registrer økt</button>}
+          <TreningNav activeWho={null} onSelectPerson={onSelectPerson} onNewCategory={onNewCategory} onRegister={() => onRegister()} />
         </div>
       </div>
 
@@ -1212,8 +1241,9 @@ function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSes
   return done.map(s => ({ key: s.id, session: s }));
 }
 
-function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
-  onBack: () => void; onNewRecord: () => void; onOpenRecord: (pr: PR) => void;
+function Statistikk({ viewWho, onSelectPerson, onNewCategory, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
+  viewWho: Who; onSelectPerson: (w: Who) => void; onNewCategory: () => void;
+  onNewRecord: () => void; onOpenRecord: (pr: PR) => void;
   onNewGoal: () => void; onEditGoal: (g: WorkoutGoal) => void; onEditSession: (s: WorkoutSession) => void;
   onRegister: () => void;
 }) {
@@ -1222,7 +1252,6 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
   const { notify } = useSnackbar();
   const colorFor = useCatColor();
 
-  const [viewWho, setViewWho] = useState<Who>('f');
   const [logCount, setLogCount] = useState(8);
   const [month, setMonth] = useState(thisMonthStart);
 
@@ -1381,14 +1410,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
           <h1 className="page-title">Slik trener <em>{isPerson ? WHO_LABEL[who] : 'dere'}</em></h1>
         </div>
         <div className="page-actions">
-          <button className="btn sm" onClick={onBack}>← Til trening</button>
-          <div className="tr-seg">
-            {(['f', 'M', 'L'] as Who[]).map(w => (
-              <button key={w} className={viewWho === w ? 'on' : ''} onClick={() => setViewWho(w)}>
-                {w === 'f' ? 'Felles' : WHO_LABEL[w]}
-              </button>
-            ))}
-          </div>
+          <TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onNewCategory={onNewCategory} onRegister={onRegister} />
         </div>
       </div>
 
@@ -1563,7 +1585,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
             <h3>Siste økter</h3>
             <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
               <span className="meta">{isPerson ? `${WHO_LABEL[who]} sin logg` : 'Felles logg'} · {logRows.length} totalt</span>
-              <button className="btn ghost sm" onClick={onRegister}>+ Registrer økt</button>
+              <button className="btn ghost sm" onClick={onRegister}>Registrer økt</button>
             </div>
           </div>
           {logRows.length === 0 && <div className="card-meta">Ingen økter ennå</div>}
@@ -1731,6 +1753,7 @@ function Statistikk({ onBack, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, 
 export default function PageTrening() {
   const { categories, sessions, records } = useTrening();
   const [view, setView] = useState<'okter' | 'statistikk'>('okter');
+  const [viewWho, setViewWho] = useState<Who>('f');
 
   const [registerOpen,   setRegisterOpen]   = useState(false);
   const [registerPreset, setRegisterPreset] = useState<string | undefined>();
@@ -1758,18 +1781,21 @@ export default function PageTrening() {
 
   const openRegister = (category?: string) => { setRegisterPreset(category); setRegisterOpen(true); };
   const openCategory = (c: WorkoutCategory | null) => { setEditCategory(c); setCatModalOpen(true); };
+  const goToStats = (w: Who) => { setViewWho(w); setView('statistikk'); window.scrollTo({ top: 0 }); };
 
   return (
     <CatColorCtx.Provider value={colorFor}>
       {view === 'okter'
         ? <Dashboard
-            onStats={() => { setView('statistikk'); window.scrollTo({ top: 0 }); }}
+            onSelectPerson={goToStats}
             onRegister={openRegister}
             onNewCategory={() => openCategory(null)}
             onEditCategory={c => openCategory(c)}
           />
         : <Statistikk
-            onBack={() => { setView('okter'); window.scrollTo({ top: 0 }); }}
+            viewWho={viewWho}
+            onSelectPerson={goToStats}
+            onNewCategory={() => openCategory(null)}
             onNewRecord={() => { setRecordPreset(undefined); setRecordOpen(true); }}
             onOpenRecord={pr => setDetail(pr)}
             onNewGoal={() => { setEditGoal(null); setGoalOpen(true); }}
