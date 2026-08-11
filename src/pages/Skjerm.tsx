@@ -7,7 +7,7 @@ import { useMatplan } from '../contexts/MatplanContext';
 import { useTrening, type Trainer, type WorkoutCategory } from '../contexts/TreningContext';
 import { WHO_LABEL, TRAINERS } from '../lib/treningPulse';
 import { groupByNameUnit } from './middag/HandlelisteCard';
-import { fireworkRain, burst } from '../confetti';
+import { fireworkRain } from '../confetti';
 import type { CalEvent } from '../../api/kalender';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -466,7 +466,7 @@ function TreningQuickRegister({ categories, onClose }: { categories: WorkoutCate
     setSaving(true);
     try {
       await registerSession({ category, who, performedAt: new Date().toISOString(), note: null });
-      if (el) { const r = el.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2); }
+      if (el) { const r = el.getBoundingClientRect(); fireworkRain(r.left + r.width / 2, r.top + r.height / 2); }
       notify(`Registrert · ${category} · ${WHO_LABEL[who]} 💪`);
       onClose();
     } finally { setSaving(false); }

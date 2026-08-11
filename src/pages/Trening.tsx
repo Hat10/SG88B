@@ -15,7 +15,7 @@ import {
   weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
-import { burst, rain, fireworkRain } from '../confetti';
+import { fireworkRain } from '../confetti';
 
 // ─── Farge per kategori ──────────────────────────────────────────────────────
 //
@@ -307,13 +307,6 @@ const STRENGTH_GOAL_MESSAGES: ((weeks: number) => string)[] = [
     : `Der har vi det — ${TARAN_STRENGTH_GOAL_PER_WEEK} styrkeøkter denne uka!`,
 ];
 
-const OTHER_TRAINING_MESSAGES: ((category: string) => string)[] = [
-  cat => `Kjempefint at du var på ${cat} i dag! 🙌`,
-  cat => `${cat} i boks — bra jobba!`,
-  cat => `Fint at du fikk inn ${cat} i dag!`,
-  cat => `${cat} avhuket — godt gjort!`,
-];
-
 // ─── Badges: milepæler for begge ─────────────────────────────────────────────
 //
 // Egen tabell (earned_badges), ikke koblet til workout_goals — samme
@@ -422,9 +415,10 @@ function RegisterModal({ categories, presetCategory, onClose }: {
         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
         const withNew: MiniSession[] = [...sessions, { startedAt: at.toISOString(), completedAt: at.toISOString(), who, category }];
 
-        // Badges gjelder begge og har høyest prioritet — så maks én feiring
-        // per registrering uansett hvor mange ting som stemmer samtidig
-        // (else if-kjede under, ikke uavhengige if-er).
+        // Feiringen (fireworkRain) er nå alltid den samme, for begge, uansett
+        // kategori — bare TEKSTEN varierer, og kun når en badge eller Tarans
+        // ukemål faktisk inntreffer (else if, maks én spesialtekst per
+        // registrering). Ellers står den vanlige "Registrert · ..."-teksten.
         const alreadyEarned = new Set(earnedBadges.filter(b => b.who === who).map(b => b.badgeKey));
         const candidates = checkBadges(withNew, records, categories, who, alreadyEarned).map(b => b.key);
         const newlyEarned = candidates.length > 0 ? await awardBadges(who, candidates) : [];
@@ -436,7 +430,6 @@ function RegisterModal({ categories, presetCategory, onClose }: {
           // rekkefølge.
           const top = BADGE_DEFS.filter(b => newlyEarned.includes(b.key)).pop()!;
           message = top.message;
-          fireworkRain(cx, cy);
         } else if (who === 'L' && STRENGTH_CATEGORIES.has(category)) {
           // Tarans ukentlige styrkemål — kun for henne.
           // "Akkurat nå": uka regnes ut fra det virkelige tidspunktet, ikke fra
@@ -447,16 +440,9 @@ function RegisterModal({ categories, presetCategory, onClose }: {
           if (weeklyCount === TARAN_STRENGTH_GOAL_PER_WEEK) {
             const weeks = strengthWeekStreak(withNew, 'L', now);
             message = pickRandom(STRENGTH_GOAL_MESSAGES)(weeks);
-            fireworkRain(cx, cy);
-          } else {
-            burst(cx, cy);
           }
-        } else if (who === 'L') {
-          message = pickRandom(OTHER_TRAINING_MESSAGES)(category);
-          rain();
-        } else {
-          burst(cx, cy);
         }
+        fireworkRain(cx, cy);
       }
       notify(message);
       onClose();
