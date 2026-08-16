@@ -270,8 +270,8 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   const syncDinnerCalendar = async (date: string, title: string | null) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      await fetch('/api/middag-kalender', {
+      if (!session) { console.warn('Middag-kalender: ingen innlogget sesjon, hopper over synk'); return; }
+      const resp = await fetch('/api/middag-kalender', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -279,6 +279,9 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({ date, title }),
       });
+      if (!resp.ok) {
+        console.error('Middag-kalender: serveren avviste synken', resp.status, await resp.text());
+      }
     } catch (err) {
       console.warn('Klarte ikke synke middag til Google-kalenderen', err);
     }
