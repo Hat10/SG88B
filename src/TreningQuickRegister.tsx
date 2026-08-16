@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTrening, trainerFromEmail, type Trainer, type WorkoutCategory } from './contexts/TreningContext';
 import { useAuth } from './contexts/AuthContext';
 import { useSnackbar } from './contexts/SnackbarContext';
@@ -31,6 +31,27 @@ export function TreningQuickRegister({ categories, onClose }: { categories: Work
   const [who, setWho] = useState<Trainer>(() => trainerFromEmail(session?.user?.email));
   const [saving, setSaving] = useState(false);
 
+  // iOS Safari's window.innerHeight/100vh includes the space hidden behind
+  // the collapsible address bar. A centered position:fixed;inset:0 overlay
+  // then gets sized against that taller, partly-invisible viewport — the
+  // card ends up vertically centered in a box bigger than what's actually on
+  // screen, so its lower half renders below the real fold with no scroll
+  // path back to it (body scroll is locked). visualViewport.height tracks
+  // what's actually visible right now — same fix as the Gangskjerm
+  // viewport-height tracking (Skjerm.tsx).
+  const [viewportH, setViewportH] = useState(() => window.visualViewport?.height ?? window.innerHeight);
+  useEffect(() => {
+    const update = () => setViewportH(window.visualViewport?.height ?? window.innerHeight);
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    window.visualViewport?.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+      window.visualViewport?.removeEventListener('resize', update);
+    };
+  }, []);
+
   const optionStyle = (on: boolean): React.CSSProperties => ({
     padding: '10px 16px', borderRadius: 20, cursor: 'pointer',
     fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-sans)',
@@ -53,11 +74,20 @@ export function TreningQuickRegister({ categories, onClose }: { categories: Work
   return (
     <div
       onClick={onClose}
-      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, height: viewportH, zIndex: 200,
+        background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20, overflowY: 'auto',
+      }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 440, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20 }}
+        style={{
+          background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
+          padding: '28px 32px', width: 440, maxWidth: 'calc(100vw - 48px)',
+          maxHeight: viewportH - 40, overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 20,
+        }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
