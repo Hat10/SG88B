@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useMatplan, INGREDIENT_UNITS, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
+import { useMatplan, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { Card, Tag, SkeletonList } from '../../components';
+import UnitSelect from './UnitSelect';
 
 const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null, amountRange: null });
 
@@ -20,12 +21,6 @@ function deriveAmount(text: string): Pick<Ingredient, 'amount' | 'amountRange'> 
 function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   ing: Ingredient; stapleNames: Set<string>; onChange: (patch: Partial<Ingredient>) => void; onRemove: () => void;
 }) {
-  // Oppskrifter fra før nedtrekksmenyen kan ha en frittekst-enhet som ikke
-  // matcher noen av de faste valgene (f.eks. «Liter») — vis den som et ekstra
-  // valg i stedet for å la den stille forsvinne til tomt når man åpner for
-  // redigering (den ryker først om man faktisk endrer den her).
-  const options: readonly string[] = ing.unit && !(INGREDIENT_UNITS as readonly string[]).includes(ing.unit)
-    ? [ing.unit, ...INGREDIENT_UNITS] : INGREDIENT_UNITS;
   // Matcher navnet en basisvare (Dagligvarer → Basisvarer)? Da er det trolig
   // noe man vanligvis har hjemme — vis avkrysning for å ta den med likevel,
   // i stedet for å anta den skal på handlelisten som alle andre ingredienser.
@@ -64,11 +59,7 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
         <input className="input" placeholder="Mengde, f.eks. 0,5-1" inputMode="text" value={amountText}
           onChange={e => handleAmountChange(e.target.value)}
           style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }} />
-        <select className="input" value={ing.unit ?? ''}
-          onChange={e => onChange({ unit: e.target.value || null })} style={{ flex: 1 }}>
-          <option value="" disabled hidden>Enhet</option>
-          {options.map(u => <option key={u} value={u}>{u}</option>)}
-        </select>
+        <UnitSelect value={ing.unit ?? ''} onChange={unit => onChange({ unit: unit || null })} style={{ flex: 1 }} />
         <button onClick={onRemove} aria-label="Fjern ingrediens" style={{
           background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
           cursor: 'pointer', fontSize: 15, color: 'var(--ink-4)', flexShrink: 0,

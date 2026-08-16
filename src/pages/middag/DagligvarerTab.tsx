@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useMatplan, INGREDIENT_UNITS, type StapleItem } from '../../contexts/MatplanContext';
+import { useMatplan, type StapleItem } from '../../contexts/MatplanContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { Card } from '../../components';
 import HandlelisteCard from './HandlelisteCard';
+import UnitSelect from './UnitSelect';
 
 const emptyStapleDraft = () => ({ name: '', amount: '', unit: '', intervalWeeks: '' });
 
@@ -72,12 +73,6 @@ function StapleManager() {
     await removeStaple(s.id);
   };
 
-  // Basisvarer fra før nedtrekksmenyen kan ha en frittekst-enhet som ikke
-  // matcher noen av de faste valgene — vis den som et ekstra valg ved
-  // redigering i stedet for å la den stille forsvinne til tomt.
-  const unitOptions = draft.unit && !(INGREDIENT_UNITS as readonly string[]).includes(draft.unit)
-    ? [draft.unit, ...INGREDIENT_UNITS] : INGREDIENT_UNITS;
-
   return (
     <Card eyebrow="Basisvarer" title="Faste og sjeldne basisvarer" action={
       <button onClick={() => setOpen(o => !o)} className="btn ghost sm">{open ? 'Skjul' : 'Administrer'}</button>
@@ -140,11 +135,7 @@ function StapleManager() {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <input className="input" placeholder="Mengde" inputMode="decimal" value={draft.amount}
                   onChange={e => setDraft(d => ({ ...d, amount: e.target.value }))} style={{ flex: 1, minWidth: 70 }} />
-                <select className="input" value={draft.unit}
-                  onChange={e => setDraft(d => ({ ...d, unit: e.target.value }))} style={{ flex: 1, minWidth: 90 }}>
-                  <option value="">Enhet</option>
-                  {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
+                <UnitSelect value={draft.unit} onChange={unit => setDraft(d => ({ ...d, unit }))} style={{ flex: 1, minWidth: 90 }} />
                 <input className="input" placeholder="Uker" inputMode="numeric" value={draft.intervalWeeks}
                   onChange={e => setDraft(d => ({ ...d, intervalWeeks: e.target.value.replace(/\D/g, '') }))}
                   style={{ flex: 1, minWidth: 60 }} />
