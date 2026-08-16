@@ -2,6 +2,11 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { osloMondayKey } from '../hooks/useWeeklyBucket';
 
+// Faste enhetsvalg — delt mellom oppskrift-editoren (Ingredient.unit) og
+// «Legg til kjøpsfrekvens» i StapleManager (StapleItem.unit), én kilde til
+// sannhet i stedet for to separate lister som kan gli fra hverandre.
+export const INGREDIENT_UNITS = ['stk', 'g', 'kg', 'dl', 'ml', 'l', 'ts', 'ss', 'klype', 'boks/pakke'] as const;
+
 export interface Ingredient {
   name: string;
   amount: number | null;

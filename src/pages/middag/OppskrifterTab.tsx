@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { useMatplan, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
+import { useMatplan, INGREDIENT_UNITS, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { Card, Tag, SkeletonList } from '../../components';
 
 const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null });
-
-const UNIT_OPTIONS = ['stk', 'g', 'kg', 'dl', 'ml', 'l', 'ts', 'ss', 'klype', 'boks/pakke'];
 
 function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   ing: Ingredient; stapleNames: Set<string>; onChange: (patch: Partial<Ingredient>) => void; onRemove: () => void;
@@ -15,7 +13,8 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   // matcher noen av de faste valgene (f.eks. «Liter») — vis den som et ekstra
   // valg i stedet for å la den stille forsvinne til tomt når man åpner for
   // redigering (den ryker først om man faktisk endrer den her).
-  const options = ing.unit && !UNIT_OPTIONS.includes(ing.unit) ? [ing.unit, ...UNIT_OPTIONS] : UNIT_OPTIONS;
+  const options: readonly string[] = ing.unit && !(INGREDIENT_UNITS as readonly string[]).includes(ing.unit)
+    ? [ing.unit, ...INGREDIENT_UNITS] : INGREDIENT_UNITS;
   // Matcher navnet en basisvare (Dagligvarer → Basisvarer)? Da er det trolig
   // noe man vanligvis har hjemme — vis avkrysning for å ta den med likevel,
   // i stedet for å anta den skal på handlelisten som alle andre ingredienser.
