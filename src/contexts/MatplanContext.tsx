@@ -43,7 +43,9 @@ export interface StapleItem {
   name: string;
   amount: number | null;
   unit: string | null;
-  intervalWeeks: number;
+  // null = ingen kjøpsfrekvens definert — ren referanse i lista, forfaller
+  // aldri (se isStapleDue). Atskilt fra en eksplisitt verdi som 1 ("hver uke").
+  intervalWeeks: number | null;
   lastBoughtAt: string | null;
   postponedUntil: string | null;
 }
@@ -115,7 +117,7 @@ const stapleFromRow = (r: Record<string, unknown>): StapleItem => ({
   name: r.name as string,
   amount: r.amount == null ? null : Number(r.amount),
   unit: (r.unit as string | null) ?? null,
-  intervalWeeks: Number(r.interval_weeks ?? 1),
+  intervalWeeks: r.interval_weeks == null ? null : Number(r.interval_weeks),
   lastBoughtAt: (r.last_bought_at as string | null) ?? null,
   postponedUntil: (r.postponed_until as string | null) ?? null,
 });
@@ -144,8 +146,10 @@ export function weekDates(mondayKey: string): string[] {
 const todayKey = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
 
 // En basisvare er forfalt når det er >= intervallet siden sist kjøpt (eller aldri
-// kjøpt), og en eventuell utsettelse er passert.
+// kjøpt), og en eventuell utsettelse er passert. Ingen definert frekvens
+// (intervalWeeks null) ⇒ ren referanse i lista, forfaller aldri av seg selv.
 function isStapleDue(s: StapleItem, today: string): boolean {
+  if (s.intervalWeeks == null) return false;
   if (s.postponedUntil && s.postponedUntil > today) return false;
   if (!s.lastBoughtAt) return true;
   const last = new Date(s.lastBoughtAt + 'T00:00:00Z').getTime();

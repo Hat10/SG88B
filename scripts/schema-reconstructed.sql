@@ -690,12 +690,15 @@ alter publication supabase_realtime add table public.meal_plan;
 
 create index meal_plan_recipe_idx on public.meal_plan (recipe_id);
 
+-- [CONFIRMED] scripts/staple-interval-nullable-migration.sql — interval_weeks
+-- gjort nullable; null = "ingen kjøpsfrekvens definert" (ren referanse, aldri
+-- forfalt), atskilt fra en eksplisitt verdi som 1 ("hver uke").
 create table public.staple_items (
   id                 uuid primary key default gen_random_uuid(),
   name               text not null,
   amount             numeric,
   unit               text,
-  interval_weeks     int not null default 1 check (interval_weeks >= 1),  -- 1 = ukentlig
+  interval_weeks     int check (interval_weeks is null or interval_weeks >= 1),  -- 1 = ukentlig, null = ingen frekvens definert
   last_bought_at     date,
   postponed_until    date,   -- hopp over neste påminnelse uten å endre intervallet
   created_at         timestamptz default now()
