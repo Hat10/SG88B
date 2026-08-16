@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMatplan, INGREDIENT_UNITS, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
@@ -19,17 +19,41 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   // noe man vanligvis har hjemme — vis avkrysning for å ta den med likevel,
   // i stedet for å anta den skal på handlelisten som alle andre ingredienser.
   const isStaple = stapleNames.has(ing.name.trim().toLowerCase());
+
+  // Egen tekst-representasjon av Mengde, atskilt fra ing.amount (number |
+  // null). En rent kontrollert input bundet direkte til Number(...)-verdien
+  // gjør det umulig å skrive desimaltall: skriver man "1" og så ".", blir
+  // "1." tolket som tallet 1 med det samme, det etterrenderte input-feltet
+  // viser "1" igjen, og punktumet man nettopp skrev forsvinner før man
+  // rekker å skrive sifferet etter. Ved å holde det man faktisk skriver i
+  // egen state, og bare synkronisere tilbake fra ing.amount når verdien der
+  // har endret seg av en ANNEN grunn enn vår egen onChange (f.eks. bytte til
+  // en annen oppskrift, eller «Avbryt»), unngår vi at mellomstadier som "1."
+  // blir overskrevet mens man skriver.
+  const [amountText, setAmountText] = useState(() => (ing.amount == null ? '' : String(ing.amount)));
+  useEffect(() => {
+    const parsed = amountText.trim() ? Number(amountText.replace(',', '.')) : null;
+    if (parsed !== ing.amount) setAmountText(ing.amount == null ? '' : String(ing.amount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ing.amount]);
+
+  const handleAmountChange = (text: string) => {
+    setAmountText(text);
+    const parsed = text.trim() ? Number(text.replace(',', '.')) : null;
+    onChange({ amount: parsed != null && Number.isFinite(parsed) ? parsed : null });
+  };
+
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', gap: 6 }}>
         <input className="input" placeholder="Ingrediens" value={ing.name}
           onChange={e => onChange({ name: e.target.value })} style={{ flex: 3 }} />
-        <input className="input" placeholder="Mengde" inputMode="decimal" value={ing.amount ?? ''}
-          onChange={e => onChange({ amount: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })}
+        <input className="input" placeholder="Mengde" inputMode="decimal" value={amountText}
+          onChange={e => handleAmountChange(e.target.value)}
           style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }} />
         <select className="input" value={ing.unit ?? ''}
           onChange={e => onChange({ unit: e.target.value || null })} style={{ flex: 1 }}>
-          <option value="">Enhet</option>
+          <option value="" disabled hidden>Enhet</option>
           {options.map(u => <option key={u} value={u}>{u}</option>)}
         </select>
         <button onClick={onRemove} aria-label="Fjern ingrediens" style={{
