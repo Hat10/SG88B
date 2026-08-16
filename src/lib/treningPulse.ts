@@ -413,6 +413,7 @@ export function buildPulseRules(
   const year = new Date().getFullYear();
 
   const thisYear = done.filter(s => new Date(s.startedAt).getFullYear() === year);
+  const thisWeekStart = startOfWeek(new Date()).getTime();
   // Snittet teller normalt fra 1. januar, men det året systemet ble tatt i bruk
   // finnes det ingen data før første økt — å dele på hele året ville gitt et
   // kunstig lavt snitt. Bare det aller første loggeåret teller derfor fra første
@@ -421,11 +422,19 @@ export function buildPulseRules(
   const countFrom = new Date(firstEver).getFullYear() === year
     ? firstEver
     : new Date(year, 0, 1).getTime();
-  const weeksElapsed = Math.max(1, Math.ceil((now - countFrom) / (7 * DAY)));
-  const perWeek = thisYear.length / weeksElapsed;
+  // Kun HELE, avsluttede uker telles — verken i teller eller nevner. Uken som
+  // pågår nå er ufullstendig og ville dratt snittet kunstig ned (0 økter så
+  // langt denne uken, men likevel telt som en hel uke i nevneren via den
+  // gamle Math.ceil-avrundingen). thisWeekStart er samme mandag-ankrede
+  // uke-grense (startOfWeek) som inThisWeek under bruker — IKKE Trening.tsx
+  // sin tidligere rene dager-siden-countFrom-telling, som ikke brukte noen
+  // kalenderuke-avgrensning i det hele tatt. Delt logikk med Trening.tsx sin
+  // Statistikk-side — hold de to i sync.
+  const weeksElapsed = Math.max(1, Math.floor((thisWeekStart - countFrom) / (7 * DAY)));
+  const completedThisYear = thisYear.filter(s => new Date(s.startedAt).getTime() < thisWeekStart);
+  const perWeek = completedThisYear.length / weeksElapsed;
   const perWeekLast = done.filter(s => new Date(s.startedAt).getFullYear() === year - 1).length / 52;
 
-  const thisWeekStart = startOfWeek(new Date()).getTime();
   const inThisWeek = done.filter(s => new Date(s.startedAt).getTime() >= thisWeekStart);
   const weekday = (new Date().getDay() + 6) % 7; // 0 = mandag
 

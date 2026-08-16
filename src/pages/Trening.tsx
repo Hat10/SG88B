@@ -1342,14 +1342,22 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
   const year = new Date().getFullYear();
   const thisYear = done.filter(s => new Date(s.startedAt).getFullYear() === year);
+  const thisWeekStart = startOfWeek(new Date()).getTime();
   // Det aller første loggeåret startet dere ikke 1. januar — å dele på alle ukene
   // siden nyttår ville gitt et kunstig lavt snitt. Så det første året teller fra
   // første logga økt; senere år (når det finnes data fra i fjor) fra 1. januar.
   // Samme regel som i lib/treningPulse.ts, så tallet og pulsmeldinga er enige.
   const firstEver = done.length ? Math.min(...done.map(s => new Date(s.startedAt).getTime())) : Date.now();
   const countFrom = new Date(firstEver).getFullYear() === year ? firstEver : new Date(year, 0, 1).getTime();
-  const weeksElapsed = Math.max(1, Math.ceil((Date.now() - countFrom) / (7 * 86400000)));
-  const perWeek = thisYear.length / weeksElapsed;
+  // Kun HELE, avsluttede uker telles — verken i teller eller nevner. Uken som
+  // pågår nå er ufullstendig og ville dratt snittet kunstig ned. thisWeekStart
+  // er samme mandag-ankrede uke-grense (startOfWeek) som resten av sidens
+  // uke-baserte tall — ikke den tidligere rene dager-siden-countFrom-
+  // tellingen, som ikke brukte noen kalenderuke-avgrensning i det hele tatt.
+  // Delt logikk med lib/treningPulse.ts — hold de to i sync.
+  const weeksElapsed = Math.max(1, Math.floor((thisWeekStart - countFrom) / (7 * 86400000)));
+  const completedThisYear = thisYear.filter(s => new Date(s.startedAt).getTime() < thisWeekStart);
+  const perWeek = completedThisYear.length / weeksElapsed;
 
   const lastYear = done.filter(s => new Date(s.startedAt).getFullYear() === year - 1);
   const perWeekLast = lastYear.length / 52;
@@ -1687,7 +1695,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
                   <div className="row" style={{ gap: 7, minWidth: 0 }}>
                     <CatTag category={s.category} />
                   </div>
-                  <div className="sub">{fmtDay(s.startedAt)} · {new Date(s.startedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="sub">{fmtDay(s.startedAt)}</div>
                   {s.note && <div className="sub" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>📝 {s.note}</div>}
                 </div>
                 <button
