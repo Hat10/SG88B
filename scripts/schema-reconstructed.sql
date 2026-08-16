@@ -650,11 +650,17 @@ create index flipping_costs_category_idx on public.flipping_costs (category);
 -- [CONFIRMED] scripts/matplan-migration.sql — brand new, no prior migration
 -- to reconcile against. Manual planning + grocery list only; no suggestion
 -- algorithm, calendar reading, or Spoonacular integration yet (deferred).
+--
+-- [CONFIRMED] scripts/pantry-ingredients-drop-migration.sql — a short-lived
+-- pantry_ingredients table (never committed to git) was created and dropped
+-- again in favour of the ingredients.onGroceryList field below, decided per
+-- ingredient against the existing staple_items list instead of a separate
+-- name list.
 
 create table public.recipes (
   id                 uuid primary key default gen_random_uuid(),
   name               text not null,
-  ingredients        jsonb not null default '[]',  -- [{name, amount, unit}, ...]
+  ingredients        jsonb not null default '[]',  -- [{name, amount, unit, onGroceryList}, ...] — onGroceryList besluttet/lagret ved opprettelse/redigering, se scripts/pantry-ingredients-drop-migration.sql
   cook_time_minutes  int,
   instructions       text,
   tags               text[] not null default '{}',

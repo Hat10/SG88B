@@ -6,6 +6,13 @@ export interface Ingredient {
   name: string;
   amount: number | null;
   unit: string | null;
+  // Besluttet og lagret permanent når oppskriften opprettes/redigeres — IKKE
+  // regnet ut på nytt hver gang en middag planlegges (se syncGroceryList).
+  // false ⇒ ingrediensen matchet en basisvare (staple_items) og ble aktivt
+  // latt stå av; true ⇒ vanlig oppførsel, med på handlelisten. Oppskrifter
+  // fra før dette feltet fantes mangler det helt (undefined) — behandles som
+  // true i syncGroceryList, se kommentar der for hvorfor.
+  onGroceryList?: boolean;
 }
 
 export type RecipeSource = 'egen' | 'spoonacular';
@@ -278,6 +285,14 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       const recipe = recipes.find(r => r.id === mp.recipeId);
       if (!recipe) continue;
       for (const ing of recipe.ingredients) {
+        // onGroceryList er besluttet og lagret på selve ingrediensen ved
+        // opprettelse/redigering av oppskriften (se Ingredient-typen) — kun
+        // eksplisitt false ekskluderer. Oppskrifter fra før feltet fantes
+        // mangler det (undefined) og skal oppføre seg akkurat som de alltid
+        // har gjort: alle ingrediensene deres var alltid med på handlelisten,
+        // og blir det fortsatt inntil oppskriften redigeres og feltet settes
+        // eksplisitt.
+        if (ing.onGroceryList === false) continue;
         mealRows.push({
           name: ing.name, amount: ing.amount, unit: ing.unit,
           meal_plan_id: mp.id, staple_item_id: null,

@@ -1,28 +1,51 @@
 import { useState } from 'react';
-import { useMatplan, type Recipe, type Ingredient, type RecipeSource } from '../../contexts/MatplanContext';
+import { useMatplan, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { Card, Tag, SkeletonList } from '../../components';
 
 const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null });
 
-function IngredientRow({ ing, onChange, onRemove }: {
-  ing: Ingredient; onChange: (patch: Partial<Ingredient>) => void; onRemove: () => void;
+const UNIT_OPTIONS = ['stk', 'g', 'kg', 'dl', 'ml', 'l', 'ts', 'ss', 'klype', 'boks/pakke'];
+
+function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
+  ing: Ingredient; stapleNames: Set<string>; onChange: (patch: Partial<Ingredient>) => void; onRemove: () => void;
 }) {
+  // Oppskrifter fra før nedtrekksmenyen kan ha en frittekst-enhet som ikke
+  // matcher noen av de faste valgene (f.eks. «Liter») — vis den som et ekstra
+  // valg i stedet for å la den stille forsvinne til tomt når man åpner for
+  // redigering (den ryker først om man faktisk endrer den her).
+  const options = ing.unit && !UNIT_OPTIONS.includes(ing.unit) ? [ing.unit, ...UNIT_OPTIONS] : UNIT_OPTIONS;
+  // Matcher navnet en basisvare (Dagligvarer → Basisvarer)? Da er det trolig
+  // noe man vanligvis har hjemme — vis avkrysning for å ta den med likevel,
+  // i stedet for å anta den skal på handlelisten som alle andre ingredienser.
+  const isStaple = stapleNames.has(ing.name.trim().toLowerCase());
   return (
-    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-      <input className="input" placeholder="Ingrediens" value={ing.name}
-        onChange={e => onChange({ name: e.target.value })} style={{ flex: 3 }} />
-      <input className="input" placeholder="Mengde" inputMode="decimal" value={ing.amount ?? ''}
-        onChange={e => onChange({ amount: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })}
-        style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }} />
-      <input className="input" placeholder="Enhet" value={ing.unit ?? ''}
-        onChange={e => onChange({ unit: e.target.value || null })} style={{ flex: 1 }} />
-      <button onClick={onRemove} aria-label="Fjern ingrediens" style={{
-        background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
-        cursor: 'pointer', fontSize: 15, color: 'var(--ink-4)', flexShrink: 0,
-        minWidth: 36, minHeight: 36, display: 'grid', placeItems: 'center',
-      }}>×</button>
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input className="input" placeholder="Ingrediens" value={ing.name}
+          onChange={e => onChange({ name: e.target.value })} style={{ flex: 3 }} />
+        <input className="input" placeholder="Mengde" inputMode="decimal" value={ing.amount ?? ''}
+          onChange={e => onChange({ amount: e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) })}
+          style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }} />
+        <select className="input" value={ing.unit ?? ''}
+          onChange={e => onChange({ unit: e.target.value || null })} style={{ flex: 1 }}>
+          <option value="">Enhet</option>
+          {options.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <button onClick={onRemove} aria-label="Fjern ingrediens" style={{
+          background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
+          cursor: 'pointer', fontSize: 15, color: 'var(--ink-4)', flexShrink: 0,
+          minWidth: 36, minHeight: 36, display: 'grid', placeItems: 'center',
+        }}>×</button>
+      </div>
+      {isStaple && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 12, color: 'var(--ink-4)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={ing.onGroceryList === true}
+            onChange={e => onChange({ onGroceryList: e.target.checked })} />
+          Ta med på handleliste <span style={{ opacity: 0.6 }}>(basisvare — utelates som standard)</span>
+        </label>
+      )}
     </div>
   );
 }
@@ -33,7 +56,6 @@ interface Draft {
   cookTimeMinutes: string;
   instructions: string;
   tags: string;
-  source: RecipeSource;
 }
 
 const draftFromRecipe = (r: Recipe): Draft => ({
@@ -42,21 +64,22 @@ const draftFromRecipe = (r: Recipe): Draft => ({
   cookTimeMinutes: r.cookTimeMinutes == null ? '' : String(r.cookTimeMinutes),
   instructions: r.instructions ?? '',
   tags: r.tags.join(', '),
-  source: r.source,
 });
 
 const emptyDraft = (): Draft => ({
-  name: '', ingredients: [emptyIngredient()], cookTimeMinutes: '', instructions: '', tags: '', source: 'egen',
+  name: '', ingredients: [emptyIngredient()], cookTimeMinutes: '', instructions: '', tags: '',
 });
 
 export default function OppskrifterTab() {
-  const { recipes, loading, addRecipe, updateRecipe, removeRecipe, restoreRecipe } = useMatplan();
+  const { recipes, stapleItems, loading, addRecipe, updateRecipe, removeRecipe, restoreRecipe } = useMatplan();
   const { notify } = useSnackbar();
   const { confirm } = useConfirm();
 
   const [editId, setEditId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [saving, setSaving] = useState(false);
+
+  const stapleNames = new Set(stapleItems.map(s => s.name.trim().toLowerCase()));
 
   const startEdit = (r: Recipe) => { setEditId(r.id); setDraft(draftFromRecipe(r)); };
   const cancelEdit = () => { setEditId(null); setDraft(emptyDraft()); };
@@ -74,15 +97,25 @@ export default function OppskrifterTab() {
     setSaving(true);
     const payload = {
       name: draft.name.trim(),
-      ingredients: draft.ingredients.filter(i => i.name.trim()).map(i => ({ ...i, name: i.name.trim() })),
+      ingredients: draft.ingredients.filter(i => i.name.trim()).map(i => {
+        const name = i.name.trim();
+        // Besluttes og lagres for godt her — ikke basisvare ⇒ alltid med
+        // (uansett hva som måtte stå i draften); basisvare ⇒ kun med hvis
+        // brukeren aktivt har krysset av (se IngredientRow).
+        const onGroceryList = stapleNames.has(name.toLowerCase()) ? i.onGroceryList === true : true;
+        return { ...i, name, onGroceryList };
+      }),
       cookTimeMinutes: draft.cookTimeMinutes.trim() ? Number(draft.cookTimeMinutes) : null,
       instructions: draft.instructions.trim() || null,
       tags: draft.tags.split(',').map(t => t.trim()).filter(Boolean),
-      source: draft.source,
     };
     try {
+      // Ingen «source» i patchen ved redigering — feltet er borte fra skjemaet,
+      // men en eksisterende oppskrift (f.eks. en fremtidig spoonacular-importert
+      // en) skal ikke få kilden sin stille overskrevet til «egen» bare fordi den
+      // redigeres. Nye, manuelt opprettede oppskrifter er alltid «egen».
       if (editId) { await updateRecipe(editId, payload); cancelEdit(); }
-      else { await addRecipe(payload); setDraft(emptyDraft()); }
+      else { await addRecipe({ ...payload, source: 'egen' }); setDraft(emptyDraft()); }
     } finally { setSaving(false); }
   };
 
@@ -147,35 +180,18 @@ export default function OppskrifterTab() {
             <div>
               <div className="card-eyebrow" style={{ marginBottom: 4 }}>Ingredienser</div>
               {draft.ingredients.map((ing, i) => (
-                <IngredientRow key={i} ing={ing}
+                <IngredientRow key={i} ing={ing} stapleNames={stapleNames}
                   onChange={patch => patchIngredient(i, patch)}
                   onRemove={() => removeIngredient(i)} />
               ))}
               <button onClick={addIngredient} className="btn ghost sm" style={{ marginTop: 2 }}>+ Legg til ingrediens</button>
             </div>
 
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div className="card-eyebrow" style={{ marginBottom: 4 }}>Koketid <span style={{ opacity: 0.5 }}>(min)</span></div>
-                <input className="input" placeholder="30" inputMode="numeric" value={draft.cookTimeMinutes}
-                  onChange={e => setDraft(d => ({ ...d, cookTimeMinutes: e.target.value.replace(/\D/g, '') }))}
-                  style={{ width: '100%', fontVariantNumeric: 'tabular-nums' }} />
-              </div>
-              <div style={{ flex: 2 }}>
-                <div className="card-eyebrow" style={{ marginBottom: 4 }}>Kilde</div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {(['egen', 'spoonacular'] as RecipeSource[]).map(s => (
-                    <button key={s} onClick={() => setDraft(d => ({ ...d, source: s }))}
-                      style={{
-                        flex: 1, padding: '7px 0', borderRadius: 6, cursor: 'pointer',
-                        border: `1px solid ${draft.source === s ? 'var(--ink)' : 'var(--line-2)'}`,
-                        background: draft.source === s ? 'var(--ink)' : 'transparent',
-                        color: draft.source === s ? 'var(--surface)' : 'var(--ink-4)',
-                        fontFamily: 'var(--font-mono)', fontSize: 11, textTransform: 'capitalize',
-                      }}>{s}</button>
-                  ))}
-                </div>
-              </div>
+            <div>
+              <div className="card-eyebrow" style={{ marginBottom: 4 }}>Koketid <span style={{ opacity: 0.5 }}>(min)</span></div>
+              <input className="input" placeholder="30" inputMode="numeric" value={draft.cookTimeMinutes}
+                onChange={e => setDraft(d => ({ ...d, cookTimeMinutes: e.target.value.replace(/\D/g, '') }))}
+                style={{ width: '100%', fontVariantNumeric: 'tabular-nums' }} />
             </div>
 
             <div>
