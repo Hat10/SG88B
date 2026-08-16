@@ -389,10 +389,17 @@ export default async function handler(_req: any, res: any) {
     if (r.status === 'fulfilled') events.push(...r.value);
   }
 
-  // "Jobb" (arbeidstid) skal aldri vises i kalendervisningen — filtrert her,
-  // ett sted, så både Kalender-siden og Gangskjermen (som begge bare leser
-  // dette endepunktet) automatisk holder den skjult.
-  const filtered = events.filter(e => e.title.trim().toLowerCase() !== 'jobb');
+  // "Jobb" (arbeidstid) og middager (opprettet av middag-kalender.ts, alltid
+  // prefikset 🍽️) skal aldri vises i kalendervisningen — filtrert her, ett
+  // sted, så både Kalender-siden og Gangskjermen (som begge bare leser dette
+  // endepunktet) automatisk holder dem skjult. Middager vises allerede på
+  // Middag-siden; å vise dem her igjen ville bare vært duplikat støy.
+  const filtered = events.filter(e => {
+    const title = e.title.trim();
+    if (title.toLowerCase() === 'jobb') return false;
+    if (title.startsWith('🍽️')) return false;
+    return true;
+  });
 
   filtered.sort((a, b) => a.start.localeCompare(b.start));
 
