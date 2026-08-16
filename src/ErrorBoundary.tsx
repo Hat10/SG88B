@@ -1,7 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { isStaleChunkError, recoverFromStaleChunk } from './lib/staleChunkRecovery';
 
 interface Props { children: ReactNode; label?: string }
-interface State { error: Error | null }
+interface State { error: Error | null; reloading: boolean }
 
 // Class component because componentDidCatch has no hook equivalent. Wraps
 // each page's body (see App.tsx) so a bug in one page can't blank the whole
@@ -9,10 +10,19 @@ interface State { error: Error | null }
 // exactly what happened with useCountdowns() before it was fixed to use a
 // per-instance channel name.
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, reloading: false };
 
+  // Andre laget av vernet mot stale chunk-referanser (se
+  // lib/staleChunkRecovery.ts) — dekker feil som når helt frem til React i
+  // stedet for å bli fanget av vite:preloadError. Reload-forsøket (om det
+  // skjer) trigges her og ikke i componentDidCatch, bevisst: det gjør at
+  // FØRSTE render allerede vet at vi reloader, så brukeren aldri rekker å se
+  // et glimt av den vanlige feil-boksen først. recoverFromStaleChunk() har
+  // sin egen økt-sperre, så det er trygt selv om React (Strict Mode) skulle
+  // kalle denne to ganger for samme feil.
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    const reloading = isStaleChunkError(error) && recoverFromStaleChunk();
+    return { error, reloading };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -20,8 +30,15 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   render() {
-    const { error } = this.state;
+    const { error, reloading } = this.state;
     if (!error) return this.props.children;
+    if (reloading) {
+      return (
+        <div style={{ padding: '20px 22px', margin: 16, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-3)' }}>
+          Oppdaterer til nyeste versjon…
+        </div>
+      );
+    }
     return (
       <div style={{
         padding: '20px 22px', margin: 16, borderRadius: 8,
