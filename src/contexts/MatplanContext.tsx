@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { osloMondayKey } from '../hooks/useWeeklyBucket';
+import { handleukeStart } from '../hooks/useWeeklyBucket';
 
 // Faste enhetsvalg — delt mellom oppskrift-editoren (Ingredient.unit) og
 // «Legg til kjøpsfrekvens» i StapleManager (StapleItem.unit), én kilde til
@@ -56,6 +56,11 @@ export interface GroceryItem {
   amount: number | null;
   unit: string | null;
   done: boolean;
+  // Satt av toggleGroceryItem() når raden markeres kjøpt, nullstilt hvis
+  // avhukingen angres. Brukes til å avgrense «Vis handlet» til inneværende
+  // handleuke (se HandlelisteCard.tsx) — rader avhuket i en tidligere
+  // handleuke skal ikke ligge og hope seg opp der.
+  doneAt: string | null;
   mealPlanId: string | null;
   stapleItemId: string | null;
 }
@@ -128,16 +133,22 @@ const groceryFromRow = (r: Record<string, unknown>): GroceryItem => ({
   amount: r.amount == null ? null : Number(r.amount),
   unit: (r.unit as string | null) ?? null,
   done: !!r.done,
+  doneAt: (r.done_at as string | null) ?? null,
   mealPlanId: (r.meal_plan_id as string | null) ?? null,
   stapleItemId: (r.staple_item_id as string | null) ?? null,
 });
 
-/** Datoene (yyyy-mm-dd) fra og med gitt mandag til og med søndagen etter. */
-export function weekDates(mondayKey: string): string[] {
-  const [y, m, d] = mondayKey.split('-').map(Number);
-  const monday = new Date(Date.UTC(y, m - 1, d));
+/**
+ * Datoene (yyyy-mm-dd) fra og med gitt startdato til og med 6 dager senere.
+ * Anker-agnostisk — bryr seg ikke om startKey er en mandag (osloMondayKey)
+ * eller en lørdag (handleukeStart, selve handleuke-syklusen). Kalleren
+ * avgjør hvilket 7-dagers vindu det er.
+ */
+export function weekDates(startKey: string): string[] {
+  const [y, m, d] = startKey.split('-').map(Number);
+  const start = new Date(Date.UTC(y, m - 1, d));
   return Array.from({ length: 7 }, (_, i) => {
-    const dt = new Date(monday);
+    const dt = new Date(start);
     dt.setUTCDate(dt.getUTCDate() + i);
     return dt.toISOString().slice(0, 10);
   });
@@ -145,17 +156,30 @@ export function weekDates(mondayKey: string): string[] {
 
 const todayKey = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
 
-// En basisvare er forfalt når det er >= intervallet siden sist kjøpt (eller aldri
-// kjøpt), og en eventuell utsettelse er passert. Ingen definert frekvens
-// (intervalWeeks null) ⇒ ren referanse i lista, forfaller aldri av seg selv.
+// En basisvare er forfalt når minst intervallet i hele handleuke-sykluser
+// (lørdag–fredag) har passert siden handleuken sist kjøpt-datoen falt i —
+// IKKE rå dager siden kjøpsdatoen. Kjøper du melk en tirsdag, forfaller den
+// derfor ved neste lørdag som starter en ny syklus intervallet unna, ikke
+// nøyaktig 7×intervall dager senere — hele husstandens ukentlige basisvarer
+// forfaller dermed samtidig, på lørdager, uansett hvilken dag i forrige
+// syklus de faktisk ble kjøpt. Ingen definert frekvens (intervalWeeks null)
+// ⇒ ren referanse i lista, forfaller aldri av seg selv — uendret fra før
+// denne ombyggingen.
 function isStapleDue(s: StapleItem, today: string): boolean {
   if (s.intervalWeeks == null) return false;
   if (s.postponedUntil && s.postponedUntil > today) return false;
   if (!s.lastBoughtAt) return true;
-  const last = new Date(s.lastBoughtAt + 'T00:00:00Z').getTime();
-  const now = new Date(today + 'T00:00:00Z').getTime();
-  const days = Math.round((now - last) / 86_400_000);
-  return days >= s.intervalWeeks * 7;
+
+  const lastCycleStart = handleukeStart(new Date(s.lastBoughtAt + 'T00:00:00Z'));
+  const nowCycleStart  = handleukeStart(new Date(today + 'T00:00:00Z'));
+  // To handleuke-startdatoer er alltid et helt multiplum av 7 dager fra
+  // hverandre, så dette blir alltid et eksakt heltall — Math.round er kun
+  // samme sikkerhetsmargin den forrige rå-dager-utregningen hadde.
+  const cyclesPassed = Math.round(
+    (new Date(nowCycleStart + 'T00:00:00Z').getTime() - new Date(lastCycleStart + 'T00:00:00Z').getTime())
+    / (7 * 86_400_000)
+  );
+  return cyclesPassed >= s.intervalWeeks;
 }
 
 export function MatplanProvider({ children }: { children: React.ReactNode }) {
@@ -276,17 +300,17 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
 
   // ── Handleliste ────────────────────────────────────────────────────────────
 
-  // Legger til rader for det som mangler — planlagte middager denne uken og
-  // forfalte basisvarer. Hva som "mangler" avgjøres av databasen (upsert +
-  // onConflict), ikke av groceryItems-øyeblikksbildet her — to samtidige
-  // kjøringer (to enheter, eller komponenten som monter på nytt ved
-  // sidebytte) kan derfor ikke lenger produsere duplikater. Se
-  // scripts/grocery-dedupe-migration.sql for de unike indeksene dette
-  // forutsetter (grocery_items_meal_name_uidx / grocery_items_staple_uidx).
+  // Legger til rader for det som mangler — planlagte middager denne
+  // handleuken (lørdag–fredag, se handleukeStart) og forfalte basisvarer.
+  // Hva som "mangler" avgjøres av databasen (upsert + onConflict), ikke av
+  // groceryItems-øyeblikksbildet her — to samtidige kjøringer (to enheter,
+  // eller komponenten som monter på nytt ved sidebytte) kan derfor ikke
+  // lenger produsere duplikater. Se scripts/grocery-dedupe-migration.sql for
+  // de unike indeksene dette forutsetter (grocery_items_meal_name_uidx /
+  // grocery_items_staple_uidx).
   const syncGroceryList = async () => {
     const today = todayKey();
-    const monday = osloMondayKey();
-    const days = new Set(weekDates(monday));
+    const days = new Set(weekDates(handleukeStart()));
 
     const plannedThisWeek = mealPlan.filter(mp => days.has(mp.date));
     const mealRows: Record<string, unknown>[] = [];
@@ -350,7 +374,9 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     const item = groceryItems.find(g => g.id === id);
     if (!item) return;
     const done = !item.done;
-    await supabase.from('grocery_items').update({ done }).eq('id', id);
+    await supabase.from('grocery_items')
+      .update({ done, done_at: done ? new Date().toISOString() : null })
+      .eq('id', id);
     if (done && item.stapleItemId) {
       await supabase.from('staple_items')
         .update({ last_bought_at: todayKey(), postponed_until: null })

@@ -714,12 +714,19 @@ alter publication supabase_realtime add table public.staple_items;
 -- scripts/grocery-standalone-migration.sql — both link columns null is now
 -- valid too (a freeform item on the standalone dagligvare-handleliste, not
 -- tied to a planned dinner or a staple yet).
+--
+-- [CONFIRMED] scripts/grocery-done-at-migration.sql — done_at, satt av
+-- toggleGroceryItem() når raden markeres kjøpt, nullstilt hvis angret.
+-- Brukes til å avgrense "Vis handlet" til inneværende handleuke (se
+-- handleukeStart i useWeeklyBucket.ts) i stedet for å vise alt som noensinne
+-- er huket av.
 create table public.grocery_items (
   id               uuid primary key default gen_random_uuid(),
   name             text not null,
   amount           numeric,
   unit             text,
   done             boolean not null default false,
+  done_at          timestamptz,
   meal_plan_id     uuid references public.meal_plan(id) on delete cascade,
   staple_item_id   uuid references public.staple_items(id) on delete cascade,
   created_at       timestamptz default now(),

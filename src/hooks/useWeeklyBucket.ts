@@ -23,6 +23,21 @@ export function osloMondayKey(d = new Date()): string {
   return dt.toISOString().slice(0, 10);
 }
 
+// YYYY-MM-DD (Oslo) of the Saturday that starts the current "handleuke"
+// (shopping week: Saturday through Friday) — same pattern as osloMondayKey,
+// anchored to Saturday instead of Monday. Flips at the Friday→Saturday
+// midnight boundary in Oslo. Used by the Middagsplanlegger/Dagligvarer
+// domain (MatplanContext.tsx, HandlelisteCard.tsx, UkeplanTab.tsx) so meal
+// planning, staple due-dates, and the grocery list all agree on the same
+// 7-day window.
+export function handleukeStart(d = new Date()): string {
+  const ymd = d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
+  const [y, m, day] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, day));
+  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 1) % 7)); // back to Saturday (Sat=0…Fri=6)
+  return dt.toISOString().slice(0, 10);
+}
+
 // Deterministic pick, used only as the immediate fallback before the cron's
 // random pick exists for the week. Seeding by the week key means every device
 // computes the same item, so screens never disagree even if several self-heal

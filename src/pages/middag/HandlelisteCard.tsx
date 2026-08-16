@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useMatplan, type GroceryItem } from '../../contexts/MatplanContext';
+import { useMatplan, weekDates, type GroceryItem } from '../../contexts/MatplanContext';
+import { handleukeStart } from '../../hooks/useWeeklyBucket';
 import { Card, Check, SkeletonList } from '../../components';
 
 // Delt mellom src/pages/Handleliste.tsx (eget menypunkt) og
@@ -134,10 +135,18 @@ export default function HandlelisteCard() {
   const freeformActive = freeform.filter(g => !g.done);
   const freeformDone   = freeform.filter(g => g.done);
 
-  // Middag/basisvare-genererte rader — uendret oppførsel (skjult «vis handlet»).
+  // Middag/basisvare-genererte rader. Aktive ruller over uendret (ingen
+  // dato-avgrensning), men «vis handlet» skal kun vise det som ble kjøpt i
+  // INNEVÆRENDE handleuke — ellers ville avhukede rader fra uker tilbake i
+  // tid bare hope seg opp der for alltid. Rader uten done_at (avhuket før
+  // denne kolonnen fantes) matcher aldri — de forsvinner fra «vis handlet»,
+  // men slettes ikke fra databasen.
   const linked = groceryItems.filter(g => g.mealPlanId || g.stapleItemId);
   const active = linked.filter(g => !g.done);
-  const done   = linked.filter(g => g.done);
+  const handleukeDays = new Set(weekDates(handleukeStart()));
+  const doneThisHandleuke = (g: GroceryItem) =>
+    g.doneAt != null && handleukeDays.has(new Date(g.doneAt).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' }));
+  const done = linked.filter(g => g.done && doneThisHandleuke(g));
   const fromMeals     = groupByNameUnit(active.filter(g => g.mealPlanId));
   const fromMealsDone = groupByNameUnit(done.filter(g => g.mealPlanId));
   const staples     = active.filter(g => g.stapleItemId);

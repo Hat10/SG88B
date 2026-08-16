@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { useMatplan, weekDates } from '../../contexts/MatplanContext';
-import { osloMondayKey } from '../../hooks/useWeeklyBucket';
+import { handleukeStart } from '../../hooks/useWeeklyBucket';
 import { Card, SkeletonList } from '../../components';
 
-const WEEKDAY_LABEL = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
+// Samme anker som resten av handleuke-arkitekturen (lørdag–fredag, se
+// handleukeStart) — så Ukeplan og handlelisten alltid viser samme 7-dagers
+// vindu, i stedet for Ukeplans tidligere mandag-baserte rutenett.
+const WEEKDAY_LABEL = ['Lørdag', 'Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag'];
 
 function fmtDay(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
 }
 
-// Mandagen `offset` uker fra denne uken.
-function mondayWithOffset(offset: number): string {
-  const base = osloMondayKey();
+// Handleuke-starten (lørdag) `offset` uker fra denne handleuken.
+function handleukeStartWithOffset(offset: number): string {
+  const base = handleukeStart();
   const [y, m, d] = base.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + offset * 7);
@@ -22,9 +25,9 @@ export default function UkeplanTab() {
   const { recipes, mealPlan, loading, setMealPlan, clearMealPlan } = useMatplan();
   const [weekOffset, setWeekOffset] = useState(0);
 
-  const monday = mondayWithOffset(weekOffset);
-  const days = weekDates(monday);
-  const today = osloMondayKey() === monday ? new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' }) : null;
+  const weekStart = handleukeStartWithOffset(weekOffset);
+  const days = weekDates(weekStart);
+  const today = handleukeStart() === weekStart ? new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' }) : null;
 
   return (
     <Card
