@@ -4,7 +4,18 @@ import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { Card, Tag, SkeletonList } from '../../components';
 
-const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null });
+const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null, amountRange: null });
+
+// Tolker det som faktisk står i Mengde-feltet: en bindestrek ⇒ intervall
+// (f.eks. "0,5-1" for salt i teskjeer, normalisert til "0.5-1"), ellers et
+// vanlig tall. Delt mellom onChange og synk-effekten under så de to aldri
+// kan tolke samme tekst ulikt.
+function deriveAmount(text: string): Pick<Ingredient, 'amount' | 'amountRange'> {
+  const normalized = text.trim().replace(/,/g, '.');
+  if (normalized.includes('-')) return { amount: null, amountRange: normalized || null };
+  const parsed = normalized ? Number(normalized) : null;
+  return { amount: parsed != null && Number.isFinite(parsed) ? parsed : null, amountRange: null };
+}
 
 function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   ing: Ingredient; stapleNames: Set<string>; onChange: (patch: Partial<Ingredient>) => void; onRemove: () => void;
@@ -20,27 +31,29 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   // i stedet for å anta den skal på handlelisten som alle andre ingredienser.
   const isStaple = stapleNames.has(ing.name.trim().toLowerCase());
 
-  // Egen tekst-representasjon av Mengde, atskilt fra ing.amount (number |
-  // null). En rent kontrollert input bundet direkte til Number(...)-verdien
-  // gjør det umulig å skrive desimaltall: skriver man "1" og så ".", blir
-  // "1." tolket som tallet 1 med det samme, det etterrenderte input-feltet
-  // viser "1" igjen, og punktumet man nettopp skrev forsvinner før man
-  // rekker å skrive sifferet etter. Ved å holde det man faktisk skriver i
-  // egen state, og bare synkronisere tilbake fra ing.amount når verdien der
-  // har endret seg av en ANNEN grunn enn vår egen onChange (f.eks. bytte til
-  // en annen oppskrift, eller «Avbryt»), unngår vi at mellomstadier som "1."
-  // blir overskrevet mens man skriver.
-  const [amountText, setAmountText] = useState(() => (ing.amount == null ? '' : String(ing.amount)));
+  // Egen tekst-representasjon av Mengde, atskilt fra ing.amount/amountRange.
+  // En rent kontrollert input bundet direkte til den tolkede verdien gjør
+  // det umulig å skrive desimaltall eller intervaller: skriver man "1" og
+  // så ".", blir "1." tolket som tallet 1 med det samme, det etterrenderte
+  // input-feltet viser "1" igjen, og punktumet man nettopp skrev forsvinner
+  // før man rekker å skrive sifferet etter (samme problem for "0.5" foran
+  // en bindestrek i et intervall). Ved å holde det man faktisk skriver i
+  // egen state, og bare synkronisere tilbake fra ing når verdien der har
+  // endret seg av en ANNEN grunn enn vår egen onChange (f.eks. bytte til en
+  // annen oppskrift, eller «Avbryt»), unngår vi at mellomstadier blir
+  // overskrevet mens man skriver.
+  const [amountText, setAmountText] = useState(() => ing.amountRange ?? (ing.amount == null ? '' : String(ing.amount)));
   useEffect(() => {
-    const parsed = amountText.trim() ? Number(amountText.replace(',', '.')) : null;
-    if (parsed !== ing.amount) setAmountText(ing.amount == null ? '' : String(ing.amount));
+    const derived = deriveAmount(amountText);
+    if (derived.amount !== ing.amount || derived.amountRange !== (ing.amountRange ?? null)) {
+      setAmountText(ing.amountRange ?? (ing.amount == null ? '' : String(ing.amount)));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ing.amount]);
+  }, [ing.amount, ing.amountRange]);
 
   const handleAmountChange = (text: string) => {
     setAmountText(text);
-    const parsed = text.trim() ? Number(text.replace(',', '.')) : null;
-    onChange({ amount: parsed != null && Number.isFinite(parsed) ? parsed : null });
+    onChange(deriveAmount(text));
   };
 
   return (
@@ -48,7 +61,7 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
       <div style={{ display: 'flex', gap: 6 }}>
         <input className="input" placeholder="Ingrediens" value={ing.name}
           onChange={e => onChange({ name: e.target.value })} style={{ flex: 3 }} />
-        <input className="input" placeholder="Mengde" inputMode="decimal" value={amountText}
+        <input className="input" placeholder="Mengde, f.eks. 0,5-1" inputMode="text" value={amountText}
           onChange={e => handleAmountChange(e.target.value)}
           style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }} />
         <select className="input" value={ing.unit ?? ''}

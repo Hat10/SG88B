@@ -15,8 +15,8 @@ const removeBtnStyle: React.CSSProperties = {
   minWidth: 32, minHeight: 32, display: 'grid', placeItems: 'center',
 };
 
-function GroceryRow({ name, amount, approx, unit, done, onToggle, onRemove }: {
-  name: string; amount: number | null; approx?: boolean; unit: string | null; done: boolean;
+function GroceryRow({ name, amount, amountRange, approx, unit, done, onToggle, onRemove }: {
+  name: string; amount: number | null; amountRange: string | null; approx?: boolean; unit: string | null; done: boolean;
   onToggle: () => void; onRemove: () => void;
 }) {
   return (
@@ -28,9 +28,9 @@ function GroceryRow({ name, amount, approx, unit, done, onToggle, onRemove }: {
       <Check on={done} onClick={onToggle} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 14, color: 'var(--ink)', textDecoration: done ? 'line-through' : 'none' }}>{name}</span>
-        {(amount != null || unit) && (
+        {(amount != null || amountRange != null || unit) && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>
-            {amount ?? ''}{approx ? '+' : ''} {unit ?? ''}
+            {amountRange ?? amount ?? ''}{approx ? '+' : ''} {unit ?? ''}
           </span>
         )}
       </div>
@@ -75,7 +75,8 @@ export interface MergedGroup {
   name: string;
   unit: string | null;
   amount: number | null;
-  /** true når minst én rad i gruppen manglet mengde — summen er da et minimum, ikke eksakt. */
+  amountRange: string | null;
+  /** true når minst én rad i gruppen manglet mengde (og ikke hadde et intervall i stedet) — summen er da et minimum, ikke eksakt. */
   approx: boolean;
   done: boolean;
   ids: string[];
@@ -90,19 +91,31 @@ export interface MergedGroup {
 // tryggere enn å slå sammen ved innsetting.
 // Ulik enhet slås aldri sammen (nøkkelen inkluderer enheten), så «1 Liter» og
 // «500 ml» melk forblir to rader i stedet for feilaktig 501.
+// Et intervall (amountRange, f.eks. "0.5-1" ts salt) kan ikke summeres
+// numerisk med noe annet — verken med et rent tall eller et ANNET intervall
+// (bevisst avgrensning: ingen utledet "kombinert" intervall bygges). Derfor
+// er amountRange også en del av nøkkelen: en rad med intervall grupperes
+// aldri sammen med en tallverdi-rad for samme ingrediens/enhet, kun med
+// andre rader som har PRESIS samme intervalltekst (det er ren visnings-
+// konsolidering — ingen tall regnes om — så to middager som begge trenger
+// nøyaktig «0.5-1» vises fortsatt som én rad, med checkboxen koblet til
+// begge underliggende radene).
 export function groupByNameUnit(items: GroceryItem[]): MergedGroup[] {
   const groups = new Map<string, MergedGroup>();
   for (const g of items) {
-    const key = `${g.name.trim().toLowerCase()}|${(g.unit ?? '').trim().toLowerCase()}`;
+    const key = `${g.name.trim().toLowerCase()}|${(g.unit ?? '').trim().toLowerCase()}|${g.amountRange ?? ''}`;
     const existing = groups.get(key);
     if (!existing) {
-      groups.set(key, { key, name: g.name, unit: g.unit, amount: g.amount, approx: g.amount == null, done: g.done, ids: [g.id] });
+      groups.set(key, {
+        key, name: g.name, unit: g.unit, amount: g.amount, amountRange: g.amountRange,
+        approx: g.amount == null && g.amountRange == null, done: g.done, ids: [g.id],
+      });
       continue;
     }
     existing.ids.push(g.id);
     existing.done = existing.done && g.done;
-    if (g.amount == null) existing.approx = true;
-    else existing.amount = (existing.amount ?? 0) + g.amount;
+    if (g.amount == null && g.amountRange == null) existing.approx = true;
+    else if (g.amount != null) existing.amount = (existing.amount ?? 0) + g.amount;
   }
   return [...groups.values()];
 }
@@ -191,7 +204,7 @@ export default function HandlelisteCard() {
           <div className="card-eyebrow" style={{ marginBottom: 8 }}>Fra ukens middager</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {fromMeals.map(group => (
-              <GroceryRow key={group.key} name={group.name} amount={group.amount} approx={group.approx} unit={group.unit} done={group.done}
+              <GroceryRow key={group.key} name={group.name} amount={group.amount} amountRange={group.amountRange} approx={group.approx} unit={group.unit} done={group.done}
                 onToggle={() => group.ids.forEach(id => void toggleGroceryItem(id))}
                 onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))} />
             ))}
@@ -204,7 +217,7 @@ export default function HandlelisteCard() {
           <div className="card-eyebrow" style={{ marginBottom: 8 }}>Basisvarer</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {staples.map(g => (
-              <GroceryRow key={g.id} name={g.name} amount={g.amount} unit={g.unit} done={g.done}
+              <GroceryRow key={g.id} name={g.name} amount={g.amount} amountRange={g.amountRange} unit={g.unit} done={g.done}
                 onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
             ))}
           </div>
@@ -220,12 +233,12 @@ export default function HandlelisteCard() {
           {showDone && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
               {fromMealsDone.map(group => (
-                <GroceryRow key={group.key} name={group.name} amount={group.amount} approx={group.approx} unit={group.unit} done={group.done}
+                <GroceryRow key={group.key} name={group.name} amount={group.amount} amountRange={group.amountRange} approx={group.approx} unit={group.unit} done={group.done}
                   onToggle={() => group.ids.forEach(id => void toggleGroceryItem(id))}
                   onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))} />
               ))}
               {staplesDone.map(g => (
-                <GroceryRow key={g.id} name={g.name} amount={g.amount} unit={g.unit} done={g.done}
+                <GroceryRow key={g.id} name={g.name} amount={g.amount} amountRange={g.amountRange} unit={g.unit} done={g.done}
                   onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
               ))}
             </div>

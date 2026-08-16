@@ -18,6 +18,12 @@ export interface Ingredient {
   // fra før dette feltet fantes mangler det helt (undefined) — behandles som
   // true i syncGroceryList, se kommentar der for hvorfor.
   onGroceryList?: boolean;
+  // Tekstlig intervall (f.eks. "0.5-1") for ingredienser der et enkelt tall
+  // ikke passer — typisk krydder ("0.5-1 ts salt"). Nøyaktig én av amount/
+  // amountRange er satt, aldri begge; ikke satt (undefined) for oppskrifter
+  // fra før dette feltet fantes. Se groupByNameUnit i HandlelisteCard.tsx for
+  // hvorfor et intervall aldri summeres numerisk med andre rader.
+  amountRange?: string | null;
 }
 
 export type RecipeSource = 'egen' | 'spoonacular';
@@ -54,6 +60,10 @@ export interface GroceryItem {
   id: string;
   name: string;
   amount: number | null;
+  // Kopiert fra Ingredient.amountRange (se der) når raden stammer fra en
+  // oppskrift-ingrediens med intervall — alltid null for basisvare- og
+  // frittstående rader, som aldri har hatt et intervall å arve.
+  amountRange: string | null;
   unit: string | null;
   done: boolean;
   // Satt av toggleGroceryItem() når raden markeres kjøpt, nullstilt hvis
@@ -131,6 +141,7 @@ const groceryFromRow = (r: Record<string, unknown>): GroceryItem => ({
   id: r.id as string,
   name: r.name as string,
   amount: r.amount == null ? null : Number(r.amount),
+  amountRange: (r.amount_range as string | null) ?? null,
   unit: (r.unit as string | null) ?? null,
   done: !!r.done,
   doneAt: (r.done_at as string | null) ?? null,
@@ -327,7 +338,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
         // eksplisitt.
         if (ing.onGroceryList === false) continue;
         mealRows.push({
-          name: ing.name, amount: ing.amount, unit: ing.unit,
+          name: ing.name, amount: ing.amount, amount_range: ing.amountRange ?? null, unit: ing.unit,
           meal_plan_id: mp.id, staple_item_id: null,
         });
       }

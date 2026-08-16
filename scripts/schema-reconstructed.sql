@@ -660,7 +660,7 @@ create index flipping_costs_category_idx on public.flipping_costs (category);
 create table public.recipes (
   id                 uuid primary key default gen_random_uuid(),
   name               text not null,
-  ingredients        jsonb not null default '[]',  -- [{name, amount, unit, onGroceryList}, ...] — onGroceryList besluttet/lagret ved opprettelse/redigering, se scripts/pantry-ingredients-drop-migration.sql
+  ingredients        jsonb not null default '[]',  -- [{name, amount, unit, onGroceryList, amountRange}, ...] — onGroceryList besluttet/lagret ved opprettelse/redigering (se scripts/pantry-ingredients-drop-migration.sql); amountRange er et tekstlig intervall ("0.5-1"), nøyaktig én av amount/amountRange satt, se scripts/grocery-amount-range-migration.sql
   cook_time_minutes  int,
   instructions       text,
   tags               text[] not null default '{}',
@@ -720,10 +720,16 @@ alter publication supabase_realtime add table public.staple_items;
 -- Brukes til å avgrense "Vis handlet" til inneværende handleuke (se
 -- handleukeStart i useWeeklyBucket.ts) i stedet for å vise alt som noensinne
 -- er huket av.
+--
+-- [CONFIRMED] scripts/grocery-amount-range-migration.sql — amount_range,
+-- speiler Ingredient.amountRange. Nøyaktig én av amount/amount_range satt;
+-- groupByNameUnit() (HandlelisteCard.tsx) summerer aldri en amount_range-rad
+-- numerisk med en annen rad.
 create table public.grocery_items (
   id               uuid primary key default gen_random_uuid(),
   name             text not null,
   amount           numeric,
+  amount_range     text,
   unit             text,
   done             boolean not null default false,
   done_at          timestamptz,
