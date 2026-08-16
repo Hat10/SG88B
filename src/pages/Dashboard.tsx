@@ -7,6 +7,8 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWeeklyBucket } from '../hooks/useWeeklyBucket';
 import { Btn, fmtKr, Ico } from '../components';
 import { QuickAddBar } from '../QuickAdd';
+import { useTrening } from '../contexts/TreningContext';
+import { TreningQuickRegister } from '../TreningQuickRegister';
 import { navigate } from '../lib/navigate';
 import { burst } from '../confetti';
 import { bpFromCombined } from '../lib/buyingPower';
@@ -793,6 +795,16 @@ function BucketReminder({ dark = false }: { dark?: boolean }) {
   );
 }
 
+/** Matcher QuickAddBar sin knappestil (QuickAdd.tsx), så «Registrer trening» ser ut som paret sitt. */
+const treningBtnStyle = (isMobile: boolean): React.CSSProperties => ({
+  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+  padding: isMobile ? '12px 10px' : '9px 14px',
+  borderRadius: 8, cursor: 'pointer',
+  border: '1px solid var(--line-2)', background: 'var(--surface)',
+  color: 'var(--ink-2)', fontSize: isMobile ? 13 : 12.5, fontWeight: 600,
+  fontFamily: 'inherit', whiteSpace: 'nowrap',
+});
+
 export default function PageDashboard() {
   const { finance }     = useFinance();
   const { goal: houseGoalFromDB } = useHusGoal();
@@ -800,6 +812,8 @@ export default function PageDashboard() {
   const { items: countdowns } = useCountdowns();
   const cd = countdowns[0] ?? null;
   const { params: bpParams } = useBuyingPowerParams();
+  const { categories: trCategories } = useTrening();
+  const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [winW, setWinW] = useState(window.innerWidth);
 
@@ -899,8 +913,11 @@ export default function PageDashboard() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
 
-        {/* Snarveier: legg til gjøremål / rating */}
+        {/* Snarveier: registrer trening / legg til gjøremål */}
         <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setTreningRegisterOpen(true)} style={treningBtnStyle(true)}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>🏋️</span> Registrer trening
+          </button>
           <QuickAddBar isMobile />
         </div>
 
@@ -934,6 +951,10 @@ export default function PageDashboard() {
 
         {/* Nedtellinger — administrasjon (Gangskjerm viser bare den nærmeste) */}
         <CountdownAdminSection />
+
+        {treningRegisterOpen && (
+          <TreningQuickRegister categories={trCategories} onClose={() => setTreningRegisterOpen(false)} />
+        )}
 
       </div>
     );
@@ -979,8 +1000,11 @@ export default function PageDashboard() {
               onClick={() => navigate('kalender')}
             />
           )}
-          {/* Snarveier: legg til gjøremål / rating */}
+          {/* Snarveier: registrer trening / legg til gjøremål */}
           <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+            <button onClick={() => setTreningRegisterOpen(true)} style={treningBtnStyle(false)}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>🏋️</span> Registrer trening
+            </button>
             <QuickAddBar isMobile={false} />
           </div>
         </div>
@@ -1034,6 +1058,10 @@ export default function PageDashboard() {
       <div className="col-12">
         <CountdownAdminSection />
       </div>
+
+      {treningRegisterOpen && (
+        <TreningQuickRegister categories={trCategories} onClose={() => setTreningRegisterOpen(false)} />
+      )}
 
     </div>
   );
