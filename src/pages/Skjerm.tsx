@@ -4,7 +4,8 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
 import { useCountdowns } from '../hooks/useCountdown';
 import { useMatplan } from '../contexts/MatplanContext';
-import { useTrening, type Trainer, type WorkoutCategory } from '../contexts/TreningContext';
+import { useTrening, trainerFromEmail, type Trainer, type WorkoutCategory } from '../contexts/TreningContext';
+import { useAuth } from '../contexts/AuthContext';
 import { WHO_LABEL, TRAINERS } from '../lib/treningPulse';
 import { groupByNameUnit } from './middag/HandlelisteCard';
 import { fireworkRain } from '../confetti';
@@ -447,10 +448,12 @@ function ScreenCheck({ checked, onClick, label }: {
 // «fjern klokkeslett»-endringen der er en egen, senere oppgave).
 function TreningQuickRegister({ categories, onClose }: { categories: WorkoutCategory[]; onClose: () => void }) {
   const { registerSession } = useTrening();
+  const { session } = useAuth();
   const { notify } = useSnackbar();
   const active = categories.filter(c => !c.archived);
   const [category, setCategory] = useState(active[0]?.name ?? '');
-  const [who, setWho] = useState<Trainer>('M');
+  // Forhåndsvalg ut fra innlogget bruker — kun et utgangspunkt, ikke en låsing.
+  const [who, setWho] = useState<Trainer>(() => trainerFromEmail(session?.user?.email));
   const [saving, setSaving] = useState(false);
 
   const optionStyle = (on: boolean): React.CSSProperties => ({

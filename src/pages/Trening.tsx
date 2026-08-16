@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from '../lib/useScrollLock';
 import {
-  useTrening, catColor,
+  useTrening, catColor, trainerFromEmail,
   type WorkoutCategory, type WorkoutSession, type WorkoutRecord, type WorkoutGoal,
   type Trainer, type RecordUnit, type GoalKind,
 } from '../contexts/TreningContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
@@ -380,6 +381,7 @@ function RegisterModal({ categories, presetCategory, onClose }: {
   categories: WorkoutCategory[]; presetCategory?: string; onClose: () => void;
 }) {
   const { registerSession, sessions, records, earnedBadges, awardBadges } = useTrening();
+  const { session } = useAuth();
   const { notify } = useSnackbar();
   const isMobile = useIsMobile();
 
@@ -394,7 +396,8 @@ function RegisterModal({ categories, presetCategory, onClose }: {
   }, [categories, presetCategory]);
 
   const [category, setCategory] = useState(presetCategory ?? options[0]?.name ?? '');
-  const [who, setWho] = useState<Trainer>('M');
+  // Forhåndsvalg ut fra innlogget bruker — kun et utgangspunkt, ikke en låsing.
+  const [who, setWho] = useState<Trainer>(() => trainerFromEmail(session?.user?.email));
   const [date, setDate] = useState(() => dayKey(new Date()));
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);

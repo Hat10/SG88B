@@ -6,6 +6,14 @@ import type { Who } from '../data';
 export type Trainer = Exclude<Who, 'f'>;
 export const TRAINERS: Trainer[] = ['M', 'L'];
 
+/**
+ * Innlogget e-post → hvem det mest sannsynlig er, brukt som forhåndsvalg ved
+ * registrering (aldri en tvang — brukeren kan alltid bytte manuelt). Ukjent
+ * e-post, eller ingen sesjon ennå, faller tilbake til Andreas, som før.
+ */
+export const trainerFromEmail = (email: string | null | undefined): Trainer =>
+  email?.toLowerCase() === 'taran-five@hotmail.com' ? 'L' : 'M';
+
 /** Standardkategoriene appen kommer med. Basen kan ha flere — se workout_categories. */
 export const WORKOUT_CATEGORIES = ['Push', 'Pull', 'Legs', 'Fullkropp', 'Overkropp', 'Cardio'] as const;
 
