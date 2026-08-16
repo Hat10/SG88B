@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
+import { TopbarPortal } from '../lib/topbarSlot';
 import type { Who } from '../data';
 import {
   WHO_LABEL, TRAINERS, dayKey, fmtNum, startOfWeek,
@@ -1197,14 +1198,12 @@ function Dashboard({ onSelectPerson, onRegister, onNewCategory, onEditCategory }
 
   return (
     <>
+      <TopbarPortal><TreningNav activeWho={null} onSelectPerson={onSelectPerson} onRegister={() => onRegister()} /></TopbarPortal>
       <div className="page-head" style={isMobile ? { paddingBottom: 10 } : undefined}>
         <div>
           <div className="page-sub">På gymmen</div>
           <h1 className="page-title">Hva har dere <em>trent</em>?</h1>
           {!isMobile && <div className="page-sub" style={{ marginTop: 8 }}>Huk av en kategori når en økt er gjennomført — velg hvem og når.</div>}
-        </div>
-        <div className="page-actions">
-          <TreningNav activeWho={null} onSelectPerson={onSelectPerson} onRegister={() => onRegister()} />
         </div>
       </div>
 
@@ -1488,15 +1487,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
   return (
     <>
+      <TopbarPortal><TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} /></TopbarPortal>
       <div className="page-head">
         <div>
           <div className="page-sub">
             Oversikt <span className="meta">• {year}</span>
           </div>
           <h1 className="page-title">Slik trener <em>{isPerson ? WHO_LABEL[who] : 'dere'}</em></h1>
-        </div>
-        <div className="page-actions">
-          <TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} />
         </div>
       </div>
 

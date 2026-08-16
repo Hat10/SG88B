@@ -3,6 +3,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { useScrollLock } from './lib/useScrollLock';
 import { Couple } from './components';
 import { ErrorBoundary } from './ErrorBoundary';
+import { TopbarSlotProvider } from './lib/topbarSlot';
 import { useSnackbar } from './contexts/SnackbarContext';
 import { FinanceProvider } from './contexts/FinanceContext';
 import { CategoryProvider } from './contexts/CategoryContext';
@@ -284,19 +285,28 @@ function Sidebar({ route, setRoute, open, dragX, themeMode, setThemeMode }: { ro
   );
 }
 
-function Topbar({ route, setRoute, onMenuToggle }: { route: Route; setRoute: (r: Route) => void; onMenuToggle: () => void }) {
+function Topbar({ route, setRoute, onMenuToggle, onSlotReady }: {
+  route: Route; setRoute: (r: Route) => void; onMenuToggle: () => void; onSlotReady: (el: HTMLDivElement | null) => void;
+}) {
   return (
-    <div className="topbar">
-      <button className="menu-btn" onClick={onMenuToggle} aria-label="Meny">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-        </svg>
-      </button>
-      <div className="crumbs">
-        <span onClick={() => setRoute('home')} style={{ cursor: 'pointer' }}>felles</span>
-        <span className="sep">/</span>
-        <span className="here">{route === 'home' ? 'hjem' : route}</span>
+    <div className={'topbar' + (route === 'trening' ? ' has-nav' : '')}>
+      <div className="topbar-left">
+        <button className="menu-btn" onClick={onMenuToggle} aria-label="Meny">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+        <div className="crumbs">
+          <span onClick={() => setRoute('home')} style={{ cursor: 'pointer' }}>felles</span>
+          <span className="sep">/</span>
+          <span className="here">{route === 'home' ? 'hjem' : route}</span>
+        </div>
       </div>
+      {/* Mål for TopbarPortal (lib/topbarSlot.tsx) — sider som Trening portalerer
+          egen navigasjon hit i stedet for en egen rad under sidetittelen. Tom
+          (og usynlig, siden .topbar sin justify-content:space-between ikke
+          bryr seg om et tomt flex-element) for alle andre sider. */}
+      <div className="topbar-slot" ref={onSlotReady} />
     </div>
   );
 }
@@ -385,6 +395,8 @@ function AppInner() {
     return NAV.find(n => n.id === p) ? p : 'home';
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Portal-mål for TopbarPortal (lib/topbarSlot.tsx) — se Topbar.
+  const [topbarSlot, setTopbarSlot] = useState<HTMLDivElement | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readInitialMode);
   const [autoDark, setAutoDark] = useState(isNightNow);
   // The Gangskjerm always follows the time-based auto theme, regardless of the
@@ -459,13 +471,13 @@ function AppInner() {
           className="main"
           style={FULLSCREEN_ROUTES.includes(route) ? { height: '100dvh', overflow: 'hidden' } : undefined}
         >
-          <Topbar route={route} setRoute={setRoute} onMenuToggle={() => setSidebarOpen(o => !o)} />
+          <Topbar route={route} setRoute={setRoute} onMenuToggle={() => setSidebarOpen(o => !o)} onSlotReady={setTopbarSlot} />
           <Page route={route as Exclude<Route, 'skjerm'>} />
         </main>
       </div>
     );
 
-  return <SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider>;
+  return <TopbarSlotProvider value={topbarSlot}><SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider></TopbarSlotProvider>;
 }
 
 export default function App() {
