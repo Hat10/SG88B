@@ -9,6 +9,7 @@ import { groupByNameUnit } from './middag/HandlelisteCard';
 import { fireworkRain } from '../confetti';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import type { CalEvent } from '../../api/kalender';
+import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -20,8 +21,11 @@ interface WasteType { name: string; category: 'plast' | 'mat' | 'papir' | 'rest'
 interface Pickup { date: string; weekday: string; dateLabel: string; types: WasteType[]; }
 interface TommeplanData { address: string; pickups: Pickup[]; updatedAt: string; }
 
-type AuroraChance = 'lav' | 'middels' | 'høy';
-interface AuroraData { kp: number; kpTime: string; cloudCover: number; probability: AuroraChance; updatedAt: string; }
+interface AuroraData {
+  kp: number; kpTime: string; cloudCover: number; probability: AuroraChance;
+  hourly?: AuroraHourlyEntry[];
+  updatedAt: string;
+}
 
 const AURORA_COLOR: Record<AuroraChance, string> = { lav: 'var(--ink-4)', middels: 'var(--warn)', høy: 'var(--good)' };
 const AURORA_LABEL: Record<AuroraChance, string> = { lav: 'Lav sjanse', middels: 'Middels sjanse', høy: 'Høy sjanse' };
@@ -360,6 +364,91 @@ function HourlyChart({ hourly, now, sunrise, sunset }: {
   );
 }
 
+const AURORA_CHANCE_COLOR: Record<AuroraChance, string> = {
+  lav: 'rgba(147,197,253,0.45)', middels: 'var(--warn)', høy: 'var(--good)',
+};
+// Dagslys — nordlys uansett ikke synlig, uansett hvor bra Kp/skydekke ellers
+// er den timen. Søylen beholder sin egentlige høyde (så man ser at forholdene
+// faktisk var gode), men dempes tydelig i farge/opasitet i stedet for å
+// fjernes — det holder timeaksen sammenhengende og viser HVORFOR ingenting
+// skjer akkurat da, i stedet for å etterlate et uforklart hull.
+const AURORA_DAYLIGHT_BAR = 'rgba(255,255,255,0.12)';
+
+/**
+ * Nordlys-prognose time for time, neste ~20 timer. Egen komponent (ikke
+ * HourlyChart, som er bygget rundt temperatur+nedbør) — men samme visuelle
+ * språk: samme viewBox-oppsett, adaptivt intervall på timetallene, samme
+ * mørke fargepalett. `hourly[0]` er alltid inneværende time (API-et bygger
+ * lista fra «nå»), så x-aksen er kronologisk indeks, ikke klokketime — en
+ * ren time-of-day-akse ville krøllet seg ved midnatt når vinduet strekker
+ * seg over et døgnskifte.
+ */
+function AuroraHourlyChart({ hourly }: { hourly: AuroraHourlyEntry[] }) {
+  const n = hourly.length;
+  if (n < 2) return null;
+
+  const W = 760, H = 190;
+  const padL = 10, padR = 10, padT = 14, labelH = 22;
+  const barAreaTop = padT;
+  const barAreaBot = H - labelH;
+  const barAreaH   = barAreaBot - barAreaTop;
+  const pW = W - padL - padR;
+
+  const slot = pW / n;
+  const barW = Math.max(4, slot * 0.6);
+  const xc = (i: number) => padL + slot * i + slot / 2;
+
+  // Rå 0-4-score (ikke bare de 3 sjanse-bøttene) gir søylene ekte høydevariasjon
+  // time for time — skydekket har reell timeoppløsning selv om Kp er flatt
+  // gjennom sin 3-timersbolk.
+  const barH = (h: AuroraHourlyEntry) => Math.max(3, (h.score / 4) * barAreaH);
+
+  const labelEvery = slot >= 50 ? 1 : slot >= 25 ? 2 : 3;
+  const osloHour = (iso: string) => parseInt(
+    new Date(iso).toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', hour: 'numeric', hour12: false }), 10);
+
+  // Sammenhengende dagslys-strekk, som bakgrunnsbånd.
+  const daylightBands: { from: number; to: number }[] = [];
+  let bandStart: number | null = null;
+  for (let i = 0; i < n; i++) {
+    if (!hourly[i].dark) { if (bandStart === null) bandStart = i; }
+    else if (bandStart !== null) { daylightBands.push({ from: bandStart, to: i - 1 }); bandStart = null; }
+  }
+  if (bandStart !== null) daylightBands.push({ from: bandStart, to: n - 1 });
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      {daylightBands.map((b, i) => (
+        <rect key={i}
+          x={padL + slot * b.from} y={barAreaTop} width={slot * (b.to - b.from + 1)} height={barAreaH}
+          fill="rgba(251,191,36,0.06)" />
+      ))}
+
+      <line x1={padL} y1={barAreaBot} x2={W - padR} y2={barAreaBot} stroke="rgba(255,255,255,0.14)" strokeWidth="1" />
+
+      {hourly.map((h, i) => {
+        const bh = barH(h);
+        return (
+          <rect key={i}
+            x={xc(i) - barW / 2} y={barAreaBot - bh} width={barW} height={bh}
+            fill={h.dark ? AURORA_CHANCE_COLOR[h.chance] : AURORA_DAYLIGHT_BAR}
+            opacity={h.dark ? 1 : 0.6} rx="2" />
+        );
+      })}
+
+      {hourly.map((h, i) => {
+        if (i !== 0 && i % labelEvery !== 0) return null;
+        return (
+          <text key={i} x={xc(i)} y={H - 4} textAnchor="middle"
+            fontSize="10" fontFamily="var(--font-mono)" fill={i === 0 ? 'rgba(255,255,255,0.55)' : 'rgba(207,224,239,0.4)'}>
+            {i === 0 ? 'nå' : `${String(osloHour(h.time)).padStart(2, '0')}`}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
 const SOURCE_COLOR: Record<string, string> = {
   andreas: '#4A80C4', taran: '#C97A8B', felles: '#7AB394', todo: '#C9963A',
 };
@@ -489,6 +578,7 @@ export default function PageSkjerm({ onBack }: Props) {
   const [tommeplanError, setTommeplanError] = useState(false);
   const [aurora, setAurora]           = useState<AuroraData | null>(null);
   const [auroraError, setAuroraError] = useState(false);
+  const [auroraOpen, setAuroraOpen]   = useState(false);
   const { items: countdowns, add: addCd, update: updateCd, remove: removeCd, restore: restoreCd, loading: cdLoading } = useCountdowns();
   const cd = countdowns[0] ?? null;
   const [cdEditing, setCdEditing] = useState(false);
@@ -1063,11 +1153,14 @@ export default function PageSkjerm({ onBack }: Props) {
 
         {/* Nordlys — Kp-indeks fra NOAA (observert, ikke flerdags-prognose)
             kombinert med skydekke fra Yr/met.no for Bodø. Ren heuristikk, ikke
-            et offisielt varsel — se api/nordlys.ts for poengmodellen. */}
-        <div style={{
-          ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
-          display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12,
-        }}>
+            et offisielt varsel — se api/nordlys.ts for poengmodellen. Klikk
+            åpner en 20-timers prognosegraf, samme mønster som Vær-boksen. */}
+        <div
+          onClick={() => (aurora?.hourly?.length ?? 0) >= 2 && setAuroraOpen(v => !v)}
+          style={{
+            ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
+            display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12, cursor: 'default',
+          }}>
           <div style={eyebrow}>🌌 Nordlys · Bodø</div>
 
           {auroraError && (
@@ -1345,6 +1438,68 @@ export default function PageSkjerm({ onBack }: Props) {
                   Soloppgang / nedgang
                 </span>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 20-timers nordlysprognose ── */}
+      {auroraOpen && aurora?.hourly && aurora.hourly.length >= 2 && (
+        <div
+          onClick={() => setAuroraOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 860, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20 }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Nordlys · Bodø · Neste 20 timer</div>
+                <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: AURORA_COLOR[aurora.probability], letterSpacing: '-0.01em' }}>
+                  {AURORA_LABEL[aurora.probability]} akkurat nå
+                </div>
+              </div>
+              <button
+                onClick={() => setAuroraOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
+              >✕</button>
+            </div>
+
+            {/* Summary */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 28, paddingBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              {[
+                { label: 'Kp', val: String(aurora.kp), color: '#E8EFF7' },
+                { label: 'Skydekke', val: `${aurora.cloudCover}%`, color: '#E8EFF7' },
+              ].map(r => (
+                <div key={r.label} style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{r.label}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: r.color }}>{r.val}</div>
+                </div>
+              ))}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'rgba(207,224,239,0.4)', maxWidth: 340, lineHeight: 1.5 }}>
+                  Kp: NOAA 3-døgnsprognose · 3-timers intervaller
+                  <br />
+                  Skydekke: Yr · time for time
+              </div>
+            </div>
+
+            {/* Chart */}
+            <AuroraHourlyChart hourly={aurora.hourly} />
+
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.35)' }}>
+              {(['høy', 'middels', 'lav'] as AuroraChance[]).map(c => (
+                <span key={c} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ display: 'inline-block', width: 10, height: 10, background: AURORA_CHANCE_COLOR[c], borderRadius: 2 }} />
+                  {AURORA_LABEL[c]}
+                </span>
+              ))}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, background: AURORA_DAYLIGHT_BAR, borderRadius: 2 }} />
+                Dagslys — ikke synlig
+              </span>
             </div>
           </div>
         </div>
