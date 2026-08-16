@@ -14,6 +14,7 @@
     "@supabase/supabase-js": "^2.105.4",
     "@types/leaflet": "^1.9.21",
     "cheerio": "^1.2.0",
+    "googleapis": "^144.0.0",
     "leaflet": "^1.9.4",
     "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",

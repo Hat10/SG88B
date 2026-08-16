@@ -264,14 +264,37 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
 
   // ── Ukeplan ────────────────────────────────────────────────────────────────
 
+  // Speiler valgt middag til den delte Google-kalenderen (19:30–20:30 samme
+  // dag). Best-effort: kalenderen kan mangle konfigurasjon (GOOGLE_*-env-vars)
+  // uten at selve ukeplanleggingen skal feile, derfor kun logget, ikke kastet.
+  const syncDinnerCalendar = async (date: string, title: string | null) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch('/api/middag-kalender', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ date, title }),
+      });
+    } catch (err) {
+      console.warn('Klarte ikke synke middag til Google-kalenderen', err);
+    }
+  };
+
   const setMealPlan = async (date: string, recipeId: string) => {
     await supabase.from('meal_plan').upsert({ date, recipe_id: recipeId }, { onConflict: 'date' });
     await load();
+    const recipe = recipes.find(r => r.id === recipeId);
+    void syncDinnerCalendar(date, recipe?.name ?? 'Middag');
   };
 
   const clearMealPlan = async (date: string) => {
     await supabase.from('meal_plan').delete().eq('date', date);
     await load();
+    void syncDinnerCalendar(date, null);
   };
 
   // ── Basisvarer ─────────────────────────────────────────────────────────────
