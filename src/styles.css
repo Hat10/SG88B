@@ -851,11 +851,11 @@ details[open] > summary::before { content: "−"; }
 
   .topbar { padding: 0 16px; gap: 12px; }
   .topbar-right .tb-meta { display: none; }
-  /* Trenings fane-navigasjon (Felles/Andreas/Taran + Registrer økt) i
-     .topbar-slot trenger plassen — sidens egen store tittel («Slik trener …»,
-     «Hva har dere trent?») gjentar konteksten rett under uansett, så
-     brødsmulesti-teksten er trygg å skjule her. Selve mappen/hamburger-
-     knappen (.topbar-left) beholdes. */
+  /* Sider som portalerer navigasjon inn i .topbar-slot (se TOPBAR_SLOT_ROUTES
+     i App.tsx) trenger plassen på mobil — sidens egen store tittel (page-head,
+     enten App.tsx sin egen eller sidens egen for headless-ruter) gjentar
+     konteksten rett under uansett, så brødsmulesti-teksten er trygg å skjule
+     her. Selve mappen/hamburger-knappen (.topbar-left) beholdes. */
   .topbar.has-nav .crumbs { display: none; }
   .topbar-slot { gap: 8px; }
   .tr-seg button { padding: 5px 9px; }

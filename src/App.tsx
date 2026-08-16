@@ -289,7 +289,7 @@ function Topbar({ route, setRoute, onMenuToggle, onSlotReady }: {
   route: Route; setRoute: (r: Route) => void; onMenuToggle: () => void; onSlotReady: (el: HTMLDivElement | null) => void;
 }) {
   return (
-    <div className={'topbar' + (route === 'trening' ? ' has-nav' : '')}>
+    <div className={'topbar' + (TOPBAR_SLOT_ROUTES.includes(route) ? ' has-nav' : '')}>
       <div className="topbar-left">
         <button className="menu-btn" onClick={onMenuToggle} aria-label="Meny">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -331,6 +331,13 @@ const FULLSCREEN_ROUTES: Route[] = ['kart'];
 // Sider som rendrer sin egen .page-head fordi tittelen avhenger av innholdet
 // (Trening bytter mellom «Klar for Pull A?» og statistikk-visningen).
 const HEADLESS_ROUTES: Route[] = ['trening'];
+
+// Sider som portalerer noe inn i .topbar-slot (TopbarPortal, lib/topbarSlot.tsx)
+// — brukes til å skjule brødsmulesti-teksten på mobil for å gi plass (se
+// .topbar.has-nav .crumbs i styles.css). Må holdes i sync manuelt: en side som
+// tar i bruk TopbarPortal uten å stå her mister bare den mobil-tilpasningen,
+// den slutter ikke å fungere.
+const TOPBAR_SLOT_ROUTES: Route[] = ['trening', 'hus'];
 
 // Vises mens en side-chunk lastes. Sidehodet rendres allerede synkront, så
 // dette er kun en tynn plassholder for innholdsområdet (chunkene er små og
