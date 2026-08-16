@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-// The Landsbydrømmen prognosis assumptions live in the shared `settings` table
+// The Boligdrømmen prognosis assumptions live in the shared `settings` table
 // (key below) so they sync across every device — same pattern as the house goal.
 // Until the couple saves once there is no row, and the page falls back to sensible
 // defaults (savings derived from their actual history).
+// NOTE: the key itself ('lb_prognose', from the page's former name) is left
+// unchanged on purpose — it's a live lookup key in the settings table, and
+// renaming it would orphan any assumptions already saved there.
 const KEY = 'lb_prognose';
 
 /** One value per asset class — used both for % returns and for kr/month savings. */

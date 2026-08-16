@@ -13,7 +13,7 @@ alter table finance_entries
 
 -- Preserve existing totals: move each row's old "assets" value into "annet" so no
 -- data is lost. You can then re-categorise it into eiendom/aksjefond/rentefond
--- from the Landsbydrømmen page.
+-- from the Boligdrømmen page.
 update finance_entries
   set annet = assets
   where coalesce(eiendom, 0) + coalesce(aksjefond, 0) + coalesce(rentefond, 0) + coalesce(annet, 0) = 0

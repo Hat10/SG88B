@@ -138,7 +138,7 @@ interface NavItem { id: Route; label: string; group: string; badge?: string }
 const NAV: NavItem[] = [
   { id: 'home',         label: 'Hjem',         group: 'Oversikt' },
   { id: 'skjerm',       label: 'Gangskjerm',   group: 'Oversikt' },
-  { id: 'hus',          label: '🏡 Landsbydrømmen', group: 'Økonomi' },
+  { id: 'hus',          label: '🏡 Boligdrømmen', group: 'Økonomi' },
   { id: 'okonomi',      label: '💸 Forbruk',      group: 'Økonomi' },
   { id: 'onskelister',  label: '💝 Ønskelister',  group: 'Hverdag' },
   { id: 'kalender',     label: '📅 Kalender',     group: 'Hverdag' },
@@ -153,7 +153,7 @@ const NAV: NavItem[] = [
 
 const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub: string }> = {
   home: { eyebrow: 'Oversikt', title: <>God morgen, <em>Andreas</em>.</>, sub: 'Torsdag 7. mai 2026' },
-  hus: { eyebrow: 'Prosjekt', title: <><em>Landsbydrømmen</em> 🏡</>, sub: '' },
+  hus: { eyebrow: 'Prosjekt', title: <><em>Boligdrømmen</em> 🏡</>, sub: '' },
   onskelister: { eyebrow: '', title: 'Ønskelister', sub: 'Felles · Andreas · Taran' },
   'ting-vi-vil-gjore': { eyebrow: '', title: <>Ting vi vil <em>gjøre</em></>, sub: '' },
   gjoremal: { eyebrow: '', title: 'Gjøremål', sub: '' },

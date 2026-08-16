@@ -8,7 +8,7 @@ import { useBuyingPowerParams } from '../hooks/useBuyingPowerParams';
 import { useHusPrognoseHistory } from '../hooks/useHusPrognoseHistory';
 
 // ── Prognose ──────────────────────────────────────────────────────────────────
-// Forecast built from the Landsbydrømmen numbers, now broken into asset classes
+// Forecast built from the Boligdrømmen numbers, now broken into asset classes
 // (eiendom/aksjefond/rentefond/annet) that each grow at their own expected return.
 // The projection is anchored at the most recent January, so it stays stable for a
 // whole year — which makes "faktisk vs. prognose" an honest comparison — and

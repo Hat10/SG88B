@@ -189,7 +189,7 @@ function SavingsPanel({
     <div style={{ flex: 1, minWidth: 0 }}>
       {/* Eyebrow */}
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'rgba(207,224,239,0.45)', marginBottom: 10, textTransform: 'uppercase' }}>
-        Samlet kjøpekraft · Landsbydrømmen 🏡
+        Samlet kjøpekraft · Boligdrømmen 🏡
       </div>
 
       {/* Big amount */}
@@ -923,7 +923,7 @@ export default function PageDashboard() {
 
         {/* Kompakt stats: sparing + nedtelling */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <button onClick={() => navigate('hus')} aria-label="Åpne Landsbydrømmen"
+          <button onClick={() => navigate('hus')} aria-label="Åpne Boligdrømmen"
             style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
             <MobileSavingsMini
               houseSaved={houseSaved}
@@ -962,7 +962,7 @@ export default function PageDashboard() {
 
   // ── Desktop layout ──
   const savingsEl = (
-    <button onClick={() => navigate('hus')} aria-label="Åpne Landsbydrømmen"
+    <button onClick={() => navigate('hus')} aria-label="Åpne Boligdrømmen"
       style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
       <SavingsPanel
         houseSaved={houseSaved} houseGoal={houseGoal} housePct={housePct}
