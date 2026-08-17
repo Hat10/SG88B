@@ -1,12 +1,21 @@
 name: Daily database backup
 
-# Dumps the Supabase Postgres database once a day and commits the result to
-# backups/. schema.sql and data.sql are overwritten each run, so the working
-# tree stays small while git history keeps every past snapshot (git delta-
-# compresses the SQL text well). To recover an older version, see backups/README.md.
+# Dumps the Supabase Postgres database once a day and uploads the result as a
+# GitHub Actions artifact — NOT committed to git. schema.sql and data.sql
+# (the latter is real row data) used to be committed into backups/, but that
+# directory holding actual data in git history was exactly the problem
+# backups/ being gitignored elsewhere in this repo was meant to prevent — a
+# daily commit here would have quietly reintroduced it. This workflow has no
+# `contents: write` permission and never runs a git command, so there is no
+# path by which a run can push anything to the repository.
+#
+# To recover a backup: open this workflow's page under the repo's Actions
+# tab, pick the run you want, and download the "db-backup" artifact from
+# that run's summary page. Artifacts expire after retention-days below —
+# they are not a permanent archive.
 #
 # One-time setup: add the database connection string as a repo secret named
-# SUPABASE_DB_URL. Full instructions in backups/README.md.
+# SUPABASE_DB_URL (Settings → Secrets and variables → Actions).
 
 on:
   schedule:
@@ -14,7 +23,7 @@ on:
   workflow_dispatch: {}      # lets you trigger a run by hand from the Actions tab
 
 permissions:
-  contents: write            # needed to commit the dump back into the repo
+  contents: read             # no git write anywhere in this workflow — see comment above
 
 concurrency:
   group: db-backup
@@ -24,8 +33,6 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - uses: supabase/setup-cli@v1
         with:
           version: latest
@@ -36,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${DB_URL:-}" ]; then
-            echo "::error::Missing SUPABASE_DB_URL secret — see backups/README.md"
+            echo "::error::Missing SUPABASE_DB_URL secret — see the workflow file header for setup"
             exit 1
           fi
           mkdir -p backups
@@ -44,17 +51,11 @@ jobs:
           supabase db dump --db-url "$DB_URL" -f backups/schema.sql
           # Row data only, using COPY (fast + clean to restore)
           supabase db dump --db-url "$DB_URL" --data-only --use-copy -f backups/data.sql
-          echo "Last successful backup: $(date -u +'%Y-%m-%d %H:%M UTC')" > backups/last-run.txt
+          echo "Backup run: $(date -u +'%Y-%m-%d %H:%M UTC')" > backups/last-run.txt
 
-      - name: Commit backup
-        run: |
-          set -euo pipefail
-          git config user.name  "backup-bot"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add backups/
-          if git diff --staged --quiet; then
-            echo "No changes since last backup — nothing to commit."
-          else
-            git commit -m "Backup $(date -u +'%Y-%m-%d %H:%M UTC')"
-            git push
-          fi
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: backups/
+          retention-days: 90
