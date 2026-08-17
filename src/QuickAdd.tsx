@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from './lib/useScrollLock';
-import { useTodo, type Priority, type RepeatInterval, REPEAT_LABELS } from './contexts/TodoContext';
+import { useTodo, type Priority } from './contexts/TodoContext';
 import { useSnackbar } from './contexts/SnackbarContext';
 import { useConfirm } from './contexts/ConfirmContext';
 import { navigate } from './lib/navigate';
+import RepeatPicker, { EMPTY_REPEAT, type RepeatState } from './RepeatPicker';
 import type { Who } from './data';
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
@@ -107,20 +108,20 @@ function QuickTodoForm({ isMobile, onClose, onDirtyChange }: {
   const [desc, setDesc] = useState('');
   const [deadline, setDeadline] = useState(initialDeadline);
   const [time, setTime] = useState('');
-  const [repeat, setRepeat] = useState<RepeatInterval | ''>('');
+  const [repeatState, setRepeatState] = useState<RepeatState>(EMPTY_REPEAT);
   const [who, setWho] = useState<Who>('f');
   const [priority, setPriority] = useState<Priority>('middels');
   const [saving, setSaving] = useState(false);
 
   // Report "has the user started filling in?" up to the sheet, for the discard guard.
-  const dirty = !!title.trim() || !!desc.trim() || !!time || !!repeat
+  const dirty = !!title.trim() || !!desc.trim() || !!time || !!repeatState.repeat
     || who !== 'f' || priority !== 'middels' || deadline !== initialDeadline;
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
 
   // Time and repeat need a deadline to anchor to — clear them when it's removed.
   const changeDeadline = (val: string) => {
     setDeadline(val);
-    if (!val) { setTime(''); setRepeat(''); }
+    if (!val) { setTime(''); setRepeatState(EMPTY_REPEAT); }
   };
 
   const submit = async () => {
@@ -133,7 +134,9 @@ function QuickTodoForm({ isMobile, onClose, onDirtyChange }: {
         who, priority,
         deadline,
         time: time || undefined,
-        repeat: (repeat || undefined) as RepeatInterval | undefined,
+        repeat: repeatState.repeat || undefined,
+        repeatInterval: repeatState.repeat === 'custom' ? repeatState.repeatInterval : undefined,
+        repeatUnit: repeatState.repeat === 'custom' ? repeatState.repeatUnit : undefined,
         done: false, overdue_days: 0,
       });
       notify('Gjøremål lagt til', { actionLabel: 'Åpne', onAction: () => navigate('gjoremal') });
@@ -208,14 +211,7 @@ function QuickTodoForm({ isMobile, onClose, onDirtyChange }: {
 
       <div style={gated}>
         <div className="card-eyebrow" style={{ marginBottom: 4 }}>Gjentas <span style={{ opacity: 0.5 }}>(valgfri)</span></div>
-        <select className="input" value={repeat} disabled={!deadline}
-          onChange={e => setRepeat(e.target.value as RepeatInterval | '')}
-          style={{ width: '100%' }}>
-          <option value="">Ingen gjentakelse</option>
-          {(Object.entries(REPEAT_LABELS) as [RepeatInterval, string][]).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
+        <RepeatPicker value={repeatState} onChange={setRepeatState} disabled={!deadline} />
       </div>
 
       <div>

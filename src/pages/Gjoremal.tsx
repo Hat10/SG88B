@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from '../lib/useScrollLock';
-import { useTodo, type TodoEntry, type Priority, type RepeatInterval, REPEAT_LABELS } from '../contexts/TodoContext';
+import { useTodo, type TodoEntry, type Priority, repeatLabel } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Check, Fab, SkeletonList } from '../components';
+import RepeatPicker, { EMPTY_REPEAT, type RepeatState } from '../RepeatPicker';
 import type { Who } from '../data';
 import { burst } from '../confetti';
 
@@ -261,8 +262,8 @@ function TodoRow({ item, onToggle, onEdit, onRemove }: {
             </span>
           )}
           {item.repeat && !item.done && (
-            <span title={REPEAT_LABELS[item.repeat]} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)', background: 'var(--accent-soft, #e8f0fb)', padding: '2px 6px', borderRadius: 3, whiteSpace: 'nowrap' }}>
-              🔁 {REPEAT_LABELS[item.repeat]}
+            <span title={repeatLabel(item)} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)', background: 'var(--accent-soft, #e8f0fb)', padding: '2px 6px', borderRadius: 3, whiteSpace: 'nowrap' }}>
+              🔁 {repeatLabel(item)}
             </span>
           )}
           {item.description && !expanded && (
@@ -303,9 +304,9 @@ export default function PageGjoremal() {
   const [priority, setPriority] = useState<Priority>('middels');
   const [deadline, setDeadline] = useState('');
   const [time,     setTime]     = useState('');
-  const [repeat,   setRepeat]   = useState<RepeatInterval | ''>('');
+  const [repeatState, setRepeatState] = useState<RepeatState>(EMPTY_REPEAT);
 
-  const resetForm = () => { setTitle(''); setDesc(''); setWho('f'); setPriority('middels'); setDeadline(''); setTime(''); setRepeat(''); };
+  const resetForm = () => { setTitle(''); setDesc(''); setWho('f'); setPriority('middels'); setDeadline(''); setTime(''); setRepeatState(EMPTY_REPEAT); };
 
   const startEdit = (id: string) => {
     const it = items.find(i => i.id === id);
@@ -317,7 +318,7 @@ export default function PageGjoremal() {
     setPriority(it.priority);
     setDeadline(it.deadline ?? '');
     setTime(it.time ?? '');
-    setRepeat((it.repeat ?? '') as RepeatInterval | '');
+    setRepeatState({ repeat: it.repeat ?? '', repeatInterval: it.repeatInterval ?? 1, repeatUnit: it.repeatUnit ?? 'day' });
     if (!isMobile) window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -334,6 +335,7 @@ export default function PageGjoremal() {
         who: item.who, priority: item.priority, deadline: item.deadline, time: item.time,
         done: item.done, doneYear: item.doneYear, doneAt: item.doneAt,
         overdue_days: item.overdue_days, repeat: item.repeat,
+        repeatInterval: item.repeatInterval, repeatUnit: item.repeatUnit,
       }),
     });
   };
@@ -342,7 +344,13 @@ export default function PageGjoremal() {
     if (!title.trim() || !deadline || saving) return;
     setSaving(true);
     try {
-      const payload = { title: title.trim(), description: desc.trim() || undefined, who, priority, deadline: deadline || undefined, time: time || undefined, done: false, overdue_days: 0, repeat: (repeat || undefined) as RepeatInterval | undefined };
+      const payload = {
+        title: title.trim(), description: desc.trim() || undefined, who, priority,
+        deadline: deadline || undefined, time: time || undefined, done: false, overdue_days: 0,
+        repeat: (repeatState.repeat || undefined) as TodoEntry['repeat'],
+        repeatInterval: repeatState.repeat === 'custom' ? repeatState.repeatInterval : undefined,
+        repeatUnit: repeatState.repeat === 'custom' ? repeatState.repeatUnit : undefined,
+      };
       if (editId) { await updateItem(editId, payload); cancelEdit(); }
       else        { await addItem(payload); resetForm(); }
     } finally { setSaving(false); }
@@ -408,7 +416,7 @@ export default function PageGjoremal() {
         <div style={{ flex: 1 }}>
           <div className="card-eyebrow" style={{ marginBottom: 4 }}>Tidsfrist <span style={{ color: 'var(--warn)' }}>*</span></div>
           <input className="input" type="date" value={deadline}
-            onChange={e => { setDeadline(e.target.value); if (!e.target.value) { setTime(''); setRepeat(''); } }}
+            onChange={e => { setDeadline(e.target.value); if (!e.target.value) { setTime(''); setRepeatState(EMPTY_REPEAT); } }}
             style={{ width: '100%' }} />
         </div>
         <div style={{ flex: 1 }}>
@@ -434,17 +442,11 @@ export default function PageGjoremal() {
       <div>
         <div className="card-eyebrow" style={{ marginBottom: 4 }}>Gjentas <span style={{ opacity: 0.5 }}>(valgfri)</span></div>
         <div style={{ opacity: deadline ? 1 : 0.35, pointerEvents: deadline ? 'auto' : 'none' }}>
-          <select className="input" value={repeat} onChange={e => setRepeat(e.target.value as RepeatInterval | '')}
-            disabled={!deadline} style={{ width: '100%' }}>
-            <option value="">Ingen gjentakelse</option>
-            {(Object.entries(REPEAT_LABELS) as [RepeatInterval, string][]).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
+          <RepeatPicker value={repeatState} onChange={setRepeatState} disabled={!deadline} />
         </div>
-        {editId && repeat && (
+        {editId && repeatState.repeat && (
           <button
-            onClick={() => setRepeat('')}
+            onClick={() => setRepeatState(EMPTY_REPEAT)}
             style={{
               marginTop: 6, background: 'transparent', border: 'none', padding: 0,
               cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10,

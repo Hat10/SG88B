@@ -4,14 +4,34 @@ import type { Who } from '../data';
 
 export type Priority = 'høy' | 'middels' | 'lav';
 
-export type RepeatInterval = 'daily' | 'weekly' | 'monthly' | 'monthly-last';
+// De fire faste alternativene har ikke noe "antall"-konsept (spesielt
+// monthly/monthly-last, som er ankret til kalendermåneden, ikke et fast
+// antall dager) — 'custom' er det femte, egendefinerte alternativet, med
+// repeatInterval/repeatUnit under for å uttrykke "hver X dager/uker".
+export type FixedRepeatInterval = 'daily' | 'weekly' | 'monthly' | 'monthly-last';
+export type RepeatInterval = FixedRepeatInterval | 'custom';
+export type RepeatUnit = 'day' | 'week';
 
-export const REPEAT_LABELS: Record<RepeatInterval, string> = {
+export const REPEAT_LABELS: Record<FixedRepeatInterval, string> = {
   daily:         'Daglig',
   weekly:        'Ukentlig',
   monthly:       'Månedlig (samme dato)',
   'monthly-last': 'Månedlig (siste dag)',
 };
+
+const REPEAT_UNIT_LABEL: Record<RepeatUnit, string> = { day: 'dag', week: 'uke' };
+
+// Visningstekst for 🔁-badgen — faste tekster for de fire opprinnelige,
+// utledet "Hver X. dag/uke" for 'custom'. Norsk ordenstall-fraseologi
+// ("hver 3. dag") bøyer ikke substantivet, så samme entallsform brukes
+// uansett intervallverdi.
+export function repeatLabel(item: { repeat?: RepeatInterval; repeatInterval?: number; repeatUnit?: RepeatUnit }): string | undefined {
+  if (!item.repeat) return undefined;
+  if (item.repeat === 'custom') {
+    return `Hver ${item.repeatInterval ?? 1}. ${REPEAT_UNIT_LABEL[item.repeatUnit ?? 'day']}`;
+  }
+  return REPEAT_LABELS[item.repeat];
+}
 
 export interface TodoEntry {
   id: string;
@@ -26,9 +46,12 @@ export interface TodoEntry {
   doneAt?: string;   // ISO timestamp when completed
   overdue_days: number;
   repeat?: RepeatInterval;
+  /** Kun brukt når repeat === 'custom' — se repeatLabel()/nextDeadline(). */
+  repeatInterval?: number;
+  repeatUnit?: RepeatUnit;
 }
 
-function nextDeadline(deadline: string, repeat: RepeatInterval): string {
+function nextDeadline(deadline: string, repeat: RepeatInterval, repeatInterval?: number, repeatUnit?: RepeatUnit): string {
   // Always advance from the current deadline, not from today.
   // This preserves the schedule whether the task was completed early or late.
   const d = new Date(deadline + 'T00:00:00');
@@ -50,6 +73,9 @@ function nextDeadline(deadline: string, repeat: RepeatInterval): string {
     case 'monthly-last':
       // Last day of next month
       d.setMonth(d.getMonth() + 2, 0);
+      break;
+    case 'custom':
+      d.setDate(d.getDate() + (repeatInterval ?? 1) * (repeatUnit === 'week' ? 7 : 1));
       break;
   }
 
@@ -86,6 +112,8 @@ const fromRow = (r: Record<string, unknown>): TodoEntry => ({
   doneAt:   (r.done_at   as string | null) ?? undefined,
   overdue_days: (r.overdue_days as number | null) ?? 0,
   repeat: (r.repeat as RepeatInterval | null) ?? undefined,
+  repeatInterval: (r.repeat_interval as number | null) ?? undefined,
+  repeatUnit: (r.repeat_unit as RepeatUnit | null) ?? undefined,
 });
 
 export function TodoProvider({ children }: { children: React.ReactNode }) {
@@ -151,6 +179,8 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
       done_year: item.doneYear ?? null,
       overdue_days: 0,
       repeat: item.repeat ?? null,
+      repeat_interval: item.repeatInterval ?? null,
+      repeat_unit: item.repeatUnit ?? null,
     });
     await load();
   };
@@ -169,6 +199,8 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
     if ('done' in patch)        db.done        = patch.done;
     if ('doneYear' in patch)    db.done_year   = patch.doneYear ?? null;
     if ('repeat' in patch)      db.repeat      = patch.repeat ?? null;
+    if ('repeatInterval' in patch) db.repeat_interval = patch.repeatInterval ?? null;
+    if ('repeatUnit' in patch)     db.repeat_unit     = patch.repeatUnit ?? null;
     await supabase.from('todo_items').update(db).eq('id', id);
     await load();
   };
@@ -188,12 +220,14 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
           description: item.description ?? null,
           who:         item.who,
           priority:    item.priority,
-          deadline:    nextDeadline(item.deadline, item.repeat),
+          deadline:    nextDeadline(item.deadline, item.repeat, item.repeatInterval, item.repeatUnit),
           time:        item.time ?? null,
           done:        false,
           done_year:   null,
           overdue_days: 0,
           repeat:      item.repeat,
+          repeat_interval: item.repeatInterval ?? null,
+          repeat_unit:     item.repeatUnit ?? null,
         });
       }
     }
