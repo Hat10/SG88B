@@ -137,6 +137,7 @@ function QuickTodoForm({ isMobile, onClose, onDirtyChange }: {
         repeat: repeatState.repeat || undefined,
         repeatInterval: repeatState.repeat === 'custom' ? repeatState.repeatInterval : undefined,
         repeatUnit: repeatState.repeat === 'custom' ? repeatState.repeatUnit : undefined,
+        repeatMonthMode: repeatState.repeat === 'custom' && repeatState.repeatUnit === 'month' ? repeatState.repeatMonthMode : undefined,
         done: false, overdue_days: 0,
       });
       notify('Gjøremål lagt til', { actionLabel: 'Åpne', onAction: () => navigate('gjoremal') });

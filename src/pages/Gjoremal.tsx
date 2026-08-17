@@ -318,7 +318,10 @@ export default function PageGjoremal() {
     setPriority(it.priority);
     setDeadline(it.deadline ?? '');
     setTime(it.time ?? '');
-    setRepeatState({ repeat: it.repeat ?? '', repeatInterval: it.repeatInterval ?? 1, repeatUnit: it.repeatUnit ?? 'day' });
+    setRepeatState({
+      repeat: it.repeat ?? '', repeatInterval: it.repeatInterval ?? 1,
+      repeatUnit: it.repeatUnit ?? 'day', repeatMonthMode: it.repeatMonthMode ?? 'same_date',
+    });
     if (!isMobile) window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -335,7 +338,7 @@ export default function PageGjoremal() {
         who: item.who, priority: item.priority, deadline: item.deadline, time: item.time,
         done: item.done, doneYear: item.doneYear, doneAt: item.doneAt,
         overdue_days: item.overdue_days, repeat: item.repeat,
-        repeatInterval: item.repeatInterval, repeatUnit: item.repeatUnit,
+        repeatInterval: item.repeatInterval, repeatUnit: item.repeatUnit, repeatMonthMode: item.repeatMonthMode,
       }),
     });
   };
@@ -350,6 +353,7 @@ export default function PageGjoremal() {
         repeat: (repeatState.repeat || undefined) as TodoEntry['repeat'],
         repeatInterval: repeatState.repeat === 'custom' ? repeatState.repeatInterval : undefined,
         repeatUnit: repeatState.repeat === 'custom' ? repeatState.repeatUnit : undefined,
+        repeatMonthMode: repeatState.repeat === 'custom' && repeatState.repeatUnit === 'month' ? repeatState.repeatMonthMode : undefined,
       };
       if (editId) { await updateItem(editId, payload); cancelEdit(); }
       else        { await addItem(payload); resetForm(); }
