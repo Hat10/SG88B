@@ -9,6 +9,8 @@ import { Btn, fmtKr, Ico } from '../components';
 import { QuickAddBar } from '../QuickAdd';
 import { useTrening } from '../contexts/TreningContext';
 import { TreningQuickRegister } from '../TreningQuickRegister';
+import { useMatplan } from '../contexts/MatplanContext';
+import { groupByNameUnit } from './middag/HandlelisteCard';
 import { navigate } from '../lib/navigate';
 import { burst } from '../confetti';
 import { bpFromCombined } from '../lib/buyingPower';
@@ -789,8 +791,27 @@ function BucketReminder({ dark = false }: { dark?: boolean }) {
 
   if (dark) return inner;
   return (
-    <div style={{ padding: '16px', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8 }}>
+    <div style={{ height: '100%', padding: '16px', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8 }}>
       {inner}
+    </div>
+  );
+}
+
+// ── Handleliste-snarvei (mobil) — deler rad med BucketReminder, samme
+// visuelle stil/hierarki (mono-eyebrow + serif-italic hovedlinje) for
+// konsistens. Bare den ikke-mørke varianten trengs — brukes aldri i den
+// mørke hero-kortraden slik BucketReminder gjør.
+function GroceryReminder({ count }: { count: number }) {
+  return (
+    <div style={{ height: '100%', padding: '16px', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', gap: 6 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--ink-4)', textTransform: 'uppercase' }}>
+          🛒 Til handleliste
+        </div>
+        <div style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 17, lineHeight: 1.35, color: 'var(--ink)' }}>
+          {count > 0 ? `${count} vare${count === 1 ? '' : 'r'} på handlelisten` : 'Ingenting på handlelisten'}
+        </div>
+      </div>
     </div>
   );
 }
@@ -813,6 +834,7 @@ export default function PageDashboard() {
   const cd = countdowns[0] ?? null;
   const { params: bpParams } = useBuyingPowerParams();
   const { categories: trCategories } = useTrening();
+  const { groceryItems } = useMatplan();
   const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [winW, setWinW] = useState(window.innerWidth);
@@ -908,6 +930,15 @@ export default function PageDashboard() {
 
   const cdDays = cd ? daysUntil(cd.date) : 0;
 
+  // Uavhukede varer på handlelisten — samme kilde og gruppering (groupByNameUnit
+  // for middag-genererte rader, så samme ingrediens fra flere planlagte
+  // middager denne uken telles én gang) som HandlelisteCard og Gangskjermens
+  // «X varer»-forhåndsvisning bruker. Avhukede varer telles aldri med.
+  const groceryCount =
+    groceryItems.filter(g => !g.mealPlanId && !g.stapleItemId && !g.done).length +
+    groupByNameUnit(groceryItems.filter(g => g.mealPlanId && !g.done)).length +
+    groceryItems.filter(g => g.stapleItemId && !g.done).length;
+
   // ── Mobile layout ──
   if (isMobile) {
     return (
@@ -936,8 +967,16 @@ export default function PageDashboard() {
           </div>
         </div>
 
-        {/* Ting vi vil gjøre */}
-        <BucketReminder />
+        {/* Ting vi vil gjøre + Til handleliste — samme høyde uansett tekstlengde
+            (alignItems: stretch, pluss height: 100% helt ned til hver boks sin
+            egen bakgrunn/border, ikke bare på selve grid-cellen). */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'stretch' }}>
+          <BucketReminder />
+          <button onClick={() => navigate('handleliste')} aria-label="Åpne Handleliste"
+            style={{ display: 'block', width: '100%', height: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
+            <GroceryReminder count={groceryCount} />
+          </button>
+        </div>
 
         {/* Denne uken */}
         <div style={{ paddingTop: 4, borderTop: '1px solid var(--line)' }}>
@@ -975,37 +1014,49 @@ export default function PageDashboard() {
   return (
     <div className="grid grid-12" style={{ rowGap: 24 }}>
 
-      {/* Status-strip */}
+      {/* Status-strip: kjips til venstre, snarveier til høyre, samme rad —
+          to selv-krympende grupper i én justify-content:space-between-rad,
+          IKKE hver sin knapp/kjips som direkte flex-item i den store raden
+          (da ville space-between spredd HVERT enkelt element utover i stedet
+          for å holde de to gruppene samlet). flexWrap på ytre rad er kun en
+          reserve for smale bredder — normal nettbrett/desktop-bredde har god
+          nok plass til at begge gruppene står side om side. */}
       <div className="col-12">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          {urgentCount > 0 && (
-            <StatusChip
-              icon={Ico.check}
-              text={`${urgentCount} frist${urgentCount === 1 ? '' : 'er'}${overdueTodos.length > 0 ? ' · forfalt' : ' · i dag'}`}
-              warn={overdueTodos.length > 0}
-              onClick={() => navigate('gjoremal')}
-            />
-          )}
-          {nextCalEvent && (
-            <StatusChip
-              icon={Ico.cal}
-              text={`${nextCalEvent.title} · ${fmtRelDay(nextCalEvent.start.slice(0,10))}`}
-              onClick={() => navigate('kalender')}
-            />
-          )}
-          {cd && (
-            <StatusChip
-              icon={Ico.star}
-              text={`${Math.max(0, cdDays)} dager til ${cd.label}`}
-              onClick={() => navigate('kalender')}
-            />
-          )}
-          {/* Snarveier: registrer trening / legg til gjøremål */}
-          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', rowGap: 12, columnGap: 24 }}>
+          {/* Statuskjips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {urgentCount > 0 && (
+              <StatusChip
+                icon={Ico.check}
+                text={`${urgentCount} frist${urgentCount === 1 ? '' : 'er'}${overdueTodos.length > 0 ? ' · forfalt' : ' · i dag'}`}
+                warn={overdueTodos.length > 0}
+                onClick={() => navigate('gjoremal')}
+              />
+            )}
+            {nextCalEvent && (
+              <StatusChip
+                icon={Ico.cal}
+                text={`${nextCalEvent.title} · ${fmtRelDay(nextCalEvent.start.slice(0,10))}`}
+                onClick={() => navigate('kalender')}
+              />
+            )}
+            {cd && (
+              <StatusChip
+                icon={Ico.star}
+                text={`${Math.max(0, cdDays)} dager til ${cd.label}`}
+                onClick={() => navigate('kalender')}
+              />
+            )}
+          </div>
+          {/* Snarveier — registrer trening / legg til gjøremål / til handleliste */}
+          <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setTreningRegisterOpen(true)} style={treningBtnStyle(false)}>
               <span style={{ fontSize: 15, lineHeight: 1 }}>🏋️</span> Registrer trening
             </button>
             <QuickAddBar isMobile={false} />
+            <button onClick={() => navigate('handleliste')} style={treningBtnStyle(false)}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>🛒</span> Til handleliste
+            </button>
           </div>
         </div>
       </div>
