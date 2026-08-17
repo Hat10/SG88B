@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
-import { useMatplan, weekDates, type GroceryItem } from '../../contexts/MatplanContext';
+import { useEffect, useRef, useState } from 'react';
+import { useMatplan, weekDates, type GroceryItem, type MealPlanEntry, type Recipe } from '../../contexts/MatplanContext';
 import { handleukeStart } from '../../hooks/useWeeklyBucket';
 import { Card, Check, SkeletonList } from '../../components';
 
-// Delt mellom src/pages/Handleliste.tsx (eget menypunkt) og
-// src/pages/middag/DagligvarerTab.tsx (fane på Middag-siden) — begge viser
-// nøyaktig samme handleliste, samme komponent, samme sanntidsdata via
-// useMatplan. Basisvare-administrasjonen (StapleManager) er bevisst IKKE en
-// del av dette — den hører hjemme kun på Middag-siden.
+// Selve handlelisten — vises på src/pages/Handleliste.tsx, som også har
+// basisvare-administrasjonen (StapleManager, bevisst IKKE en del av denne
+// komponenten). groupByNameUnit under gjenbrukes derimot flere steder
+// (Gangskjerm og Hjem-sidens forhåndsvisninger), for samme dedupliserte
+// telling/gruppering overalt — se importene av den i Skjerm.tsx/Dashboard.tsx.
 
 const removeBtnStyle: React.CSSProperties = {
   background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
@@ -15,26 +15,116 @@ const removeBtnStyle: React.CSSProperties = {
   minWidth: 32, minHeight: 32, display: 'grid', placeItems: 'center',
 };
 
-function GroceryRow({ name, amount, amountRange, approx, unit, done, onToggle, onRemove }: {
+const editBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
+  cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)', flexShrink: 0,
+  minWidth: 32, minHeight: 32, display: 'grid', placeItems: 'center',
+};
+
+const stepperBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
+  cursor: 'pointer', fontSize: 14, color: 'var(--ink-3)', fontWeight: 700,
+  width: 26, height: 26, display: 'grid', placeItems: 'center', lineHeight: 1,
+};
+
+// Overgangen (bakgrunn + nedtoning) er den «diskrete visuelle effekten» ved
+// avhuking — ren CSS-transition på de samme betingede stilene raden allerede
+// hadde, ikke en egen animasjons-mekanikk. Symmetrisk med vilje: den spiller
+// av samme myke overgang begge veier (avhuking OG angring), siden angring
+// eksplisitt bare skal fortsette å virke som i dag, ikke få sin egen greie.
+const rowTransition = 'background 240ms ease, opacity 240ms ease';
+
+function fmtShortDate(iso: string) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
+}
+
+// +/- og × er skjult som standard — kun navn + mengde/enhet vises, siden
+// hoved-interaksjonen med lista er avhuking, ikke redigering. ✎ per rad
+// avslører de to (uavhengig per rad, ikke én global «rediger»-modus for hele
+// lista — se samtalen for hvorfor det passer bedre med hvordan lista faktisk
+// brukes: raskt, målrettet, én vare av gangen, ikke «gå inn i redigeringsmodus
+// for alt» for å justere én ting).
+function GroceryRow({ name, amount, amountRange, approx, unit, done, editing, onToggle, onEditToggle, onRemove, onDecrement, onIncrement }: {
   name: string; amount: number | null; amountRange: string | null; approx?: boolean; unit: string | null; done: boolean;
-  onToggle: () => void; onRemove: () => void;
+  editing: boolean;
+  onToggle: () => void; onEditToggle: () => void; onRemove: () => void;
+  /** Kun satt for enkeltstående, tallbaserte rader — se groupByNameUnit-kallstedet for hvorfor sammenslåtte grupper ikke får stepper her (de får en utvidet visning i stedet, se GroupBreakdown). */
+  onDecrement?: () => void; onIncrement?: () => void;
 }) {
+  const steppable = !!(onDecrement && onIncrement);
+  const showStepper = editing && steppable;
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
       background: done ? 'var(--surface-2)' : 'var(--bg)', border: '1px solid var(--line)', borderRadius: 6,
-      opacity: done ? 0.55 : 1,
+      opacity: done ? 0.55 : 1, transition: rowTransition,
     }}>
       <Check on={done} onClick={onToggle} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 14, color: 'var(--ink)', textDecoration: done ? 'line-through' : 'none' }}>{name}</span>
-        {(amount != null || amountRange != null || unit) && (
+        <span onClick={onToggle} style={{ fontSize: 14, color: 'var(--ink)', textDecoration: done ? 'line-through' : 'none', cursor: 'pointer' }}>{name}</span>
+        {!showStepper && (amount != null || amountRange != null || unit) && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>
             {amountRange ?? amount ?? ''}{approx ? '+' : ''} {unit ?? ''}
           </span>
         )}
       </div>
-      <button onClick={onRemove} aria-label="Fjern vare" style={removeBtnStyle}>×</button>
+      {showStepper && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button onClick={onDecrement} aria-label="Færre" style={stepperBtnStyle}>−</button>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>
+            {amount ?? 1}{unit ? ` ${unit}` : ''}
+          </span>
+          <button onClick={onIncrement} aria-label="Flere" style={stepperBtnStyle}>+</button>
+        </div>
+      )}
+      <button onClick={onEditToggle} aria-label={editing ? 'Skjul redigering' : 'Rediger mengde'} style={editBtnStyle}>✎</button>
+      {editing && <button onClick={onRemove} aria-label="Fjern vare" style={removeBtnStyle}>×</button>}
+    </div>
+  );
+}
+
+// En sammenslått gruppe (flere planlagte middager som trenger samme
+// ingrediens/enhet) har ingen ÉN tallverdi å justere med +/- på selve
+// oppsummeringsraden — se mealStepperProps. I redigeringsmodus vises derfor
+// hver underliggende grocery_items-rad for seg her, med sin egen +/- og ×,
+// slik at man redigerer det faktiske, enkeltstående tallet i stedet for å
+// gjette en andel av en sum.
+function GroupBreakdown({ items, mealPlan, recipes, onDecrement, onIncrement, onRemove }: {
+  items: GroceryItem[]; mealPlan: MealPlanEntry[]; recipes: Recipe[];
+  onDecrement: (id: string) => void; onIncrement: (id: string) => void; onRemove: (id: string) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 0 40px' }}>
+      {items.map(item => {
+        const entry = item.mealPlanId ? mealPlan.find(mp => mp.id === item.mealPlanId) : undefined;
+        const recipe = entry ? recipes.find(r => r.id === entry.recipeId) : undefined;
+        const label = entry ? `${recipe?.name ?? 'Ukjent oppskrift'} · ${fmtShortDate(entry.date)}` : 'Ukjent middag';
+        const steppable = item.amountRange == null;
+        return (
+          <div key={item.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px',
+            background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 6,
+          }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {label}
+            </span>
+            {steppable ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <button onClick={() => onDecrement(item.id)} aria-label="Færre" style={stepperBtnStyle}>−</button>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, minWidth: 14, textAlign: 'center' }}>
+                  {item.amount ?? 1}{item.unit ? ` ${item.unit}` : ''}
+                </span>
+                <button onClick={() => onIncrement(item.id)} aria-label="Flere" style={stepperBtnStyle}>+</button>
+              </div>
+            ) : (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)', flexShrink: 0 }}>
+                {item.amountRange} {item.unit ?? ''}
+              </span>
+            )}
+            <button onClick={() => onRemove(item.id)} aria-label="Fjern denne forekomsten" style={{ ...removeBtnStyle, minWidth: 28, minHeight: 28 }}>×</button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -42,30 +132,31 @@ function GroceryRow({ name, amount, amountRange, approx, unit, done, onToggle, o
 // Frittstående dagligvare (ikke koblet til middag/basisvare) — samme
 // avkrysning som GroceryRow, men med +/- for antall i stedet for en fast
 // mengde fra en oppskrift/basisvare-definisjon.
-function FreeGroceryRow({ item, onToggle, onDecrement, onIncrement, onRemove }: {
-  item: GroceryItem; onToggle: () => void; onDecrement: () => void; onIncrement: () => void; onRemove: () => void;
+function FreeGroceryRow({ item, editing, onToggle, onEditToggle, onDecrement, onIncrement, onRemove }: {
+  item: GroceryItem; editing: boolean;
+  onToggle: () => void; onEditToggle: () => void; onDecrement: () => void; onIncrement: () => void; onRemove: () => void;
 }) {
-  const stepperBtn: React.CSSProperties = {
-    background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
-    cursor: 'pointer', fontSize: 14, color: 'var(--ink-3)', fontWeight: 700,
-    width: 26, height: 26, display: 'grid', placeItems: 'center', lineHeight: 1,
-  };
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
       background: item.done ? 'var(--surface-2)' : 'var(--bg)', border: '1px solid var(--line)', borderRadius: 6,
-      opacity: item.done ? 0.55 : 1,
+      opacity: item.done ? 0.55 : 1, transition: rowTransition,
     }}>
       <Check on={item.done} onClick={onToggle} />
-      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)', textDecoration: item.done ? 'line-through' : 'none' }}>
+      <span onClick={onToggle} style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)', textDecoration: item.done ? 'line-through' : 'none', cursor: 'pointer' }}>
         {item.name}
       </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <button onClick={onDecrement} aria-label="Færre" style={stepperBtn}>−</button>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{item.amount ?? 1}</span>
-        <button onClick={onIncrement} aria-label="Flere" style={stepperBtn}>+</button>
-      </div>
-      <button onClick={onRemove} aria-label="Fjern vare" style={removeBtnStyle}>×</button>
+      {editing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button onClick={onDecrement} aria-label="Færre" style={stepperBtnStyle}>−</button>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{item.amount ?? 1}</span>
+          <button onClick={onIncrement} aria-label="Flere" style={stepperBtnStyle}>+</button>
+        </div>
+      ) : (
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>{item.amount ?? 1}</span>
+      )}
+      <button onClick={onEditToggle} aria-label={editing ? 'Skjul redigering' : 'Rediger mengde'} style={editBtnStyle}>✎</button>
+      {editing && <button onClick={onRemove} aria-label="Fjern vare" style={removeBtnStyle}>×</button>}
     </div>
   );
 }
@@ -79,6 +170,8 @@ export interface MergedGroup {
   /** true når minst én rad i gruppen manglet mengde (og ikke hadde et intervall i stedet) — summen er da et minimum, ikke eksakt. */
   approx: boolean;
   done: boolean;
+  /** Seneste done_at blant radene i gruppen — brukes til å sortere «Vis handlet» med sist avhuket øverst. */
+  doneAt: string | null;
   ids: string[];
 }
 
@@ -93,7 +186,7 @@ export interface MergedGroup {
 // «500 ml» melk forblir to rader i stedet for feilaktig 501.
 // Et intervall (amountRange, f.eks. "0.5-1" ts salt) kan ikke summeres
 // numerisk med noe annet — verken med et rent tall eller et ANNET intervall
-// (bevisst avgrensning: ingen utledet "kombinert" intervall bygges). Derfor
+// (bevisst avgrensning: ingen utledet «kombinert» intervall bygges). Derfor
 // er amountRange også en del av nøkkelen: en rad med intervall grupperes
 // aldri sammen med en tallverdi-rad for samme ingrediens/enhet, kun med
 // andre rader som har PRESIS samme intervalltekst (det er ren visnings-
@@ -108,22 +201,56 @@ export function groupByNameUnit(items: GroceryItem[]): MergedGroup[] {
     if (!existing) {
       groups.set(key, {
         key, name: g.name, unit: g.unit, amount: g.amount, amountRange: g.amountRange,
-        approx: g.amount == null && g.amountRange == null, done: g.done, ids: [g.id],
+        approx: g.amount == null && g.amountRange == null, done: g.done, doneAt: g.doneAt, ids: [g.id],
       });
       continue;
     }
     existing.ids.push(g.id);
     existing.done = existing.done && g.done;
+    if (existing.doneAt == null || (g.doneAt != null && g.doneAt > existing.doneAt)) existing.doneAt = g.doneAt;
     if (g.amount == null && g.amountRange == null) existing.approx = true;
     else if (g.amount != null) existing.amount = (existing.amount ?? 0) + g.amount;
   }
   return [...groups.values()];
 }
 
+// Hvor lenge en nettopp avhuket rad holdes synlig på sin opprinnelige plass
+// (med done-utseendet — nedtonet bakgrunn, strek gjennom navnet — allerede
+// påført) før den faktisk flyttes til «Vis handlet». Uten dette forsvinner
+// raden fra visningen i det databaseoppdateringen (og påfølgende load()) er
+// ferdig, typisk raskere enn CSS-overgangen — man rekker aldri å SE den.
+// done-status i databasen oppdateres med det samme, uendret; det er kun
+// UI-plasseringen som venter.
+const DONE_HOLD_MS = 1500;
+
 export default function HandlelisteCard() {
-  const { groceryItems, loading, syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem } = useMatplan();
+  const { groceryItems, mealPlan, recipes, loading, syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem } = useMatplan();
   const [showDone, setShowDone] = useState(false);
   const [newItem, setNewItem] = useState('');
+  // id-er som nettopp ble huket av og fortsatt holdes i sin opprinnelige
+  // seksjon (se DONE_HOLD_MS). Timerne holdes i et eget ref-Map (id → timer),
+  // slik at et raskt av-og-på-klikk på samme rad kan rydde/erstatte sin egen
+  // tidligere timer i stedet for å stable flere.
+  const [pendingDoneIds, setPendingDoneIds] = useState<Set<string>>(new Set());
+  const pendingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Hvilke rader som viser +/- og × akkurat nå — nøklet på group.key (Fra
+  // ukens middager) eller g.id (Andre varer/Basisvarer), aldri kollisjon
+  // siden formatene er helt ulike. Uavhengig per rad, med vilje — se
+  // GroceryRow sin kommentar.
+  const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
+  const toggleEditKey = (key: string) => {
+    setEditingKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  useEffect(() => () => {
+    // Avmontering midt i en holdeperiode (f.eks. bytter side rett etter
+    // avhuking) skal ikke prøve å sette state på en komponent som er borte.
+    pendingTimers.current.forEach(t => clearTimeout(t));
+  }, []);
 
   // Genererer manglende rader (planlagte middager denne uken + forfalte
   // basisvarer) én gang når dataene er klare — idempotent (databasen håndhever
@@ -133,6 +260,60 @@ export default function HandlelisteCard() {
     if (!loading) void syncGroceryList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
+
+  // Avhuking/angring for rader som kan forsvinne inn i en skjult «Vis
+  // handlet»-seksjon (Fra ukens middager / Basisvarer) — IKKE for «Andre
+  // varer», som alltid vises og derfor aldri har hatt dette problemet (den
+  // raden flytter seg bare innad i samme, alltid synlige liste).
+  //
+  // Race-vern: ids legges i pendingDoneIds SYNKRONT her, før noen await —
+  // et sanntidsoppdatering fra en annen enhet som lander midt i holde-
+  // perioden endrer bare de underliggende radenes egne felt (done, amount,
+  // ...), aldri selve pendingDoneIds-settet, så en rad som allerede holdes
+  // synlig fortsetter å holdes synlig uansett hva som skjer ellers i lista —
+  // ingen «hopp». Slettes raden fullstendig et annet sted mens den er
+  // pending, forsvinner den ganske enkelt fra groceryItems/linked som
+  // normalt; den nå ubrukte id-en i pendingDoneIds er harmløs og ryddes bort
+  // av sin egen timer uansett.
+  const toggleWithHold = (ids: string[]) => {
+    const turningOn = ids.some(id => groceryItems.find(g => g.id === id)?.done === false);
+    ids.forEach(id => void toggleGroceryItem(id));
+
+    ids.forEach(id => {
+      const t = pendingTimers.current.get(id);
+      if (t) { clearTimeout(t); pendingTimers.current.delete(id); }
+    });
+
+    if (turningOn) {
+      setPendingDoneIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.add(id));
+        return next;
+      });
+      ids.forEach(id => {
+        const timer = setTimeout(() => {
+          setPendingDoneIds(prev => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          pendingTimers.current.delete(id);
+        }, DONE_HOLD_MS);
+        pendingTimers.current.set(id, timer);
+      });
+    } else {
+      // Angring: ingen ny mekanikk (som avtalt) — bare sørg for at raden ikke
+      // blir hengende i pendingDoneIds forbi sin egen angring, om den ble
+      // klikket av og på igjen mens holdeperioden fortsatt pågikk.
+      setPendingDoneIds(prev => {
+        if (!ids.some(id => prev.has(id))) return prev;
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+    }
+  };
 
   const submitNewItem = async () => {
     const name = newItem.trim();
@@ -155,15 +336,82 @@ export default function HandlelisteCard() {
   // denne kolonnen fantes) matcher aldri — de forsvinner fra «vis handlet»,
   // men slettes ikke fra databasen.
   const linked = groceryItems.filter(g => g.mealPlanId || g.stapleItemId);
-  const active = linked.filter(g => !g.done);
+  // pendingDoneIds holder en nettopp avhuket rad i «active» (visuelt uendret
+  // plass) i DONE_HOLD_MS etter avhuking, selv om den reelt sett allerede er
+  // done i databasen — se toggleWithHold. Radens EGEN done-styling (avkrysset,
+  // nedtonet, strek gjennom) leser fortsatt det reelle g.done, så overgangen
+  // faktisk får tid til å spille av på sin opprinnelige plass før den flyttes.
+  const active = linked.filter(g => !g.done || pendingDoneIds.has(g.id));
   const handleukeDays = new Set(weekDates(handleukeStart()));
   const doneThisHandleuke = (g: GroceryItem) =>
     g.doneAt != null && handleukeDays.has(new Date(g.doneAt).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' }));
-  const done = linked.filter(g => g.done && doneThisHandleuke(g));
+  const done = linked.filter(g => g.done && doneThisHandleuke(g) && !pendingDoneIds.has(g.id));
   const fromMeals     = groupByNameUnit(active.filter(g => g.mealPlanId));
   const fromMealsDone = groupByNameUnit(done.filter(g => g.mealPlanId));
   const staples     = active.filter(g => g.stapleItemId);
   const staplesDone = done.filter(g => g.stapleItemId);
+
+  // +/- på selve oppsummeringsraden er kun meningsfullt når gruppen faktisk
+  // er ÉN grocery_items-rad (group.ids.length === 1) med et rent tall — ikke
+  // et intervall (amountRange, f.eks. "0.5-1", har ingen tallverdi å telle
+  // fra). Er gruppen sammenslått fra flere planlagte middager, er group.amount
+  // en SUM — se GroupBreakdown for hvordan +/- løses der i stedet (redigerer
+  // hver underliggende rad for seg, ikke en gjettet andel av summen).
+  const mealStepperProps = (group: MergedGroup) => {
+    if (group.ids.length !== 1 || group.amountRange != null) return {};
+    const id = group.ids[0];
+    return {
+      onDecrement: () => void setGroceryAmount(id, Math.max(1, (group.amount ?? 1) - 1)),
+      onIncrement: () => void setGroceryAmount(id, (group.amount ?? 1) + 1),
+    };
+  };
+
+  // Utvidet visning for en sammenslått gruppe i redigeringsmodus — én rad per
+  // underliggende grocery_items-id, med hvilken middag/dato den stammer fra.
+  const renderBreakdown = (group: MergedGroup) => (
+    editingKeys.has(group.key) && group.ids.length > 1 && (
+      <GroupBreakdown
+        items={group.ids.map(id => groceryItems.find(g => g.id === id)).filter((g): g is GroceryItem => !!g)}
+        mealPlan={mealPlan} recipes={recipes}
+        onDecrement={id => void setGroceryAmount(id, Math.max(1, (groceryItems.find(g => g.id === id)?.amount ?? 1) - 1))}
+        onIncrement={id => void setGroceryAmount(id, (groceryItems.find(g => g.id === id)?.amount ?? 1) + 1)}
+        onRemove={id => void removeGroceryItem(id)}
+      />
+    )
+  );
+
+  // «Vis handlet» — én sammenslått liste (middag-grupper + basisvarer om
+  // hverandre, det er ingen visuell overskrift mellom dem i dag heller) sortert
+  // med sist avhuket øverst, i stedet for databasens naturlige rekkefølge.
+  // done (over) garanterer at doneAt aldri er null for noe som havner her.
+  type DoneEntry = { doneAt: string; render: () => React.ReactNode };
+  const doneEntries: DoneEntry[] = [
+    ...fromMealsDone.map(group => ({
+      doneAt: group.doneAt!,
+      render: () => (
+        <div key={group.key}>
+          <GroceryRow name={group.name} amount={group.amount} amountRange={group.amountRange} approx={group.approx} unit={group.unit} done={group.done}
+            editing={editingKeys.has(group.key)} onEditToggle={() => toggleEditKey(group.key)}
+            onToggle={() => toggleWithHold(group.ids)}
+            onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))}
+            {...mealStepperProps(group)} />
+          {renderBreakdown(group)}
+        </div>
+      ),
+    })),
+    ...staplesDone.map(g => ({
+      doneAt: g.doneAt!,
+      render: () => (
+        <GroceryRow key={g.id} name={g.name} amount={g.amount} amountRange={g.amountRange} unit={g.unit} done={g.done}
+          editing={editingKeys.has(g.id)} onEditToggle={() => toggleEditKey(g.id)}
+          onToggle={() => toggleWithHold([g.id])} onRemove={() => void removeGroceryItem(g.id)}
+          {...(g.amountRange == null ? {
+            onDecrement: () => void setGroceryAmount(g.id, Math.max(1, (g.amount ?? 1) - 1)),
+            onIncrement: () => void setGroceryAmount(g.id, (g.amount ?? 1) + 1),
+          } : {})} />
+      ),
+    })),
+  ].sort((a, b) => b.doneAt.localeCompare(a.doneAt));
 
   return (
     <Card eyebrow="Dagligvarer" title="Handleliste">
@@ -189,6 +437,7 @@ export default function HandlelisteCard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {[...freeformActive, ...freeformDone].map(g => (
                 <FreeGroceryRow key={g.id} item={g}
+                  editing={editingKeys.has(g.id)} onEditToggle={() => toggleEditKey(g.id)}
                   onToggle={() => void toggleGroceryItem(g.id)}
                   onDecrement={() => void setGroceryAmount(g.id, Math.max(1, (g.amount ?? 1) - 1))}
                   onIncrement={() => void setGroceryAmount(g.id, (g.amount ?? 1) + 1)}
@@ -204,9 +453,14 @@ export default function HandlelisteCard() {
           <div className="card-eyebrow" style={{ marginBottom: 8 }}>Fra ukens middager</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {fromMeals.map(group => (
-              <GroceryRow key={group.key} name={group.name} amount={group.amount} amountRange={group.amountRange} approx={group.approx} unit={group.unit} done={group.done}
-                onToggle={() => group.ids.forEach(id => void toggleGroceryItem(id))}
-                onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))} />
+              <div key={group.key}>
+                <GroceryRow name={group.name} amount={group.amount} amountRange={group.amountRange} approx={group.approx} unit={group.unit} done={group.done}
+                  editing={editingKeys.has(group.key)} onEditToggle={() => toggleEditKey(group.key)}
+                  onToggle={() => toggleWithHold(group.ids)}
+                  onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))}
+                  {...mealStepperProps(group)} />
+                {renderBreakdown(group)}
+              </div>
             ))}
           </div>
         </div>
@@ -218,7 +472,12 @@ export default function HandlelisteCard() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {staples.map(g => (
               <GroceryRow key={g.id} name={g.name} amount={g.amount} amountRange={g.amountRange} unit={g.unit} done={g.done}
-                onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
+                editing={editingKeys.has(g.id)} onEditToggle={() => toggleEditKey(g.id)}
+                onToggle={() => toggleWithHold([g.id])} onRemove={() => void removeGroceryItem(g.id)}
+                {...(g.amountRange == null ? {
+                  onDecrement: () => void setGroceryAmount(g.id, Math.max(1, (g.amount ?? 1) - 1)),
+                  onIncrement: () => void setGroceryAmount(g.id, (g.amount ?? 1) + 1),
+                } : {})} />
             ))}
           </div>
         </div>
@@ -232,15 +491,7 @@ export default function HandlelisteCard() {
           </button>
           {showDone && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-              {fromMealsDone.map(group => (
-                <GroceryRow key={group.key} name={group.name} amount={group.amount} amountRange={group.amountRange} approx={group.approx} unit={group.unit} done={group.done}
-                  onToggle={() => group.ids.forEach(id => void toggleGroceryItem(id))}
-                  onRemove={() => group.ids.forEach(id => void removeGroceryItem(id))} />
-              ))}
-              {staplesDone.map(g => (
-                <GroceryRow key={g.id} name={g.name} amount={g.amount} amountRange={g.amountRange} unit={g.unit} done={g.done}
-                  onToggle={() => void toggleGroceryItem(g.id)} onRemove={() => void removeGroceryItem(g.id)} />
-              ))}
+              {doneEntries.map(entry => entry.render())}
             </div>
           )}
         </div>

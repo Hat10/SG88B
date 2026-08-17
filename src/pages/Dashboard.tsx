@@ -391,7 +391,7 @@ function CountdownPanel({ dark = false }: { dark?: boolean }) {
 
 // Full liste-administrasjon (legg til/rediger/fjern flere) — CountdownPanel over
 // viser og redigerer kun items[0]. Samme «Administrer»-fold-ut-mønster som
-// StapleManager på Middag-siden (src/pages/middag/HandlelisteCard.tsx).
+// StapleManager på Handleliste-siden (src/pages/Handleliste.tsx).
 function CountdownAdminSection() {
   const { items, loading, add, update, remove, restore } = useCountdowns();
   const { notify } = useSnackbar();

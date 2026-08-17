@@ -159,7 +159,7 @@ const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub:
   'ting-vi-vil-gjore': { eyebrow: '', title: <>Ting vi vil <em>gjøre</em></>, sub: '' },
   gjoremal: { eyebrow: '', title: 'Gjøremål', sub: '' },
   trening: { eyebrow: 'Hverdag', title: 'Trening', sub: '' }, // siden lager sitt eget hode (se HEADLESS_ROUTES)
-  middag: { eyebrow: 'Hverdag', title: 'Middag', sub: 'Oppskrifter · Ukeplan · Dagligvarer' },
+  middag: { eyebrow: 'Hverdag', title: 'Middag', sub: 'Oppskrifter · Ukeplan' },
   handleliste: { eyebrow: 'Hverdag', title: 'Handleliste', sub: 'Dagligvarer' },
   okonomi: { eyebrow: '', title: 'Forbruk', sub: '' },
   kalender: { eyebrow: 'Hverdag', title: 'Kalender', sub: '' }, // sub is computed live in Page (current month)

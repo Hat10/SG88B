@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMatplan, weekDates } from '../../contexts/MatplanContext';
 import { handleukeStart } from '../../hooks/useWeeklyBucket';
 import { Card, SkeletonList } from '../../components';
+import { navigate } from '../../lib/navigate';
 
 // Samme anker som resten av handleuke-arkitekturen (lørdag–fredag, se
 // handleukeStart) — så Ukeplan og handlelisten alltid viser samme 7-dagers
@@ -38,6 +39,7 @@ export default function UkeplanTab() {
           <button onClick={() => setWeekOffset(o => o - 1)} className="btn ghost sm">← Forrige</button>
           {weekOffset !== 0 && <button onClick={() => setWeekOffset(0)} className="btn ghost sm">I dag</button>}
           <button onClick={() => setWeekOffset(o => o + 1)} className="btn ghost sm">Neste →</button>
+          <button onClick={() => navigate('handleliste')} className="btn ghost sm">🛒 Handleliste</button>
         </div>
       }
     >
