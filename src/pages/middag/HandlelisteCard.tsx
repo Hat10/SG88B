@@ -297,9 +297,8 @@ export default function HandlelisteCard() {
   }, [loading]);
 
   // Avhuking/angring for rader som kan forsvinne inn i eller ut av en skjult
-  // «Vis handlet»-seksjon (Fra ukens middager / Basisvarer) — IKKE for «Andre
-  // varer», som alltid vises og derfor aldri har hatt dette problemet (den
-  // raden flytter seg bare innad i samme, alltid synlige liste).
+  // «Vis handlet»-seksjon — Fra ukens middager / Basisvarer / Andre varer,
+  // alle tre likt siden alle tre kan flytte seg dit.
   //
   // Race-vern: ids legges i pendingDoneIds/pendingUndoneIds SYNKRONT her, før
   // noen await — et sanntidsoppdatering fra en annen enhet som lander midt i
@@ -392,13 +391,6 @@ export default function HandlelisteCard() {
     await addGroceryItem({ name, amount: 1 });
   };
 
-  // Frittstående varer (verken meal_plan_id eller staple_item_id) — den enkle
-  // handlelisten. Vises alltid, kjøpte varer nedtonet nederst i egen seksjon,
-  // ikke bak et skjul/vis-tuggel som resten av lista under.
-  const freeform       = groceryItems.filter(g => !g.mealPlanId && !g.stapleItemId);
-  const freeformActive = freeform.filter(g => !g.done);
-  const freeformDone   = freeform.filter(g => g.done);
-
   // Middag/basisvare-genererte rader. Aktive ruller over uendret (ingen
   // dato-avgrensning), men «vis handlet» skal kun vise det som ble kjøpt i
   // INNEVÆRENDE handleuke — ellers ville avhukede rader fra uker tilbake i
@@ -428,10 +420,22 @@ export default function HandlelisteCard() {
   const staples     = active.filter(g => g.stapleItemId);
   const staplesDone = doneSortable.filter(g => g.stapleItemId);
 
+  // Frittstående varer (verken meal_plan_id eller staple_item_id) — den enkle
+  // handlelisten («Andre varer»). Bruker nå nøyaktig samme regler som Fra
+  // ukens middager/Basisvarer over: hold ved avhuking/angring (toggleWithHold)
+  // og samme handleuke-avgrensede flytting til «Vis handlet», se doneEntries
+  // under. Dette var opprinnelig en bevisst egen, alltid-synlig seksjon (fra
+  // commit c9991fb, FØR «Vis handlet» og holde-mekanikken fantes i det hele
+  // tatt) — ikke feil fra starten av, men ble aldri revurdert da de to senere
+  // ble bygget kun for middag-/basisvare-rader (commit bdcc2d9/8a4b549), så
+  // asymmetrien sto igjen.
+  const freeform        = groceryItems.filter(g => !g.mealPlanId && !g.stapleItemId);
+  const freeformActive = freeform.filter(g => (!g.done || pendingDoneIds.has(g.id)) && !pendingUndoneIds.has(g.id));
+  const freeformDone    = freeform.filter(g => (g.done && doneThisHandleuke(g) && !pendingDoneIds.has(g.id)) || pendingUndoneIds.has(g.id));
+  const freeformDoneSortable = freeformDone.map(g => g.doneAt != null ? g : { ...g, doneAt: pendingUndoneDoneAt.current.get(g.id) ?? g.doneAt });
+
   // Nøyaktig de underliggende grocery_items-id-ene som faktisk vises i «Vis
-  // handlet» akkurat nå — brukt av «Tøm handlet»-knappen under. IKKE
-  // freeformDone («Andre varer») — den seksjonen er alltid synlig og ligger
-  // utenfor «Vis handlet» helt, urørt av denne knappen.
+  // handlet» akkurat nå — brukt av «Tøm handlet»-knappen under.
   //
   // Trygt å slette permanent, også for en basisvare-rad: last_bought_at
   // ligger på selve staple_items-raden (satt av toggleGroceryItem() i
@@ -441,7 +445,7 @@ export default function HandlelisteCard() {
   // 'staple_item_id') ingen eksisterende rad å oppdatere og setter i stedet
   // inn en helt fersk — samme sluttresultat som gjenbruk-stien, bare insert
   // fremfor update. Verifisert i koden, ikke bare antatt.
-  const doneIds = [...fromMealsDone.flatMap(g => g.ids), ...staplesDone.map(g => g.id)];
+  const doneIds = [...fromMealsDone.flatMap(g => g.ids), ...staplesDone.map(g => g.id), ...freeformDoneSortable.map(g => g.id)];
 
   const clearDone = async () => {
     if (!await confirm({
@@ -513,6 +517,17 @@ export default function HandlelisteCard() {
           } : {})} />
       ),
     })),
+    ...freeformDoneSortable.map(g => ({
+      doneAt: g.doneAt!,
+      render: () => (
+        <FreeGroceryRow key={g.id} item={g}
+          editing={editingKeys.has(g.id)} onEditToggle={() => toggleEditKey(g.id)}
+          onToggle={() => toggleWithHold([g.id])}
+          onDecrement={() => void setGroceryAmount(g.id, Math.max(1, (g.amount ?? 1) - 1))}
+          onIncrement={() => void setGroceryAmount(g.id, (g.amount ?? 1) + 1)}
+          onRemove={() => void removeGroceryItem(g.id)} />
+      ),
+    })),
   ].sort((a, b) => b.doneAt.localeCompare(a.doneAt));
 
   return (
@@ -535,12 +550,12 @@ export default function HandlelisteCard() {
             <button onClick={() => void submitNewItem()} className="btn primary sm" disabled={!newItem.trim()}
               style={{ opacity: !newItem.trim() ? 0.4 : 1 }}>+ Legg til</button>
           </div>
-          {freeform.length > 0 && (
+          {freeformActive.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[...freeformActive, ...freeformDone].map(g => (
+              {freeformActive.map(g => (
                 <FreeGroceryRow key={g.id} item={g}
                   editing={editingKeys.has(g.id)} onEditToggle={() => toggleEditKey(g.id)}
-                  onToggle={() => void toggleGroceryItem(g.id)}
+                  onToggle={() => toggleWithHold([g.id])}
                   onDecrement={() => void setGroceryAmount(g.id, Math.max(1, (g.amount ?? 1) - 1))}
                   onIncrement={() => void setGroceryAmount(g.id, (g.amount ?? 1) + 1)}
                   onRemove={() => void removeGroceryItem(g.id)} />
@@ -585,11 +600,11 @@ export default function HandlelisteCard() {
         </div>
       )}
 
-      {!loading && done.length > 0 && (
+      {!loading && (done.length > 0 || freeformDone.length > 0) && (
         <div style={{ marginTop: active.length ? 16 : 0 }}>
           <button onClick={() => setShowDone(s => !s)}
             style={{ width: '100%', padding: '8px 0', background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
-            {showDone ? '↑ Skjul handlet' : `↓ Vis handlet (${fromMealsDone.length + staplesDone.length})`}
+            {showDone ? '↑ Skjul handlet' : `↓ Vis handlet (${fromMealsDone.length + staplesDone.length + freeformDoneSortable.length})`}
           </button>
           {showDone && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
