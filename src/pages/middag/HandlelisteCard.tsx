@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMatplan, weekDates, type GroceryItem, type MealPlanEntry, type Recipe } from '../../contexts/MatplanContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { handleukeStart } from '../../hooks/useWeeklyBucket';
 import { Card, Check, SkeletonList } from '../../components';
 
@@ -247,6 +248,7 @@ const DONE_HOLD_MS = 1500;
 
 export default function HandlelisteCard() {
   const { groceryItems, mealPlan, recipes, loading, syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem } = useMatplan();
+  const { confirm } = useConfirm();
   const [showDone, setShowDone] = useState(false);
   const [newItem, setNewItem] = useState('');
   // id-er som nettopp ble huket av og fortsatt holdes i sin opprinnelige
@@ -426,6 +428,30 @@ export default function HandlelisteCard() {
   const staples     = active.filter(g => g.stapleItemId);
   const staplesDone = doneSortable.filter(g => g.stapleItemId);
 
+  // Nøyaktig de underliggende grocery_items-id-ene som faktisk vises i «Vis
+  // handlet» akkurat nå — brukt av «Tøm handlet»-knappen under. IKKE
+  // freeformDone («Andre varer») — den seksjonen er alltid synlig og ligger
+  // utenfor «Vis handlet» helt, urørt av denne knappen.
+  //
+  // Trygt å slette permanent, også for en basisvare-rad: last_bought_at
+  // ligger på selve staple_items-raden (satt av toggleGroceryItem() i
+  // MatplanContext.tsx), ikke på denne grocery_items-raden — kjøpshistorikken
+  // overlever altså at raden slettes. Neste gang varen forfaller (isStapleDue
+  // i MatplanContext.tsx), finner syncGroceryList()'s upsert (onConflict:
+  // 'staple_item_id') ingen eksisterende rad å oppdatere og setter i stedet
+  // inn en helt fersk — samme sluttresultat som gjenbruk-stien, bare insert
+  // fremfor update. Verifisert i koden, ikke bare antatt.
+  const doneIds = [...fromMealsDone.flatMap(g => g.ids), ...staplesDone.map(g => g.id)];
+
+  const clearDone = async () => {
+    if (!await confirm({
+      title: 'Tøm handlet?',
+      message: `Sletter ${doneIds.length} ${doneIds.length === 1 ? 'vare' : 'varer'} fra «Vis handlet» permanent. Dette kan ikke angres.`,
+      confirmLabel: 'Tøm handlet',
+    })) return;
+    doneIds.forEach(id => void removeGroceryItem(id));
+  };
+
   // +/- på selve oppsummeringsraden er kun meningsfullt når gruppen faktisk
   // er ÉN grocery_items-rad (group.ids.length === 1) med et rent tall — ikke
   // et intervall (amountRange, f.eks. "0.5-1", har ingen tallverdi å telle
@@ -567,6 +593,9 @@ export default function HandlelisteCard() {
           </button>
           {showDone && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              <button onClick={() => void clearDone()} className="btn danger sm" style={{ alignSelf: 'flex-end' }}>
+                Tøm handlet
+              </button>
               {doneEntries.map(entry => entry.render())}
             </div>
           )}
