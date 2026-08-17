@@ -255,6 +255,17 @@ export default function HandlelisteCard() {
   // tidligere timer i stedet for å stable flere.
   const [pendingDoneIds, setPendingDoneIds] = useState<Set<string>>(new Set());
   const pendingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Speilvendt motstykke til pendingDoneIds: id-er som nettopp ble ANGRET
+  // (huket av) og fortsatt holdes i «Vis handlet» i DONE_HOLD_MS, slik at den
+  // omvendte overgangen (avkrysning fjernes, strek gjennom fjernes, full
+  // opacity) rekker å spille av på sin opprinnelige plass før raden faktisk
+  // flyttes til aktiv-lista. done_at nullstilles i databasen med det samme,
+  // uendret — kun UI-plasseringen venter, samme prinsipp som avhuking.
+  // pendingUndoneDoneAt fanger den forrige done_at-verdien synkront, FØR
+  // toggleGroceryItem nullstiller den, slik at raden fortsatt sorterer riktig
+  // i «Vis handlet» (sist avhuket øverst) mens den holdes der.
+  const [pendingUndoneIds, setPendingUndoneIds] = useState<Set<string>>(new Set());
+  const pendingUndoneDoneAt = useRef<Map<string, string>>(new Map());
   // Hvilke rader som viser +/- og × akkurat nå — nøklet på group.key (Fra
   // ukens middager) eller g.id (Andre varer/Basisvarer), aldri kollisjon
   // siden formatene er helt ulike. Uavhengig per rad, med vilje — se
@@ -283,22 +294,30 @@ export default function HandlelisteCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
-  // Avhuking/angring for rader som kan forsvinne inn i en skjult «Vis
-  // handlet»-seksjon (Fra ukens middager / Basisvarer) — IKKE for «Andre
+  // Avhuking/angring for rader som kan forsvinne inn i eller ut av en skjult
+  // «Vis handlet»-seksjon (Fra ukens middager / Basisvarer) — IKKE for «Andre
   // varer», som alltid vises og derfor aldri har hatt dette problemet (den
   // raden flytter seg bare innad i samme, alltid synlige liste).
   //
-  // Race-vern: ids legges i pendingDoneIds SYNKRONT her, før noen await —
-  // et sanntidsoppdatering fra en annen enhet som lander midt i holde-
-  // perioden endrer bare de underliggende radenes egne felt (done, amount,
-  // ...), aldri selve pendingDoneIds-settet, så en rad som allerede holdes
+  // Race-vern: ids legges i pendingDoneIds/pendingUndoneIds SYNKRONT her, før
+  // noen await — et sanntidsoppdatering fra en annen enhet som lander midt i
+  // holdeperioden endrer bare de underliggende radenes egne felt (done,
+  // amount, ...), aldri selve pending-settene, så en rad som allerede holdes
   // synlig fortsetter å holdes synlig uansett hva som skjer ellers i lista —
   // ingen «hopp». Slettes raden fullstendig et annet sted mens den er
   // pending, forsvinner den ganske enkelt fra groceryItems/linked som
-  // normalt; den nå ubrukte id-en i pendingDoneIds er harmløs og ryddes bort
+  // normalt; den nå ubrukte id-en i pending-settet er harmløs og ryddes bort
   // av sin egen timer uansett.
   const toggleWithHold = (ids: string[]) => {
     const turningOn = ids.some(id => groceryItems.find(g => g.id === id)?.done === false);
+    // Fanges FØR toggleGroceryItem nullstiller done_at i databasen — se
+    // pendingUndoneDoneAt over for hvorfor.
+    if (!turningOn) {
+      ids.forEach(id => {
+        const doneAt = groceryItems.find(g => g.id === id)?.doneAt;
+        pendingUndoneDoneAt.current.set(id, doneAt ?? new Date().toISOString());
+      });
+    }
     ids.forEach(id => void toggleGroceryItem(id));
 
     ids.forEach(id => {
@@ -307,6 +326,14 @@ export default function HandlelisteCard() {
     });
 
     if (turningOn) {
+      // Rask av-og-på igjen mens en angrings-holdeperiode fortsatt pågikk:
+      // ikke la raden bli hengende i pendingUndoneIds forbi sin egen re-avhuking.
+      setPendingUndoneIds(prev => {
+        if (!ids.some(id => prev.has(id))) return prev;
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
       setPendingDoneIds(prev => {
         const next = new Set(prev);
         ids.forEach(id => next.add(id));
@@ -325,14 +352,33 @@ export default function HandlelisteCard() {
         pendingTimers.current.set(id, timer);
       });
     } else {
-      // Angring: ingen ny mekanikk (som avtalt) — bare sørg for at raden ikke
-      // blir hengende i pendingDoneIds forbi sin egen angring, om den ble
-      // klikket av og på igjen mens holdeperioden fortsatt pågikk.
+      // Speilvendt av over: raden holdes nå i «Vis handlet» i stedet for å
+      // hoppe rett til aktiv-lista, slik at den omvendte CSS-overgangen
+      // rekker å spille av på sin opprinnelige plass. Samme rydding av en
+      // eventuell pågående avhukings-holdeperiode som over, motsatt vei.
       setPendingDoneIds(prev => {
         if (!ids.some(id => prev.has(id))) return prev;
         const next = new Set(prev);
         ids.forEach(id => next.delete(id));
         return next;
+      });
+      setPendingUndoneIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.add(id));
+        return next;
+      });
+      ids.forEach(id => {
+        const timer = setTimeout(() => {
+          setPendingUndoneIds(prev => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          pendingUndoneDoneAt.current.delete(id);
+          pendingTimers.current.delete(id);
+        }, DONE_HOLD_MS);
+        pendingTimers.current.set(id, timer);
       });
     }
   };
@@ -363,15 +409,22 @@ export default function HandlelisteCard() {
   // done i databasen — se toggleWithHold. Radens EGEN done-styling (avkrysset,
   // nedtonet, strek gjennom) leser fortsatt det reelle g.done, så overgangen
   // faktisk får tid til å spille av på sin opprinnelige plass før den flyttes.
-  const active = linked.filter(g => !g.done || pendingDoneIds.has(g.id));
+  // pendingUndoneIds er speilvendt: holder en nettopp angret rad i «done»
+  // (visuelt uendret plass), selv om den reelt sett allerede er ikke-done —
+  // derfor ekskluderes den eksplisitt fra active til holdeperioden er over.
+  const active = linked.filter(g => (!g.done || pendingDoneIds.has(g.id)) && !pendingUndoneIds.has(g.id));
   const handleukeDays = new Set(weekDates(handleukeStart()));
   const doneThisHandleuke = (g: GroceryItem) =>
     g.doneAt != null && handleukeDays.has(new Date(g.doneAt).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' }));
-  const done = linked.filter(g => g.done && doneThisHandleuke(g) && !pendingDoneIds.has(g.id));
+  const done = linked.filter(g => (g.done && doneThisHandleuke(g) && !pendingDoneIds.has(g.id)) || pendingUndoneIds.has(g.id));
+  // done_at er allerede nullstilt i databasen for en pending-angret rad (se
+  // toggleWithHold) — bruk den fangede verdien i stedet, kun for sortering,
+  // så «Vis handlet» ikke mister rekkefølgen mens raden holdes der.
+  const doneSortable = done.map(g => g.doneAt != null ? g : { ...g, doneAt: pendingUndoneDoneAt.current.get(g.id) ?? g.doneAt });
   const fromMeals     = groupByNameUnit(active.filter(g => g.mealPlanId));
-  const fromMealsDone = groupByNameUnit(done.filter(g => g.mealPlanId));
+  const fromMealsDone = groupByNameUnit(doneSortable.filter(g => g.mealPlanId));
   const staples     = active.filter(g => g.stapleItemId);
-  const staplesDone = done.filter(g => g.stapleItemId);
+  const staplesDone = doneSortable.filter(g => g.stapleItemId);
 
   // +/- på selve oppsummeringsraden er kun meningsfullt når gruppen faktisk
   // er ÉN grocery_items-rad (group.ids.length === 1) med et rent tall — ikke
@@ -405,7 +458,8 @@ export default function HandlelisteCard() {
   // «Vis handlet» — én sammenslått liste (middag-grupper + basisvarer om
   // hverandre, det er ingen visuell overskrift mellom dem i dag heller) sortert
   // med sist avhuket øverst, i stedet for databasens naturlige rekkefølge.
-  // done (over) garanterer at doneAt aldri er null for noe som havner her.
+  // doneSortable (over) garanterer at doneAt aldri er null for noe som havner
+  // her, selv for en pending-angret rad hvis ekte done_at allerede er nullstilt.
   type DoneEntry = { doneAt: string; render: () => React.ReactNode };
   const doneEntries: DoneEntry[] = [
     ...fromMealsDone.map(group => ({
