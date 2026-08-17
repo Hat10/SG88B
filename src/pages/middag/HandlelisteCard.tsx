@@ -9,12 +9,10 @@ import { Card, Check, SkeletonList } from '../../components';
 // (Gangskjerm og Hjem-sidens forhåndsvisninger), for samme dedupliserte
 // telling/gruppering overalt — se importene av den i Skjerm.tsx/Dashboard.tsx.
 
-const removeBtnStyle: React.CSSProperties = {
-  background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
-  cursor: 'pointer', fontSize: 14, color: 'var(--ink-4)', flexShrink: 0,
-  minWidth: 32, minHeight: 32, display: 'grid', placeItems: 'center',
-};
-
+// Samme knapp, samme plass (helt til høyre) enten den viser ✎ (lukket) eller
+// × (åpen) — den betyr ALLTID «bytt redigeringsmodus», aldri slett. Sletting
+// er en egen, rød knapp som kun vises for allerede kjøpte varer, se
+// deleteBtnStyle.
 const editBtnStyle: React.CSSProperties = {
   background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
   cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)', flexShrink: 0,
@@ -25,6 +23,16 @@ const stepperBtnStyle: React.CSSProperties = {
   background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
   cursor: 'pointer', fontSize: 14, color: 'var(--ink-3)', fontWeight: 700,
   width: 26, height: 26, display: 'grid', placeItems: 'center', lineHeight: 1,
+};
+
+// Kun for allerede KJØPTE varer i redigeringsmodus — mengderedigering gir
+// ikke mening for noe som allerede er kjøpt, så stepperen erstattes med
+// denne i stedet. Aktive (ikke-kjøpte) varer har aldri noen sletteknapp —
+// de kan kun justeres med −/+, ikke fjernes manuelt.
+const deleteBtnStyle: React.CSSProperties = {
+  background: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: 6,
+  cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#fff',
+  padding: '0 12px', height: 26, flexShrink: 0, whiteSpace: 'nowrap',
 };
 
 // Overgangen (bakgrunn + nedtoning) er den «diskrete visuelle effekten» ved
@@ -38,12 +46,15 @@ function fmtShortDate(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
 }
 
-// +/- og × er skjult som standard — kun navn + mengde/enhet vises, siden
-// hoved-interaksjonen med lista er avhuking, ikke redigering. ✎ per rad
-// avslører de to (uavhengig per rad, ikke én global «rediger»-modus for hele
-// lista — se samtalen for hvorfor det passer bedre med hvordan lista faktisk
-// brukes: raskt, målrettet, én vare av gangen, ikke «gå inn i redigeringsmodus
-// for alt» for å justere én ting).
+// +/- og slett er skjult som standard — kun navn + mengde/enhet vises, siden
+// hoved-interaksjonen med lista er avhuking, ikke redigering. Knappen helt
+// til høyre (✎/×) åpner/lukker redigering for akkurat denne raden
+// (uavhengig per rad, ikke én global «rediger»-modus for hele lista — se
+// samtalen for hvorfor det passer bedre med hvordan lista faktisk brukes),
+// men den × betyr ALDRI slett — kun «lukk redigering». I redigeringsmodus:
+// aktiv vare viser −/+ (ingen sletteknapp, aktive varer kan ikke fjernes
+// manuelt), kjøpt vare viser en rød «Slett»-knapp i stedet (mengde gir ikke
+// mening for noe som allerede er kjøpt).
 function GroceryRow({ name, amount, amountRange, approx, unit, done, editing, onToggle, onEditToggle, onRemove, onDecrement, onIncrement }: {
   name: string; amount: number | null; amountRange: string | null; approx?: boolean; unit: string | null; done: boolean;
   editing: boolean;
@@ -52,7 +63,8 @@ function GroceryRow({ name, amount, amountRange, approx, unit, done, editing, on
   onDecrement?: () => void; onIncrement?: () => void;
 }) {
   const steppable = !!(onDecrement && onIncrement);
-  const showStepper = editing && steppable;
+  const showStepper = editing && steppable && !done;
+  const showDelete = editing && done;
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
@@ -62,7 +74,7 @@ function GroceryRow({ name, amount, amountRange, approx, unit, done, editing, on
       <Check on={done} onClick={onToggle} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <span onClick={onToggle} style={{ fontSize: 14, color: 'var(--ink)', textDecoration: done ? 'line-through' : 'none', cursor: 'pointer' }}>{name}</span>
-        {!showStepper && (amount != null || amountRange != null || unit) && (
+        {!showStepper && !showDelete && (amount != null || amountRange != null || unit) && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>
             {amountRange ?? amount ?? ''}{approx ? '+' : ''} {unit ?? ''}
           </span>
@@ -77,8 +89,8 @@ function GroceryRow({ name, amount, amountRange, approx, unit, done, editing, on
           <button onClick={onIncrement} aria-label="Flere" style={stepperBtnStyle}>+</button>
         </div>
       )}
-      <button onClick={onEditToggle} aria-label={editing ? 'Skjul redigering' : 'Rediger mengde'} style={editBtnStyle}>✎</button>
-      {editing && <button onClick={onRemove} aria-label="Fjern vare" style={removeBtnStyle}>×</button>}
+      {showDelete && <button onClick={onRemove} style={deleteBtnStyle}>Slett</button>}
+      <button onClick={onEditToggle} aria-label={editing ? 'Lukk redigering' : 'Rediger mengde'} style={editBtnStyle}>{editing ? '×' : '✎'}</button>
     </div>
   );
 }
@@ -89,6 +101,12 @@ function GroceryRow({ name, amount, amountRange, approx, unit, done, editing, on
 // hver underliggende grocery_items-rad for seg her, med sin egen +/- og ×,
 // slik at man redigerer det faktiske, enkeltstående tallet i stedet for å
 // gjette en andel av en sum.
+// Vises kun mens foreldregruppen er i redigeringsmodus (styrt av
+// editingKeys på gruppens key, ikke noe eget åpen/lukket-state per rad her)
+// — så hver underrad trenger ikke sin egen ✎/×-knapp. Samme aktiv/kjøpt-
+// regel som de andre radtypene: aktiv vare får kun stepper, kjøpt vare får
+// kun rød «Slett» (ingen sletteknapp for aktive varer, ingen mengderedigering
+// for kjøpte).
 function GroupBreakdown({ items, mealPlan, recipes, onDecrement, onIncrement, onRemove }: {
   items: GroceryItem[]; mealPlan: MealPlanEntry[]; recipes: Recipe[];
   onDecrement: (id: string) => void; onIncrement: (id: string) => void; onRemove: (id: string) => void;
@@ -99,7 +117,7 @@ function GroupBreakdown({ items, mealPlan, recipes, onDecrement, onIncrement, on
         const entry = item.mealPlanId ? mealPlan.find(mp => mp.id === item.mealPlanId) : undefined;
         const recipe = entry ? recipes.find(r => r.id === entry.recipeId) : undefined;
         const label = entry ? `${recipe?.name ?? 'Ukjent oppskrift'} · ${fmtShortDate(entry.date)}` : 'Ukjent middag';
-        const steppable = item.amountRange == null;
+        const steppable = item.amountRange == null && !item.done;
         return (
           <div key={item.id} style={{
             display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px',
@@ -108,7 +126,9 @@ function GroupBreakdown({ items, mealPlan, recipes, onDecrement, onIncrement, on
             <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {label}
             </span>
-            {steppable ? (
+            {item.done ? (
+              <button onClick={() => onRemove(item.id)} style={deleteBtnStyle}>Slett</button>
+            ) : steppable ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 <button onClick={() => onDecrement(item.id)} aria-label="Færre" style={stepperBtnStyle}>−</button>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, minWidth: 14, textAlign: 'center' }}>
@@ -121,7 +141,6 @@ function GroupBreakdown({ items, mealPlan, recipes, onDecrement, onIncrement, on
                 {item.amountRange} {item.unit ?? ''}
               </span>
             )}
-            <button onClick={() => onRemove(item.id)} aria-label="Fjern denne forekomsten" style={{ ...removeBtnStyle, minWidth: 28, minHeight: 28 }}>×</button>
           </div>
         );
       })}
@@ -136,6 +155,8 @@ function FreeGroceryRow({ item, editing, onToggle, onEditToggle, onDecrement, on
   item: GroceryItem; editing: boolean;
   onToggle: () => void; onEditToggle: () => void; onDecrement: () => void; onIncrement: () => void; onRemove: () => void;
 }) {
+  const showStepper = editing && !item.done;
+  const showDelete = editing && item.done;
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
@@ -146,17 +167,18 @@ function FreeGroceryRow({ item, editing, onToggle, onEditToggle, onDecrement, on
       <span onClick={onToggle} style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)', textDecoration: item.done ? 'line-through' : 'none', cursor: 'pointer' }}>
         {item.name}
       </span>
-      {editing ? (
+      {showStepper && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <button onClick={onDecrement} aria-label="Færre" style={stepperBtnStyle}>−</button>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{item.amount ?? 1}</span>
           <button onClick={onIncrement} aria-label="Flere" style={stepperBtnStyle}>+</button>
         </div>
-      ) : (
+      )}
+      {showDelete && <button onClick={onRemove} style={deleteBtnStyle}>Slett</button>}
+      {!showStepper && !showDelete && (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>{item.amount ?? 1}</span>
       )}
-      <button onClick={onEditToggle} aria-label={editing ? 'Skjul redigering' : 'Rediger mengde'} style={editBtnStyle}>✎</button>
-      {editing && <button onClick={onRemove} aria-label="Fjern vare" style={removeBtnStyle}>×</button>}
+      <button onClick={onEditToggle} aria-label={editing ? 'Lukk redigering' : 'Rediger mengde'} style={editBtnStyle}>{editing ? '×' : '✎'}</button>
     </div>
   );
 }
