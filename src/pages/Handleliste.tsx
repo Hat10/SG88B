@@ -4,6 +4,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { Card } from '../components';
 import HandlelisteCard from './middag/HandlelisteCard';
 import UnitSelect from './middag/UnitSelect';
+import ShoppingMode from './middag/ShoppingMode';
 
 // Eget menypunkt for handlelisten. Bodde tidligere delvis i en «Dagligvarer»-
 // fane på Middag-siden (DagligvarerTab.tsx) — den fanen er fjernet, og hele
@@ -156,10 +157,19 @@ function StapleManager() {
 }
 
 export default function PageHandleliste() {
+  const [shoppingMode, setShoppingMode] = useState(false);
   return (
-    <div className="grid grid-12">
-      <div className="col-12"><HandlelisteCard /></div>
-      <div className="col-12"><StapleManager /></div>
-    </div>
+    <>
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={() => setShoppingMode(true)} className="btn primary">
+          🛒 Start handlemodus
+        </button>
+      </div>
+      <div className="grid grid-12">
+        <div className="col-12"><HandlelisteCard /></div>
+        <div className="col-12"><StapleManager /></div>
+      </div>
+      {shoppingMode && <ShoppingMode onClose={() => setShoppingMode(false)} />}
+    </>
   );
 }

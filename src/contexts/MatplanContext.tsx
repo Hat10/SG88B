@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { handleukeStart } from '../hooks/useWeeklyBucket';
+import { guessCategory } from '../lib/groceryCategories';
 
 // Faste enhetsvalg — delt mellom oppskrift-editoren (Ingredient.unit) og
 // «Legg til kjøpsfrekvens» i StapleManager (StapleItem.unit), én kilde til
@@ -73,6 +74,12 @@ export interface GroceryItem {
   doneAt: string | null;
   mealPlanId: string | null;
   stapleItemId: string | null;
+  // Butikkavdeling — foreslått av guessCategory() (src/lib/groceryCategories.ts)
+  // eller et tidligere brukerstyrt valg (grocery_category_overrides) når raden
+  // opprettes, null hvis ingen nøkkelord traff. Vist/redigerbar i Handlemodus
+  // (ShoppingMode.tsx). Ren tekst uten fast sett verdier i databasen — den
+  // kanoniske lista lever i GROCERY_CATEGORIES, ikke i et CHECK-constraint.
+  category: string | null;
 }
 
 interface MatplanCtx {
@@ -96,6 +103,8 @@ interface MatplanCtx {
   /** Frittstående dagligvare — ikke koblet til en middag eller basisvare. */
   addGroceryItem: (input: { name: string; amount: number | null }) => Promise<void>;
   setGroceryAmount: (id: string, amount: number) => Promise<void>;
+  /** Overstyrer kategorien for ALLE rader med samme varenavn (case-insensitivt), OG husker valget (grocery_category_overrides) for varenavnet fremover — se Handlemodus. */
+  setGroceryCategory: (id: string, category: string) => Promise<void>;
   toggleGroceryItem: (id: string) => Promise<void>;
   removeGroceryItem: (id: string) => Promise<void>;
 }
@@ -107,7 +116,7 @@ const MatplanContext = createContext<MatplanCtx>({
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
   setMealPlan: noop, clearMealPlan: noop,
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
-  syncGroceryList: noop, addGroceryItem: noop, setGroceryAmount: noop,
+  syncGroceryList: noop, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
   toggleGroceryItem: noop, removeGroceryItem: noop,
 });
 
@@ -147,6 +156,7 @@ const groceryFromRow = (r: Record<string, unknown>): GroceryItem => ({
   doneAt: (r.done_at as string | null) ?? null,
   mealPlanId: (r.meal_plan_id as string | null) ?? null,
   stapleItemId: (r.staple_item_id as string | null) ?? null,
+  category: (r.category as string | null) ?? null,
 });
 
 /**
@@ -198,20 +208,34 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   const [mealPlan,     setMealPlanRows] = useState<MealPlanEntry[]>([]);
   const [stapleItems,  setStapleItems]  = useState<StapleItem[]>([]);
   const [groceryItems, setGroceryItems] = useState<GroceryItem[]>([]);
+  // Varenavn (lowercased) → brukerstyrt kategori, satt via setGroceryCategory
+  // (Handlemodus) — sjekkes FØR guessCategory()-heuristikken når en ny
+  // grocery_items-rad genereres, se resolveCategory under. Kun internt brukt
+  // her, ikke eksponert i konteksten (ingen andre komponenter trenger å lese
+  // selve oppslagstabellen, kun resultatet på hver GroceryItem).
+  const [categoryOverrides, setCategoryOverrides] = useState<Map<string, string>>(new Map());
   const [loading,      setLoading]      = useState(true);
 
   const load = async () => {
-    const [{ data: rec }, { data: mp }, { data: st }, { data: gr }] = await Promise.all([
+    const [{ data: rec }, { data: mp }, { data: st }, { data: gr }, { data: co }] = await Promise.all([
       supabase.from('recipes').select('*').order('name'),
       supabase.from('meal_plan').select('*').order('date'),
       supabase.from('staple_items').select('*').order('name'),
       supabase.from('grocery_items').select('*').order('created_at'),
+      supabase.from('grocery_category_overrides').select('*'),
     ]);
     if (rec) setRecipes(rec.map(recipeFromRow));
     if (mp) setMealPlanRows(mp.map(mealPlanFromRow));
     if (st) setStapleItems(st.map(stapleFromRow));
     if (gr) setGroceryItems(gr.map(groceryFromRow));
+    if (co) setCategoryOverrides(new Map(co.map((r: Record<string, unknown>) => [r.name as string, r.category as string])));
   };
+
+  // Foreslått kategori for en ny grocery_items-rad — et tidligere brukervalg
+  // for akkurat dette varenavnet (case-insensitivt) vinner alltid over
+  // nøkkelord-heuristikken, se grocery-category-migration.sql.
+  const resolveCategory = (name: string): string | null =>
+    categoryOverrides.get(name.trim().toLowerCase()) ?? guessCategory(name);
 
   useEffect(() => {
     (async () => { await load(); setLoading(false); })();
@@ -222,6 +246,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meal_plan' },     () => { load(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staple_items' },  () => { load(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'grocery_items' }, () => { load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'grocery_category_overrides' }, () => { load(); })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -365,7 +390,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
         if (ing.onGroceryList === false) continue;
         mealRows.push({
           name: ing.name, amount: ing.amount, amount_range: ing.amountRange ?? null, unit: ing.unit,
-          meal_plan_id: mp.id, staple_item_id: null,
+          meal_plan_id: mp.id, staple_item_id: null, category: resolveCategory(ing.name),
         });
       }
     }
@@ -380,7 +405,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     for (const s of stapleItems) {
       if (!isStapleDue(s, today)) continue;
       stapleRows.push({
-        name: s.name, amount: s.amount, unit: s.unit,
+        name: s.name, amount: s.amount, unit: s.unit, category: resolveCategory(s.name),
         meal_plan_id: null, staple_item_id: s.id, done: false,
       });
     }
@@ -397,13 +422,32 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
 
   const addGroceryItem = async ({ name, amount }: { name: string; amount: number | null }) => {
     await supabase.from('grocery_items').insert({
-      name, amount, unit: null, meal_plan_id: null, staple_item_id: null,
+      name, amount, unit: null, meal_plan_id: null, staple_item_id: null, category: resolveCategory(name),
     });
     await load();
   };
 
   const setGroceryAmount = async (id: string, amount: number) => {
     await supabase.from('grocery_items').update({ amount }).eq('id', id);
+    await load();
+  };
+
+  // Overstyrer kategorien på ALLE rader med samme varenavn (case-insensitivt)
+  // med det samme — ikke bare raden brukeren trykket på — og husker valget i
+  // grocery_category_overrides, slik at fremtidige rader med samme navn
+  // foreslås riktig automatisk (se resolveCategory()). Retter man «Melk» i
+  // Handlemodus skal ALLE synlige Melk-rader (f.eks. fra to ulike middager
+  // samme uke) rette seg umiddelbart, ikke bare den ene gruppen brukeren
+  // tilfeldigvis trykket på. `.ilike()` uten wildcard-tegn er en eksakt,
+  // case-insensitiv match — ingen «Melk»-rad kan smette forbi WHERE-en fordi
+  // stor/liten bokstav ikke stemte.
+  const setGroceryCategory = async (id: string, category: string) => {
+    const item = groceryItems.find(g => g.id === id);
+    if (!item) return;
+    const name = item.name.trim();
+    await supabase.from('grocery_items').update({ category }).ilike('name', name);
+    await supabase.from('grocery_category_overrides')
+      .upsert({ name: name.toLowerCase(), category }, { onConflict: 'name' });
     await load();
   };
 
@@ -433,7 +477,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
       setMealPlan, clearMealPlan,
       addStaple, updateStaple, removeStaple, restoreStaple,
-      syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem,
+      syncGroceryList, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, removeGroceryItem,
     }}>
       {children}
     </MatplanContext.Provider>

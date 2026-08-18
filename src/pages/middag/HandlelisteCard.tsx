@@ -196,6 +196,8 @@ export interface MergedGroup {
   /** Seneste done_at blant radene i gruppen — brukes til å sortere «Vis handlet» med sist avhuket øverst. */
   doneAt: string | null;
   ids: string[];
+  /** Fra første rad i gruppen — se GroceryItem.category. Brukes til å gruppere under butikkavdeling i Handlemodus (ShoppingMode.tsx), ikke av HandlelisteCard selv. */
+  category: string | null;
 }
 
 // Samme ingrediens (navn+enhet) fra flere planlagte middager denne uken skal
@@ -225,6 +227,7 @@ export function groupByNameUnit(items: GroceryItem[]): MergedGroup[] {
       groups.set(key, {
         key, name: g.name, unit: g.unit, amount: g.amount, amountRange: g.amountRange,
         approx: g.amount == null && g.amountRange == null, done: g.done, doneAt: g.doneAt, ids: [g.id],
+        category: g.category,
       });
       continue;
     }
