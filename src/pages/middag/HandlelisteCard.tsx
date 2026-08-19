@@ -391,7 +391,13 @@ export default function HandlelisteCard() {
     const name = newItem.trim();
     if (!name) return;
     setNewItem('');
-    await addGroceryItem({ name, amount: 1 });
+    try {
+      await addGroceryItem({ name, amount: 1 });
+    } catch {
+      // Feilen er allerede varslet av addGroceryItem (MatplanContext.tsx) —
+      // her legges bare varenavnet tilbake i feltet slik at forsøket ikke går tapt.
+      setNewItem(name);
+    }
   };
 
   // Middag/basisvare-genererte rader. Aktive ruller over uendret (ingen
