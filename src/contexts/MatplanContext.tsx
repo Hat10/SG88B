@@ -421,9 +421,14 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addGroceryItem = async ({ name, amount }: { name: string; amount: number | null }) => {
-    await supabase.from('grocery_items').insert({
+    const { error } = await supabase.from('grocery_items').insert({
       name, amount, unit: null, meal_plan_id: null, staple_item_id: null, category: resolveCategory(name),
     });
+    // Kastes videre i stedet for å svelges stille — uten dette forsvinner en
+    // avvist innsetting (RLS, constraint, ...) sporløst: knappen "virker",
+    // men varen dukker aldri opp, uten noen feilmelding noe sted. Se
+    // HandlelisteCard.tsx sin submitNewItem for hvordan brukeren varsles.
+    if (error) throw error;
     await load();
   };
 

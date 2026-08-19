@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMatplan, weekDates, type GroceryItem, type MealPlanEntry, type Recipe } from '../../contexts/MatplanContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
+import { useSnackbar } from '../../contexts/SnackbarContext';
 import { handleukeStart } from '../../hooks/useWeeklyBucket';
 import { Card, Check, SkeletonList } from '../../components';
 
@@ -252,6 +253,7 @@ const DONE_HOLD_MS = 1500;
 export default function HandlelisteCard() {
   const { groceryItems, mealPlan, recipes, loading, syncGroceryList, addGroceryItem, setGroceryAmount, toggleGroceryItem, removeGroceryItem } = useMatplan();
   const { confirm } = useConfirm();
+  const { notify } = useSnackbar();
   const [showDone, setShowDone] = useState(false);
   const [newItem, setNewItem] = useState('');
   // id-er som nettopp ble huket av og fortsatt holdes i sin opprinnelige
@@ -391,7 +393,16 @@ export default function HandlelisteCard() {
     const name = newItem.trim();
     if (!name) return;
     setNewItem('');
-    await addGroceryItem({ name, amount: 1 });
+    try {
+      await addGroceryItem({ name, amount: 1 });
+    } catch (err) {
+      // Gi varen tilbake i feltet slik at forsøket ikke går tapt, og vis
+      // hvorfor det ikke gikk — uten dette forsvinner en avvist innsetting
+      // sporløst, se addGroceryItem i MatplanContext.tsx.
+      setNewItem(name);
+      const message = err instanceof Error ? err.message : String(err);
+      notify(`Klarte ikke å legge til «${name}»: ${message}`);
+    }
   };
 
   // Middag/basisvare-genererte rader. Aktive ruller over uendret (ingen
