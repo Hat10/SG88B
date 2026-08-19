@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { handleukeStart } from '../hooks/useWeeklyBucket';
 import { guessCategory } from '../lib/groceryCategories';
+import { useSnackbar } from './SnackbarContext';
 
 // Faste enhetsvalg — delt mellom oppskrift-editoren (Ingredient.unit) og
 // «Legg til kjøpsfrekvens» i StapleManager (StapleItem.unit), én kilde til
@@ -204,6 +205,7 @@ function isStapleDue(s: StapleItem, today: string): boolean {
 }
 
 export function MatplanProvider({ children }: { children: React.ReactNode }) {
+  const { notify } = useSnackbar();
   const [recipes,      setRecipes]      = useState<Recipe[]>([]);
   const [mealPlan,     setMealPlanRows] = useState<MealPlanEntry[]>([]);
   const [stapleItems,  setStapleItems]  = useState<StapleItem[]>([]);
@@ -236,6 +238,19 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   // nøkkelord-heuristikken, se grocery-category-migration.sql.
   const resolveCategory = (name: string): string | null =>
     categoryOverrides.get(name.trim().toLowerCase()) ?? guessCategory(name);
+
+  // Delt feilvarsling for alle grocery_items/staple_items-mutasjoner under —
+  // uten dette svelges en avvist databaseoperasjon (RLS, skjema-avvik,
+  // constraint-brudd, ...) helt stille: knappen "virker", men ingenting
+  // skjer og ingen får vite hvorfor (se andre-varer-bug-en dette rettet).
+  // Returnerer true hvis det var en feil, slik at kalleren kan velge å
+  // avbryte videre steg (f.eks. la være å kalle load()) uten å måtte
+  // duplisere selve varslingen.
+  const reportDbError = (action: string, error: { message: string } | null): boolean => {
+    if (!error) return false;
+    notify(`${action} feilet: ${error.message}`);
+    return true;
+  };
 
   useEffect(() => {
     (async () => { await load(); setLoading(false); })();
@@ -397,8 +412,9 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     // En rad som allerede finnes for (meal_plan_id, navn) hoppes bare over —
     // rører aldri en eksisterende rads avhuking.
     if (mealRows.length) {
-      await supabase.from('grocery_items')
+      const { error } = await supabase.from('grocery_items')
         .upsert(mealRows, { onConflict: 'meal_plan_id,name', ignoreDuplicates: true });
+      reportDbError('Synk av middagsvarer', error);
     }
 
     const stapleRows: Record<string, unknown>[] = [];
@@ -413,8 +429,9 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     // vært kjøpt, gjenbrukes samme rad (flippes til done:false, navn/mengde/
     // enhet friskes opp) i stedet for at det hoper seg opp en ny rad hver gang.
     if (stapleRows.length) {
-      await supabase.from('grocery_items')
+      const { error } = await supabase.from('grocery_items')
         .upsert(stapleRows, { onConflict: 'staple_item_id' });
+      reportDbError('Synk av basisvarer', error);
     }
 
     await load();
@@ -424,16 +441,17 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.from('grocery_items').insert({
       name, amount, unit: null, meal_plan_id: null, staple_item_id: null, category: resolveCategory(name),
     });
-    // Kastes videre i stedet for å svelges stille — uten dette forsvinner en
-    // avvist innsetting (RLS, constraint, ...) sporløst: knappen "virker",
-    // men varen dukker aldri opp, uten noen feilmelding noe sted. Se
-    // HandlelisteCard.tsx sin submitNewItem for hvordan brukeren varsles.
-    if (error) throw error;
+    // Varsles her, som de andre mutasjonene, MEN kastes også videre — se
+    // HandlelisteCard.tsx sin submitNewItem, som fanger den kun for å legge
+    // varenavnet tilbake i feltet (ikke for en egen varsling — det ville gitt
+    // dobbel snackbar).
+    if (reportDbError(`Å legge til «${name}»`, error)) throw error;
     await load();
   };
 
   const setGroceryAmount = async (id: string, amount: number) => {
-    await supabase.from('grocery_items').update({ amount }).eq('id', id);
+    const { error } = await supabase.from('grocery_items').update({ amount }).eq('id', id);
+    if (reportDbError('Endring av mengde', error)) return;
     await load();
   };
 
@@ -450,9 +468,14 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     const item = groceryItems.find(g => g.id === id);
     if (!item) return;
     const name = item.name.trim();
-    await supabase.from('grocery_items').update({ category }).ilike('name', name);
-    await supabase.from('grocery_category_overrides')
+    const { error: itemsError } = await supabase.from('grocery_items').update({ category }).ilike('name', name);
+    if (reportDbError('Endring av kategori', itemsError)) return;
+    const { error: overrideError } = await supabase.from('grocery_category_overrides')
       .upsert({ name: name.toLowerCase(), category }, { onConflict: 'name' });
+    // Kategorien på selve raden(e) er allerede satt over — melder fra om
+    // dette andre steget feiler, men avbryter ikke load(), siden det første
+    // steget uansett skal reflekteres i UI.
+    reportDbError('Lagring av kategorivalg', overrideError);
     await load();
   };
 
@@ -460,19 +483,22 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     const item = groceryItems.find(g => g.id === id);
     if (!item) return;
     const done = !item.done;
-    await supabase.from('grocery_items')
+    const { error } = await supabase.from('grocery_items')
       .update({ done, done_at: done ? new Date().toISOString() : null })
       .eq('id', id);
+    if (reportDbError('Avhuking', error)) return;
     if (done && item.stapleItemId) {
-      await supabase.from('staple_items')
+      const { error: stapleError } = await supabase.from('staple_items')
         .update({ last_bought_at: todayKey(), postponed_until: null })
         .eq('id', item.stapleItemId);
+      reportDbError('Oppdatering av basisvare', stapleError);
     }
     await load();
   };
 
   const removeGroceryItem = async (id: string) => {
-    await supabase.from('grocery_items').delete().eq('id', id);
+    const { error } = await supabase.from('grocery_items').delete().eq('id', id);
+    if (reportDbError('Sletting', error)) return;
     await load();
   };
 
