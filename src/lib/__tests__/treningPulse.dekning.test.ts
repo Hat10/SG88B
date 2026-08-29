@@ -9,7 +9,7 @@
 // Ved brudd skrives hele kjøringa ut, så det går an å se hva som skygger for hva.
 import { it, expect, vi } from 'vitest';
 import type { WorkoutSession, WorkoutRecord, WorkoutGoal, GoalKind, Trainer, RecordUnit } from '../../contexts/TreningContext';
-import { buildPulseRules, pickPulse, startOfWeek } from '../treningPulse';
+import { buildPulseRules, pickPulse, startOfWeek, TRAINERS } from '../treningPulse';
 
 const DAY = 86400000;
 /** Fast mandag som alle scenarioene ankres til, så kjøringa er reproduserbar. */
@@ -34,7 +34,7 @@ const r = (daysAgo: number, who: Trainer, value: number, ex = 'Benkpress', unit:
 });
 
 const g = (kind: GoalKind, target: number, extra: Partial<WorkoutGoal> = {}): WorkoutGoal => ({
-  id: `g${seq++}`, title: `Mål ${kind}`, who: 'f', kind, target,
+  id: `g${seq++}`, title: `Mål ${kind}`, who: 'M', kind, target,
   exercise: null, unit: null, deadline: null, ...extra,
 });
 
@@ -157,7 +157,10 @@ const SCENARIOS: Scenario[] = [
     sessions: [...routine(40, 4, ['M', 'L'], 'Push').filter(x => Date.now() - new Date(x.startedAt).getTime() > 28 * DAY), ...routine(4, 1)],
   })),
   sc('akkurat passert 100 økter', () => ({ sessions: routine(17, 3, ['M', 'L'], 'Push') })),
-  sc('passert 100 økter for lenge siden', () => ({ sessions: routine(60, 1) })),
+  // minMessages senket til 2: et rolig, jevnt scenario uten mål gir «snitt» og
+  // «milepæl» — samme tekst for begge personer siden ingen av dem nevner navn —
+  // så to distinkte meldinger er alt regelsettet ærlig har å si her.
+  sc('passert 100 økter for lenge siden', () => ({ sessions: routine(60, 1) }), 2),
   sc('stort volum, alt i orden, ingen mål', () => ({ sessions: routine(80, 4, ['M', 'L'], 'Push') })),
 ];
 
@@ -187,26 +190,31 @@ it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
       seq = 0;
       const data = scen.build();
       nSessions = data.sessions.length;
-      const rules = buildPulseRules(data.sessions, data.records, data.goals);
-      for (const rule of rules) {
-        // Bare regler som faktisk overlever filteret regnes som «fyrt av».
-        if (rule.weight < 5) continue;
-        bump(fired, rule.id.replace(/-g\d+$/, '-*'));
-        add(firedIn, rule.id.replace(/-g\d+$/, '-*'), scen.name);
-      }
-      // Rotasjonen er et tilfeldig valg nå (ett per sidebesøk), ikke lenger en
-      // datobasert indeks — d/SIM_DAYS gir en deterministisk, jevnt fordelt
-      // rand-sekvens over kjøringa i stedet for å stole på ekte Math.random(),
-      // så dekningssjekkene under ikke blir avhengige av flaks.
-      const p = pickPulse(rules, () => d / SIM_DAYS);
-      if (p) {
-        const id = rules.find(x => x.text === p.text)!.id.replace(/-g\d+$/, '-*');
-        bump(picked, id);
-        add(pickedIn, id, scen.name);
-        if (!samples.has(id)) samples.set(id, p.text);
-        if (!seenTexts.has(p.text)) {
-          seenTexts.add(p.text);
-          lines.push(`    d${String(d).padStart(2)} [${p.from}] ${p.text}`);
+      // buildPulseRules ser nå bare én person om gangen — kjør boksen for begge
+      // (de fleste scenarioene har symmetrisk M/L-data), så dekningen fortsatt
+      // er like bred som med det gamle kombinerte synet.
+      for (const who of TRAINERS) {
+        const rules = buildPulseRules(data.sessions, data.records, data.goals, who);
+        for (const rule of rules) {
+          // Bare regler som faktisk overlever filteret regnes som «fyrt av».
+          if (rule.weight < 5) continue;
+          bump(fired, rule.id.replace(/-g\d+$/, '-*'));
+          add(firedIn, rule.id.replace(/-g\d+$/, '-*'), scen.name);
+        }
+        // Rotasjonen er et tilfeldig valg nå (ett per sidebesøk), ikke lenger en
+        // datobasert indeks — d/SIM_DAYS gir en deterministisk, jevnt fordelt
+        // rand-sekvens over kjøringa i stedet for å stole på ekte Math.random(),
+        // så dekningssjekkene under ikke blir avhengige av flaks.
+        const p = pickPulse(rules, () => d / SIM_DAYS);
+        if (p) {
+          const id = rules.find(x => x.text === p.text)!.id.replace(/-g\d+$/, '-*');
+          bump(picked, id);
+          add(pickedIn, id, scen.name);
+          if (!samples.has(id)) samples.set(id, p.text);
+          if (!seenTexts.has(p.text)) {
+            seenTexts.add(p.text);
+            lines.push(`    d${String(d).padStart(2)} [${who}/${p.from}] ${p.text}`);
+          }
         }
       }
     }
@@ -241,8 +249,9 @@ it('viser hver regel i minst ett scenario, og fryser aldri boksen', () => {
   // totalt, så tallet under er ikke lenger et fast antall kodegrener — det
   // reflekterer også hvor mange distinkte øvelser/enheter scenarioene under
   // faktisk bruker (i dag: Benkpress i både kg og reps, se linje ~90).
-  // 17 familier nå; terskelen holder samme slakk som før — én familie, typisk
-  // mal-foran, trenger ikke fyre i akkurat dette scenarioutvalget.
-  expect(all.length).toBeGreaterThanOrEqual(17);
-  expect(samples.size).toBeGreaterThanOrEqual(17);
+  // 16 familier nå («ingen-okter» finnes ikke lenger uten Felles-visningen —
+  // se treningPulse.ts); terskelen holder samme slakk som før — én familie,
+  // typisk mal-foran, trenger ikke fyre i akkurat dette scenarioutvalget.
+  expect(all.length).toBeGreaterThanOrEqual(16);
+  expect(samples.size).toBeGreaterThanOrEqual(16);
 });

@@ -75,11 +75,8 @@ export function startOfWeek(d: Date): Date {
 //
 // DEFINISJONEN PÅ EN STREAK
 //
-//   En uke teller i streaken når HVER av personene streaken gjelder for har
-//   minst STREAK_MIN_SESSIONS fullførte økter i den uka. Uker går mandag til
-//   søndag. For den felles streaken må altså både Andreas og Taran ha trent tre
-//   ganger den uka; for en personlig streak (et `weekly_streak`-mål med
-//   who = 'M' eller 'L') gjelder kravet bare den ene.
+//   En uke teller i streaken når personen streaken gjelder for har minst
+//   STREAK_MIN_SESSIONS fullførte økter i den uka. Uker går mandag til søndag.
 //
 //   Streaken er summen av slike uker bakover fra og med inneværende uke. Er
 //   ikke kravet nådd ennå denne uka, telles det fra forrige — uka er ikke over,
@@ -202,8 +199,6 @@ export interface GoalKindInfo {
   unit: string;
   /** Rekordmål trenger en øvelse; resten regnes ut fra øktloggen. */
   needsExercise?: boolean;
-  /** Rekordmål gir bare mening for én person; resten for alle. */
-  who: 'alle' | 'felles' | 'person';
   /** Forslag til mål når man bytter type. */
   suggest: number;
   /** Desimaler er meningsfulle for kg, ikke for antall økter. */
@@ -213,18 +208,18 @@ export interface GoalKindInfo {
 }
 
 export const GOAL_KINDS: GoalKindInfo[] = [
-  { v: 'record',         label: 'Rekord i en øvelse', hint: 'Nå en gitt vekt eller repetisjon — med eller uten frist', unit: 'kg',    who: 'person', suggest: 100, needsExercise: true, decimals: true, titleSuffix: '' },
-  { v: 'sessions_year',  label: 'Økter i år',         hint: 'Teller fullførte økter hittil i år',                      unit: 'økter', who: 'alle',   suggest: 150, titleSuffix: ' i år' },
-  { v: 'sessions_month', label: 'Økter denne måneden',hint: 'Teller fullførte økter i inneværende måned',              unit: 'økter', who: 'alle',   suggest: 12,  titleSuffix: ' denne måneden' },
-  { v: 'sessions_total', label: 'Økter totalt',       hint: 'Teller alle fullførte økter noensinne',                   unit: 'økter', who: 'alle',   suggest: 500, titleSuffix: ' totalt' },
-  { v: 'weekly_streak',  label: 'Uker på rad',        hint: `Teller uker på rad der hver av dere har minst ${STREAK_MIN_SESSIONS} økter`, unit: 'uker', who: 'alle', suggest: 8, titleSuffix: ' på rad' },
+  { v: 'record',         label: 'Rekord i en øvelse', hint: 'Nå en gitt vekt eller repetisjon — med eller uten frist', unit: 'kg',    suggest: 100, needsExercise: true, decimals: true, titleSuffix: '' },
+  { v: 'sessions_year',  label: 'Økter i år',         hint: 'Teller fullførte økter hittil i år',                      unit: 'økter', suggest: 150, titleSuffix: ' i år' },
+  { v: 'sessions_month', label: 'Økter denne måneden',hint: 'Teller fullførte økter i inneværende måned',              unit: 'økter', suggest: 12,  titleSuffix: ' denne måneden' },
+  { v: 'sessions_total', label: 'Økter totalt',       hint: 'Teller alle fullførte økter noensinne',                   unit: 'økter', suggest: 500, titleSuffix: ' totalt' },
+  { v: 'weekly_streak',  label: 'Uker på rad',        hint: `Teller uker på rad med minst ${STREAK_MIN_SESSIONS} økter`, unit: 'uker', suggest: 8, titleSuffix: ' på rad' },
 ];
 
 // Ikke lenger valgbare for nye mål (varighet registreres ikke), men eksisterende
 // mål av disse typene finnes fortsatt i basen og må vises med riktig enhet.
 const LEGACY_GOAL_KINDS: GoalKindInfo[] = [
-  { v: 'hours_year',   label: 'Timer trent i år',   hint: 'Summerer målt tid på øktene hittil i år', unit: 'timer', who: 'alle', suggest: 100, decimals: true, titleSuffix: ' i år' },
-  { v: 'minutes_week', label: 'Minutter denne uka', hint: 'Summerer målt tid på øktene denne uka',    unit: 'min',   who: 'alle', suggest: 180, titleSuffix: ' denne uka' },
+  { v: 'hours_year',   label: 'Timer trent i år',   hint: 'Summerer målt tid på øktene hittil i år', unit: 'timer', suggest: 100, decimals: true, titleSuffix: ' i år' },
+  { v: 'minutes_week', label: 'Minutter denne uka', hint: 'Summerer målt tid på øktene denne uka',    unit: 'min',   suggest: 180, titleSuffix: ' denne uka' },
 ];
 
 export const goalKindInfo = (k: GoalKind): GoalKindInfo =>
@@ -250,7 +245,7 @@ export interface GoalStatus {
 /** Hvor et mål står akkurat nå. `sessions` kan inneholde pågående økter — de filtreres bort. */
 export function goalStatus(g: WorkoutGoal, sessions: WorkoutSession[], records: WorkoutRecord[]): GoalStatus {
   const done = sessions.filter(s => s.completedAt);
-  const mine = g.who === 'f' ? done : done.filter(s => s.who === g.who);
+  const mine = done.filter(s => s.who === g.who);
   const now = new Date();
   const year = now.getFullYear();
   const info = goalKindInfo(g.kind);
@@ -280,16 +275,15 @@ export function goalStatus(g: WorkoutGoal, sessions: WorkoutSession[], records: 
       value = Math.round(totalGymMinutes(mine.filter(s => new Date(s.startedAt).getTime() >= startOfWeek(now).getTime())));
       break;
     case 'weekly_streak':
-      // Et felles streak-mål krever at begge nådde kravet; et personlig bare den
-      // ene. Derfor hele øktlista her, ikke `mine` — filteret ligger i `who`.
-      value = weekStreak(done, g.who === 'f' ? TRAINERS : [g.who as Trainer]);
+      // Hele øktlista her, ikke `mine` — weekStreak filtrerer selv på `who`.
+      value = weekStreak(done, [g.who]);
       break;
     case 'record': {
       unit = g.unit ?? 'kg';
       // Enheten er en del av identiteten: 100 kg og 100 reps i samme øvelse er
       // to helt ulike mål, og skal ikke kunne oppfylle hverandre.
       const rs = records.filter(r =>
-        r.exercise === g.exercise && r.unit === unit && (g.who === 'f' || r.who === g.who));
+        r.exercise === g.exercise && r.unit === unit && r.who === g.who);
       value = rs.length ? Math.max(...rs.map(r => r.value)) : 0;
       achievedOn = rs.filter(r => r.value >= g.target).map(r => r.date).sort()[0] ?? null;
       break;
@@ -388,25 +382,15 @@ const andList = (parts: string[]) =>
   parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} og ${parts[parts.length - 1]}`;
 
 export function buildPulseRules(
-  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[], viewWho: Who = 'f',
+  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[], viewWho: Trainer,
 ): PulseRule[] {
-  // 'f' (Felles) leser fra begge, som før default-oppførselen var. Et
-  // personlig viewWho scoper til bare den ene — trainers=[viewWho] gjør at
-  // etterslep/streak-reglene under (som ellers itererer TRAINERS) bare
-  // regner ut status for den personen, i stedet for å feilaktig vise «X har
-  // ingen økter ennå» om den andre bare fordi dataen deres ble filtrert bort.
-  const trainers: Trainer[] = viewWho === 'f' ? TRAINERS : [viewWho];
-  const isPersonal = viewWho !== 'f';
+  const trainers: Trainer[] = [viewWho];
 
-  // allDone brukes bare for felles-mål (kind='f'), som skal vise kombinert
-  // fremgang uansett hvilken fane man står på — resten av funksjonen bruker
-  // `done`, scopet til trainers.
-  const allDone = sessions.filter(s => s.completedAt);
-  const done = allDone.filter(s => trainers.includes(s.who));
+  const done = sessions.filter(s => s.completedAt && s.who === viewWho);
   if (done.length === 0) return [];
 
-  const mineRecords = isPersonal ? records.filter(r => r.who === viewWho) : records;
-  const mineGoals = isPersonal ? goals.filter(g => g.who === 'f' || g.who === viewWho) : goals;
+  const mineRecords = records.filter(r => r.who === viewWho);
+  const mineGoals = goals.filter(g => g.who === viewWho);
 
   const rules: PulseRule[] = [];
   const now = Date.now();
@@ -433,37 +417,15 @@ export function buildPulseRules(
   // Siste økt finnes med max, ikke ved å plukke den første i lista: rekkefølgen
   // på `sessions` er ikke en del av kontrakten her, selv om Supabase leverer dem
   // nyest først i dag.
-  const status = trainers.map(who => {
-    const times = done.filter(s => s.who === who).map(s => new Date(s.startedAt).getTime());
-    if (times.length === 0) return { who, days: null as number | null, gap: null as number | null, overdue: Infinity };
-    const days = Math.floor((now - Math.max(...times)) / DAY);
-    const gap = typicalGapDays(done, who);
-    return { who, days, gap, overdue: days / Math.max(4, Math.round((gap ?? 3.5) * 2)) };
-  }).sort((a, b) => b.overdue - a.overdue);
-
-  // Den som aldri har trent og den som ligger etter er to uavhengige beskjeder.
-  // Var de en if/else før, og da kunne «Taran har ingen økter ennå» skjule at
-  // Andreas samtidig hadde tatt tre ukers pause.
-  const never = status.filter(x => x.days === null);
-  const active = status.filter(x => x.days !== null);
-
-  if (never.length > 0) {
-    // At den ene ikke har begynt er en beskjed de første ukene, ikke en
-    // overskrift i evig tid — ellers står boksen bom fast på den for alltid.
-    // Alderen på den aller første økta er proxyen for «hvor lenge har dette
-    // vært sant». Gulvet holder den med i rotasjonen.
-    const firstEver = Math.min(...done.map(s => new Date(s.startedAt).getTime()));
-    rules.push({ id: 'ingen-okter', tone: 'warn',
-      weight: fade(100, ageDays(firstEver), 30, 25), from: 'Kom i gang',
-      text: `${andList(never.map(x => WHO_LABEL[x.who]))} har ingen registrerte økter ennå — første avhuking teller.` });
-  }
-
-  const worst = active[0];
-  const hasEtterslep = !!worst && worst.overdue >= 1;
+  const lastSessionAt = Math.max(...done.map(s => new Date(s.startedAt).getTime()));
+  const daysSinceLast = Math.floor((now - lastSessionAt) / DAY);
+  const typicalGap = typicalGapDays(done, viewWho);
+  const overdue = daysSinceLast / Math.max(4, Math.round((typicalGap ?? 3.5) * 2));
+  const hasEtterslep = overdue >= 1;
   if (hasEtterslep) {
     rules.push({ id: 'etterslep', tone: 'warn', weight: 90, from: 'Vennlig påminnelse',
-      text: `${WHO_LABEL[worst.who]} har ikke trent på ${worst.days} dager — ${worst.gap
-        ? `vanligvis går det ${fmtNum(worst.gap)} dager mellom øktene`
+      text: `${WHO_LABEL[viewWho]} har ikke trent på ${daysSinceLast} dager — ${typicalGap
+        ? `vanligvis går det ${fmtNum(typicalGap)} dager mellom øktene`
         : 'kanskje en tur til gymmet i dag?'}` });
   }
 
@@ -487,15 +449,13 @@ export function buildPulseRules(
   const last4 = done.filter(s => new Date(s.startedAt).getTime() >= now - 28 * DAY).length / 4;
   if (done.length >= 20 && perWeek > 0 && last4 < perWeek * 0.7) {
     rules.push({ id: 'under-snitt', tone: 'warn', weight: 40, from: 'Trenden',
-      text: `Siste fire uker ligger på ${fmtNum(last4)} økter i uka — under snittet ${isPersonal ? 'ditt' : 'deres'} på ${fmtNum(perWeek)}.` });
+      text: `Siste fire uker ligger på ${fmtNum(last4)} økter i uka — under snittet ditt på ${fmtNum(perWeek)}.` });
   }
 
   // ── Mål ──────────────────────────────────────────────────────────────────
-  // allDone (ikke det scopede `done`) her: et felles mål skal vise kombinert
-  // fremgang uansett hvilken fane man ser det fra.
   const yearProgress = (now - new Date(year, 0, 1).getTime()) / (365 * DAY);
   for (const g of mineGoals) {
-    const st = goalStatus(g, allDone, records);
+    const st = goalStatus(g, done, records);
 
     if (st.done) {
       // Et rekordmål vet nøyaktig når det ble nådd, så feiringa tones ned med
@@ -567,12 +527,8 @@ export function buildPulseRules(
     const age = ageDays(passedOn);
     rules.push({ id: 'okt-milepal', tone: 'good', weight: fade(80, age, 30, 25), from: 'Milepæl',
       text: age < 14
-        ? (isPersonal
-            ? `Du passerte ${reached} loggførte økter. Det er ganske mange timer på gymmen.`
-            : `Dere passerte ${reached} loggførte økter sammen. Det er ganske mange timer på gymmen.`)
-        : (isPersonal
-            ? `${done.length} loggførte økter — ${reached} passerte du i ${new Date(passedOn).toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' })}.`
-            : `${done.length} loggførte økter sammen — ${reached} passerte dere i ${new Date(passedOn).toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' })}.`) });
+        ? `Du passerte ${reached} loggførte økter. Det er ganske mange timer på gymmen.`
+        : `${done.length} loggførte økter — ${reached} passerte du i ${new Date(passedOn).toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' })}.` });
   }
 
   if (wStreak >= 2 && wStreak === bestWeekStreak(done, trainers)) {
@@ -584,14 +540,10 @@ export function buildPulseRules(
     // faktiske rekordmeldinga trenger den sin egen etikett.
     rules.push({ id: 'beste-streak', tone: 'good',
       weight: extended === null ? 40 : fade(80, ageDays(extended), 4), from: 'Lengste rekke',
-      text: isPersonal
-        ? `${wStreak} uker på rad med ${STREAK_MIN_SESSIONS} økter i uka — det er den lengste rekka din til nå.`
-        : `${wStreak} uker på rad med ${STREAK_MIN_SESSIONS} økter hver — det er den lengste rekka deres til nå.` });
+      text: `${wStreak} uker på rad med ${STREAK_MIN_SESSIONS} økter i uka — det er den lengste rekka din til nå.` });
   } else if (MILESTONE_WEEKS.includes(wStreak)) {
     rules.push({ id: 'streak-milepal', tone: 'good', weight: 70, from: 'Milepæl',
-      text: isPersonal
-        ? `${wStreak} uker på rad med minst ${STREAK_MIN_SESSIONS} økter i uka.`
-        : `${wStreak} uker på rad der dere begge har minst ${STREAK_MIN_SESSIONS} økter i uka.` });
+      text: `${wStreak} uker på rad med minst ${STREAK_MIN_SESSIONS} økter i uka.` });
   }
 
   const monthCounts = new Map<string, number>();
@@ -604,9 +556,7 @@ export function buildPulseRules(
   const bestOther = Math.max(0, ...[...monthCounts].filter(([k]) => k !== thisMonthKey).map(([, v]) => v));
   if (thisMonth > bestOther && monthCounts.size > 1 && thisMonth >= 4) {
     rules.push({ id: 'beste-maned', tone: 'good', weight: 55, from: 'Beste måned',
-      text: isPersonal
-        ? `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er din travleste måned hittil — ${thisMonth} økter.`
-        : `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er den travleste måneden deres hittil — ${thisMonth} økter.` });
+      text: `${capitalize(new Date().toLocaleDateString('nb-NO', { month: 'long' }))} er din travleste måned hittil — ${thisMonth} økter.` });
   }
 
   // ── Fallback ─────────────────────────────────────────────────────────────
@@ -677,7 +627,7 @@ export function pickPulse(rules: PulseRule[], rand: () => number = Math.random):
 
 /** Meldingen som skal vises nå, eller null når det ikke finnes økter ennå. */
 export function computePulse(
-  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[], viewWho: Who = 'f',
+  sessions: WorkoutSession[], records: WorkoutRecord[], goals: WorkoutGoal[], viewWho: Trainer,
 ): Pulse | null {
   return pickPulse(buildPulseRules(sessions, records, goals, viewWho));
 }

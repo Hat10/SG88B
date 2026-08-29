@@ -989,7 +989,7 @@ function GoalModal({ goal, exercises, onClose }: {
   const { notify } = useSnackbar();
 
   const [kind, setKind] = useState<GoalKind>(goal?.kind ?? 'record');
-  const [who, setWho] = useState<Who>(goal?.who ?? 'M');
+  const [who, setWho] = useState<Trainer>(goal?.who ?? 'M');
   const [target, setTarget] = useState(goal ? String(goal.target) : '100');
   const [exercise, setExercise] = useState(goal?.exercise ?? '');
   const [unit, setUnit] = useState<RecordUnit>(goal?.unit ?? 'kg');
@@ -1007,14 +1007,6 @@ function GoalModal({ goal, exercises, onClose }: {
     ? exercise.trim() ? `${fmtNum(num || 0)} ${unit} ${exercise.trim().toLowerCase()}` : ''
     : `${fmtNum(num || 0, 0)} ${info.unit}${info.titleSuffix}`;
   const effectiveTitle = (titleTouched ? title : suggestedTitle).trim();
-
-  useEffect(() => {
-    if (info.who === 'felles' && who !== 'f') setWho('f');
-    if (info.who === 'person' && who === 'f') setWho('M');
-  }, [info.who, who]);
-
-  const whoDisabled = (w: Who) =>
-    (info.who === 'felles' && w !== 'f') || (info.who === 'person' && w === 'f');
 
   const valid = effectiveTitle.length > 0 && numOk && (kind !== 'record' || exercise.trim().length > 0);
 
@@ -1088,11 +1080,10 @@ function GoalModal({ goal, exercises, onClose }: {
         <div className="col" style={{ gap: 6, flex: 1, minWidth: 150 }}>
           <span className="card-eyebrow">Gjelder</span>
           <div className="row" style={{ gap: 6 }}>
-            {(['f', 'M', 'L'] as Who[]).map(w => (
-              <button key={w} onClick={() => setWho(w)} disabled={whoDisabled(w)} style={{
+            {TRAINERS.map(w => (
+              <button key={w} onClick={() => setWho(w)} style={{
                 flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 11, fontFamily: 'var(--font-mono)',
-                cursor: whoDisabled(w) ? 'not-allowed' : 'pointer',
-                opacity: whoDisabled(w) ? 0.35 : 1,
+                cursor: 'pointer',
                 border: `1px solid ${who === w ? WHO_COLOR[w] : 'var(--line-2)'}`,
                 background: who === w ? `${WHO_COLOR[w]}18` : 'transparent',
                 color: who === w ? WHO_COLOR[w] : 'var(--ink-4)',
@@ -1136,7 +1127,7 @@ function GoalModal({ goal, exercises, onClose }: {
   );
 }
 
-// ─── Delt navigasjon: Felles/Andreas/Taran + Registrer økt ──────────────────
+// ─── Delt navigasjon: Andreas/Taran + Registrer økt ─────────────────────────
 //
 // Samme rad, samme oppførsel, uansett om du står på registreringsskjermbildet
 // eller på Statistikk — fanene tar deg rett til Statistikk-visningen for akkurat
@@ -1155,9 +1146,9 @@ function TreningNav({ activeWho, onSelectPerson, onRegister }: {
   return (
     <>
       <div className="tr-seg">
-        {(['f', 'M', 'L'] as Who[]).map(w => (
+        {TRAINERS.map(w => (
           <button key={w} className={activeWho === w ? 'on' : ''} onClick={() => onSelectPerson(w)}>
-            {w === 'f' ? 'Felles' : WHO_LABEL[w]}
+            {WHO_LABEL[w]}
           </button>
         ))}
       </div>
@@ -1434,13 +1425,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     return out;
   }, [done, month]);
 
-  const pulse = useMemo(() => computePulse(sessions, records, goals, viewWho), [sessions, records, goals, viewWho]);
+  // «Felles» finnes ikke lenger som fane, så viewWho er i praksis alltid en
+  // Trainer her — TreningNav tilbyr ikke lenger 'f' som valg.
+  const pulse = useMemo(() => computePulse(sessions, records, goals, viewWho as Trainer), [sessions, records, goals, viewWho]);
 
-  // Felles trekker fra begges badges (samme trainers-scoping som resten av
-  // siden); Andreas/Taran ser bare sine egne.
   const myBadges = useMemo(
-    () => earnedBadges.filter(b => (isPerson ? b.who === who : true)),
-    [earnedBadges, isPerson, who]);
+    () => earnedBadges.filter(b => b.who === who),
+    [earnedBadges, who]);
 
   const prs = useMemo(() => buildPRs(records), [records]);
   const visiblePrs = isPerson ? prs.filter(p => p.who === who) : prs;
@@ -1842,8 +1833,11 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
 export default function PageTrening() {
   const { categories, sessions, records } = useTrening();
+  const { session } = useAuth();
   const [view, setView] = useState<'okter' | 'statistikk'>('okter');
-  const [viewWho, setViewWho] = useState<Who>('f');
+  // Ingen «Felles»-fane lenger — start på den innloggede brukerens egen fane
+  // i stedet for en fane som ikke finnes.
+  const [viewWho, setViewWho] = useState<Who>(() => trainerFromEmail(session?.user?.email));
 
   const [registerOpen,   setRegisterOpen]   = useState(false);
   const [registerPreset, setRegisterPreset] = useState<string | undefined>();

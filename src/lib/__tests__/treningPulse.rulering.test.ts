@@ -17,8 +17,7 @@
 //      titalls ganger blir stående utenfor båndet hver eneste gang.
 import { it, expect, vi } from 'vitest';
 import type { WorkoutSession, WorkoutRecord, WorkoutGoal, GoalKind, Trainer, RecordUnit } from '../../contexts/TreningContext';
-import type { Who } from '../../data';
-import { buildPulseRules, pickPulse, pulseBand, pulseScore, startOfWeek } from '../treningPulse';
+import { buildPulseRules, pickPulse, pulseBand, pulseScore, startOfWeek, TRAINERS } from '../treningPulse';
 
 const DAY = 86400000;
 /** Regelfamilie: strip goal-id-halen, så «mal-nadd-g3» og «mal-nadd-g7» er ett. */
@@ -43,7 +42,7 @@ function rec(daysAgo: number, who: Trainer, value: number, ex = 'Benkpress', uni
   return { id: `r${seq++}`, exercise: ex, who, value, unit, date: new Date(Date.now() - daysAgo * DAY).toISOString().slice(0, 10) };
 }
 function goal(kind: GoalKind, target: number, extra: Partial<WorkoutGoal> = {}): WorkoutGoal {
-  return { id: `g${seq++}`, title: `Mål ${kind}`, who: 'f', kind, target, exercise: null, unit: null, deadline: null, ...extra };
+  return { id: `g${seq++}`, title: `Mål ${kind}`, who: 'M', kind, target, exercise: null, unit: null, deadline: null, ...extra };
 }
 const inDays = (n: number) => new Date(Date.now() + n * DAY).toISOString().slice(0, 10);
 
@@ -86,44 +85,45 @@ type Case = { id: string; anchor: number; build: () => Partial<Data> };
 // Ett scenario per regel, skrudd sammen så nettopp den regelen kommer med i
 // båndet. Der en sterkere regel uunngåelig fyrer i samme situasjon (en fersk
 // rekord ved siden av «snart i mål», f.eks.) holder det at målregelen er innenfor
-// de 30 poenga og topp fem — det er nettopp det båndet er.
+// de 30 poenga og topp fem — det er nettopp det båndet er. Alle scenarioer er
+// bygget rundt Andreas (M) alene — buildPulseRules tar nå én person om gangen,
+// ikke lenger et kombinert Felles-syn.
 const CASES: Case[] = [
-  { id: 'ingen-okter', anchor: SAT, build: () => ({ sessions: routine(3, 3, ['M']) }) },
   { id: 'etterslep', anchor: SAT, build: () => ({
-      sessions: [...routine([0, 1, 2, 3, 4, 5, 6, 7, 8], 2, ['L']), ...routine([2, 3, 4, 5, 6, 7, 8], 3, ['M'])] }) },
+      sessions: routine([2, 3, 4, 5, 6, 7, 8], 3, ['M']) }) },
   { id: 'streak-ryker', anchor: SAT, build: () => ({
-      sessions: [...routine([1, 2, 3, 4], 3, ['M', 'L']), ...weekSessions(0, 3, ['M']), ...weekSessions(0, 1, ['L'])] }) },
-  { id: 'tom-uke', anchor: THU, build: () => ({ sessions: routine([1, 2, 3, 4, 5, 6, 7, 8], 1, ['M', 'L']) }) },
+      sessions: [...routine([1, 2, 3, 4], 3, ['M']), ...weekSessions(0, 1, ['M'])] }) },
+  { id: 'tom-uke', anchor: THU, build: () => ({ sessions: routine([1, 2, 3, 4, 5, 6, 7, 8], 1, ['M']) }) },
   { id: 'under-snitt', anchor: SAT, build: () => ({
-      // Tungt i uke 5–9, så bare én fersk økt hver. De fire siste ukene er nesten
+      // Tungt i uke 5–9, så bare én fersk økt. De fire siste ukene er nesten
       // tomme, så snittet for perioden ligger godt under årssnittet.
-      sessions: [...routine([5, 6, 7, 8, 9], 3, ['M', 'L']), sess(1, 'M'), sess(1, 'L')] }) },
+      sessions: [...routine([5, 6, 7, 8, 9], 4, ['M']), sess(1, 'M')] }) },
   { id: 'mal-nadd', anchor: SAT, build: () => ({
-      sessions: routine([0, 1, 2], 2, ['M', 'L']), records: [rec(1, 'M', 105)],
+      sessions: routine([0, 1, 2], 2, ['M']), records: [rec(1, 'M', 105)],
       goals: [goal('record', 100, { who: 'M', exercise: 'Benkpress', unit: 'kg' })] }) },
   { id: 'mal-frist-ute', anchor: SAT, build: () => ({
-      sessions: routine([0, 1, 2], 2, ['M', 'L']), records: [rec(10, 'M', 80)],
+      sessions: routine([0, 1, 2], 2, ['M']), records: [rec(10, 'M', 80)],
       goals: [goal('record', 120, { who: 'M', exercise: 'Benkpress', unit: 'kg', deadline: inDays(-5) })] }) },
   { id: 'mal-frist', anchor: SAT, build: () => ({
-      sessions: routine([0, 1, 2], 2, ['M', 'L']), records: [rec(10, 'M', 80)],
+      sessions: routine([0, 1, 2], 2, ['M']), records: [rec(10, 'M', 80)],
       goals: [goal('record', 120, { who: 'M', exercise: 'Benkpress', unit: 'kg', deadline: inDays(10) })] }) },
   { id: 'mal-narme', anchor: SAT, build: () => ({
       // Rekorden er 60 dager gammel, så «ny rekord» har falmet under terskelen og
       // skygger ikke for «snart i mål».
-      sessions: routine([0, 1, 2], 2, ['M', 'L']), records: [rec(60, 'M', 98)],
+      sessions: routine([0, 1, 2], 2, ['M']), records: [rec(60, 'M', 98)],
       goals: [goal('record', 100, { who: 'M', exercise: 'Benkpress', unit: 'kg' })] }) },
   { id: 'mal-foran', anchor: FEB, build: () => ({
-      sessions: routine([0, 1, 2, 3, 4, 5], 2, ['M', 'L']), goals: [goal('sessions_year', 100)] }) },
+      sessions: routine([0, 1, 2, 3, 4, 5], 4, ['M']), goals: [goal('sessions_year', 100)] }) },
   { id: 'mal-bak', anchor: SAT, build: () => ({
-      sessions: routine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 1, ['M', 'L']), goals: [goal('sessions_year', 400)] }) },
+      sessions: routine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 1, ['M']), goals: [goal('sessions_year', 400)] }) },
   { id: 'ny-rekord-Benkpress-M-kg', anchor: SAT, build: () => ({
-      sessions: routine([0, 1, 2], 2, ['M', 'L']), records: [rec(1, 'M', 100)] }) },
-  { id: 'okt-milepal', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2, 3, 4, 5, 6], 2, ['M', 'L']) }) },
-  { id: 'beste-streak', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2], 3, ['M', 'L']) }) },
-  { id: 'streak-milepal', anchor: SAT, build: () => ({ sessions: routine([0, 1, 3, 4, 5, 6], 3, ['M', 'L']) }) },
+      sessions: routine([0, 1, 2], 2, ['M']), records: [rec(1, 'M', 100)] }) },
+  { id: 'okt-milepal', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2, 3, 4, 5, 6], 4, ['M']) }) },
+  { id: 'beste-streak', anchor: SAT, build: () => ({ sessions: routine([0, 1, 2], 3, ['M']) }) },
+  { id: 'streak-milepal', anchor: SAT, build: () => ({ sessions: routine([0, 1, 3, 4, 5, 6], 3, ['M']) }) },
   { id: 'beste-maned', anchor: SAT, build: () => ({
-      sessions: [...weekSessions(0, 3, ['M', 'L']), sess(35, 'M'), sess(35, 'L'), sess(38, 'M'), sess(38, 'L')] }) },
-  { id: 'snitt', anchor: SAT, build: () => ({ sessions: [sess(3, 'M'), sess(3, 'L')] }) },
+      sessions: [...weekSessions(0, 4, ['M']), sess(35, 'M'), sess(38, 'M')] }) },
+  { id: 'snitt', anchor: SAT, build: () => ({ sessions: [sess(3, 'M')] }) },
 ];
 
 it('hver regel kan komme med i rotasjonsbåndet og bli vist når døgnet ruller', () => {
@@ -138,7 +138,7 @@ it('hver regel kan komme med i rotasjonsbåndet og bli vist når døgnet ruller'
     const data: Data = { sessions: [], records: [], goals: [], ...c.build() };
     // Reglene beregnes én gang på ankeret; døgnrulleringa endrer bare hvilket
     // båndmedlem som plukkes, ikke selve båndet.
-    const rules = buildPulseRules(data.sessions, data.records, data.goals);
+    const rules = buildPulseRules(data.sessions, data.records, data.goals, 'M');
     const band = pulseBand(rules);
     const bandIds = band.map(r => baseId(r.id));
 
@@ -167,8 +167,10 @@ it('hver regel kan komme med i rotasjonsbåndet og bli vist når døgnet ruller'
   }
   expect(missing).toEqual([]);
   expect(notShown).toEqual([]);
-  // Alle 17 familiene skal være dekket av et scenario hver.
-  expect(new Set(CASES.map(c => c.id)).size).toBe(17);
+  // Alle 16 familiene skal være dekket av et scenario hver. («ingen-okter» er
+  // borte — den krevde at én av to personer aldri hadde trent mens den andre
+  // hadde, en sammenligning som ikke lenger finnes uten Felles-visningen.)
+  expect(new Set(CASES.map(c => c.id)).size).toBe(16);
 });
 
 // ── Fuzz ────────────────────────────────────────────────────────────────────
@@ -212,10 +214,11 @@ function randomData(rand: () => number): Data {
   for (let k = 0, ng = ri(0, 4); k < ng; k++) {
     const kind = pick(kinds);
     const deadline = rand() < 0.4 ? inDays(ri(-40, 60)) : null;
+    const who = pick(['M', 'L']) as Trainer;
     if (kind === 'record') {
-      goals.push(goal(kind, ri(20, 200), { who: pick(['M', 'L']) as Who, exercise: 'Benkpress', unit: 'kg', deadline }));
+      goals.push(goal(kind, ri(20, 200), { who, exercise: 'Benkpress', unit: 'kg', deadline }));
     } else {
-      goals.push(goal(kind, ri(1, 300), { deadline }));
+      goals.push(goal(kind, ri(1, 300), { who, deadline }));
     }
   }
   return { sessions, records, goals };
@@ -235,26 +238,30 @@ it('fuzz: rulleringa er alltid velformet, og ingen regel som fyrer ofte blir ste
     vi.setSystemTime(new Date(anchor));
     seq = 0;
     const data = randomData(rand);
-    const rules = buildPulseRules(data.sessions, data.records, data.goals);
-    const live = rules.filter(r => r.weight >= 5);
-    const band = pulseBand(rules);
+    // buildPulseRules ser nå bare én person om gangen — kjør begge på samme
+    // tilfeldige datasett, så fuzzen fortsatt dekker like bredt som før.
+    for (const who of TRAINERS) {
+      const rules = buildPulseRules(data.sessions, data.records, data.goals, who);
+      const live = rules.filter(r => r.weight >= 5);
+      const band = pulseBand(rules);
 
-    // ── Invarianter for rulleringa ──
-    expect(band.length).toBeLessThanOrEqual(5);
-    if (live.length === 0) {
-      expect(band.length).toBe(0);
-      expect(pickPulse(rules)).toBeNull();
-      continue;
+      // ── Invarianter for rulleringa ──
+      expect(band.length).toBeLessThanOrEqual(5);
+      if (live.length === 0) {
+        expect(band.length).toBe(0);
+        expect(pickPulse(rules)).toBeNull();
+        continue;
+      }
+      expect(band.length).toBeGreaterThanOrEqual(1);
+      const top = Math.max(...live.map(pulseScore));
+      for (const r of band) expect(pulseScore(r)).toBeGreaterThanOrEqual(top - 30);
+      const p = pickPulse(rules);
+      expect(p).not.toBeNull();
+      expect(band.some(r => r.text === p!.text)).toBe(true);
+
+      for (const id of new Set(live.map(r => baseId(r.id)))) bump(firedIn, id);
+      for (const id of new Set(band.map(r => baseId(r.id)))) { bump(bandedIn, id); bandedEver.add(id); }
     }
-    expect(band.length).toBeGreaterThanOrEqual(1);
-    const top = Math.max(...live.map(pulseScore));
-    for (const r of band) expect(pulseScore(r)).toBeGreaterThanOrEqual(top - 30);
-    const p = pickPulse(rules);
-    expect(p).not.toBeNull();
-    expect(band.some(r => r.text === p!.text)).toBe(true);
-
-    for (const id of new Set(live.map(r => baseId(r.id)))) bump(firedIn, id);
-    for (const id of new Set(band.map(r => baseId(r.id)))) { bump(bandedIn, id); bandedEver.add(id); }
   }
   vi.useRealTimers();
 
@@ -270,5 +277,6 @@ it('fuzz: rulleringa er alltid velformet, og ingen regel som fyrer ofte blir ste
   }
   expect(starved).toEqual([]);
   // Fuzz-en skal treffe bredt av seg selv, ikke bare de håndlagde scenarioene.
-  expect(bandedEver.size).toBeGreaterThanOrEqual(15);
+  // 16 familier totalt nå («ingen-okter» er borte, se merknad over CASES).
+  expect(bandedEver.size).toBeGreaterThanOrEqual(14);
 });
