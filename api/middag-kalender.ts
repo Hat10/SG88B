@@ -22,6 +22,73 @@ async function getCalendar() {
   });
   return google.calendar({ version: 'v3', auth });
 }
+type Calendar = Awaited<ReturnType<typeof getCalendar>>;
+
+// 'HH:MM:SS' / 'YYYY-MM-DD' i Oslo lokal tid for et vilkårlig ISO-tidspunkt —
+// samme sv-SE-triks som resten av appen bruker for lokal dato/tid uten et
+// tredjeparts tidssone-bibliotek (se f.eks. api/cron/rollover.ts).
+function osloTimeOfDay(iso: string): string {
+  return new Date(iso).toLocaleTimeString('sv-SE', { timeZone: 'Europe/Oslo', hour12: false });
+}
+function osloDateOf(iso: string): string {
+  return new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
+}
+
+// Legger `hours` timer til et 'HH:MM:SS'-klokkeslett — ren klokke-aritmetikk
+// (tidssonen er allerede håndtert av kalleren), med midnatts-rullover for
+// sikkerhets skyld selv om det ikke er en realistisk case her.
+function addHours(time: string, hours: number): string {
+  const [h, m, s] = time.split(':').map(Number);
+  const total = (((h * 60 + m + hours * 60) % (24 * 60)) + 24 * 60) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// Finner en hendelse med EKSAKT denne tittelen på denne datoen (Oslo lokal
+// dato), i den oppgitte kalenderen — direkte mot Google Calendar API med
+// skrivesidens egen autentiserte klient, IKKE via api/kalender.ts (som
+// filtrerer bort andre ting før den returnerer, og uansett leser en helt
+// annen kilde — iCal-feeden, ikke selve Calendar-API-et). singleEvents:
+// true utvider en eventuell gjentakende hendelse til den faktiske
+// forekomsten denne dagen, så en flyttet/endret enkeltinstans leses riktig
+// i stedet for seriens opprinnelige starttidspunkt. Vinduet er bevisst
+// ±1 døgn i UTC (fremfor å regne ut eksakte Oslo-døgngrenser, som ville
+// krevd å vite sommer-/vintertid på forhånd) — selve datofiltreringen
+// skjer presist under, på Oslo-lokal dato.
+async function findEventByTitle(calendar: Calendar, calendarId: string, date: string, title: string) {
+  const DAY = 24 * 60 * 60 * 1000;
+  const center = new Date(`${date}T12:00:00Z`).getTime();
+  const { data } = await calendar.events.list({
+    calendarId,
+    timeMin: new Date(center - DAY).toISOString(),
+    timeMax: new Date(center + DAY).toISOString(),
+    singleEvents: true,
+  });
+  return (data.items ?? []).find(e => {
+    if ((e.summary ?? '').trim() !== title) return false;
+    const startIso = e.start?.dateTime ?? (e.start?.date ? `${e.start.date}T00:00:00Z` : null);
+    return !!startIso && osloDateOf(startIso) === date;
+  }) ?? null;
+}
+
+// Middagens starttid: 19:00 som standard, men styrt av en eventuell
+// Trening-hendelse samme dag i den felles kalenderen — spiser man ikke
+// middag midt i en treningsøkt. Finnes Trening med et satt sluttidspunkt,
+// blir DET middagens starttid; finnes Trening uten sluttidspunkt (eller et
+// heldags-arrangement uten klokkeslett), faller vi tilbake til 20:00.
+// Feiler selve oppslaget mot Google (uavhengig av om skriving fungerer),
+// faller vi tilbake til standardtiden i stedet for å la hele synken feile
+// — samme best-effort-filosofi som resten av denne ruten.
+async function resolveMealStartTime(calendar: Calendar, calendarId: string, date: string): Promise<string> {
+  try {
+    const trening = await findEventByTitle(calendar, calendarId, date, 'Trening');
+    if (!trening) return '19:00:00';
+    const end = trening.end?.dateTime;
+    return end ? osloTimeOfDay(end) : '20:00:00';
+  } catch (e: any) {
+    console.warn('middag-kalender: klarte ikke sjekke for Trening-hendelse, bruker standardtid', e?.message ?? e);
+    return '19:00:00';
+  }
+}
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -80,10 +147,12 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    const startTime = await resolveMealStartTime(calendar, calendarId, date);
+    const endTime = addHours(startTime, 1);
     const requestBody = {
       summary: `🍽️ ${title}`,
-      start: { dateTime: `${date}T19:30:00`, timeZone: 'Europe/Oslo' },
-      end: { dateTime: `${date}T20:30:00`, timeZone: 'Europe/Oslo' },
+      start: { dateTime: `${date}T${startTime}`, timeZone: 'Europe/Oslo' },
+      end: { dateTime: `${date}T${endTime}`, timeZone: 'Europe/Oslo' },
     };
 
     try {
