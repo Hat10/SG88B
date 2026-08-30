@@ -476,11 +476,12 @@ input, textarea, select { color-scheme: light; }
 .tag .who.l { background: var(--ink); }
 .tag .who.f { background: var(--good); }
 
-/* Checkbox */
+/* Checkbox — 1.5x oppskalert (var 14px/18px), se @media (max-width: 768px)
+   under for mobil/nettbrett-varianten */
 .check {
-  width: 14px; height: 14px;
+  width: 21px; height: 21px;
   border: 1px solid var(--line-2);
-  border-radius: 3px;
+  border-radius: 4.5px;
   flex-shrink: 0;
   background: var(--surface);
   display: grid; place-items: center;
@@ -492,10 +493,10 @@ input, textarea, select { color-scheme: light; }
 }
 .check.on::after {
   content: "";
-  width: 7px; height: 4px;
-  border-left: 1.5px solid var(--surface);
-  border-bottom: 1.5px solid var(--surface);
-  transform: rotate(-45deg) translate(1px, -1px);
+  width: 10.5px; height: 6px;
+  border-left: 2.25px solid var(--surface);
+  border-bottom: 2.25px solid var(--surface);
+  transform: rotate(-45deg) translate(1.5px, -1.5px);
 }
 
 /* Grids */
@@ -877,9 +878,9 @@ details[open] > summary::before { content: "−"; }
   .nav-icon { width: 20px; }
   .nav-section-label { font-size: 10.5px; margin-bottom: 6px; }
 
-  /* Bigger touch targets */
-  .check { width: 18px; height: 18px; border-radius: 4px; }
-  .check.on::after { width: 9px; height: 5px; }
+  /* Bigger touch targets — 1.5x oppskalert (var 18px) */
+  .check { width: 27px; height: 27px; border-radius: 6px; }
+  .check.on::after { width: 13.5px; height: 7.5px; }
 
   /* Prevent iOS auto-zoom on input focus (requires font-size >= 16px) */
   .input, input, select, textarea { font-size: 16px !important; }
