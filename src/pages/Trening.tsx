@@ -1420,25 +1420,24 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
     const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
     const offset = (first.getDay() + 6) % 7;
-    const byDay = new Map<string, Set<Trainer>>();
+    // Distinkte kategorier per dag, IKKE talt per økt — to styrkeøkter samme
+    // dag skal fortsatt bare gi ett fargesegment for den kategorien, ikke to.
+    const catsByDay = new Map<string, Set<string>>();
     for (const s of done) {
       const k = dayKey(new Date(s.startedAt));
-      if (!byDay.has(k)) byDay.set(k, new Set());
-      byDay.get(k)!.add(s.who);
+      if (!catsByDay.has(k)) catsByDay.set(k, new Set());
+      catsByDay.get(k)!.add(s.category || 'Uten kategori');
     }
-    const out: { key: string; day: number | ''; badge: string; bg: string; fg: string; bfg: string }[] = [];
-    for (let i = 0; i < offset; i++) out.push({ key: `pad${i}`, day: '', badge: '', bg: 'transparent', fg: 'transparent', bfg: 'transparent' });
+    const out: { key: string; day: number | ''; cats: string[]; bg: string; fg: string }[] = [];
+    for (let i = 0; i < offset; i++) out.push({ key: `pad${i}`, day: '', cats: [], bg: 'transparent', fg: 'transparent' });
     for (let d = 1; d <= days; d++) {
       const k = dayKey(new Date(month.getFullYear(), month.getMonth(), d));
-      const who = byDay.get(k);
-      let bg = 'var(--surface-2)', fg = 'var(--ink-4)', bfg = 'transparent', badge = '';
-      if (who?.has('M') && who.has('L')) {
-        bg = 'var(--tr-both)'; fg = 'var(--bg)'; bfg = 'var(--bg)';
-        badge = `${WHO_INITIAL.M}+${WHO_INITIAL.L}`;
-      }
-      else if (who?.has('M'))            { bg = 'var(--accent-soft)'; fg = 'var(--accent-deep)'; bfg = 'var(--accent-deep)'; badge = WHO_INITIAL.M; }
-      else if (who?.has('L'))            { bg = 'var(--tr-solo-l)';   fg = 'var(--ink-2)';       bfg = 'var(--ink)';         badge = WHO_INITIAL.L; }
-      out.push({ key: k, day: d, badge, bg, fg, bfg });
+      const cats = [...(catsByDay.get(k) ?? [])];
+      // Samme kontrast-triks som den tidligere --tr-both-cellen brukte: --bg
+      // (temaets ytterpunkt) leser tydelig mot enhver av kategorifargene, som
+      // alle er kalibrert mot MOTSATT temas --bg — se --cat-* i styles.css.
+      const fg = cats.length ? 'var(--bg)' : 'var(--ink-4)';
+      out.push({ key: k, day: d, cats, bg: 'var(--surface-2)', fg });
     }
     return out;
   }, [done, month]);
@@ -1628,9 +1627,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
           </div>
           <div className="tr-cal">
             {cells.map(c => (
-              <div key={c.key} className="tr-cal-cell" style={{ background: c.bg }}>
-                <span className="tr-cal-num" style={{ color: c.fg }}>{c.day}</span>
-                <span className="tr-cal-badge" style={{ color: c.bfg }}>{c.badge}</span>
+              <div key={c.key} className="tr-cal-cell" style={{ background: c.cats.length ? undefined : c.bg }}>
+                {c.cats.length > 0 && (
+                  <div className="tr-cal-catbg">
+                    {c.cats.map(cat => <div key={cat} style={{ flex: 1, background: colorFor(cat) }} />)}
+                  </div>
+                )}
+                <span className="tr-cal-num" style={{ position: 'relative', color: c.fg }}>{c.day}</span>
               </div>
             ))}
           </div>

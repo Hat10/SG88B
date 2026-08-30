@@ -1053,11 +1053,17 @@ details[open] > summary::before { content: "−"; }
 [data-theme="dark"] { --tr-solo-l: #26313F; --tr-both: #5589BC; }
 .tr-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .tr-cal-cell {
-  aspect-ratio: 1; border-radius: 6px; padding: 6px;
+  position: relative; aspect-ratio: 1; border-radius: 6px; padding: 6px;
   display: flex; flex-direction: column; justify-content: space-between;
 }
-.tr-cal-num   { font-family: var(--font-mono); font-size: 10px; }
-.tr-cal-badge { font-family: var(--font-mono); font-size: 9px; font-weight: 700; align-self: flex-end; }
+.tr-cal-num { font-family: var(--font-mono); font-size: 10px; }
+/* Kategorifarget bakgrunn, delt i like flex-segmenter (ett per distinkt
+   kategori den dagen) — fyller cellen bak dagtallet. border-radius: inherit
+   + overflow: hidden klipper segmentene til cellens egne avrundede hjørner. */
+.tr-cal-catbg {
+  position: absolute; inset: 0; border-radius: inherit; overflow: hidden;
+  display: flex;
+}
 
 .tr-exline {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px;
@@ -1075,7 +1081,6 @@ details[open] > summary::before { content: "−"; }
   .tr-cal { gap: 4px; }
   .tr-cal-cell { padding: 3px; }
   .tr-cal-num { font-size: 8px; }
-  .tr-cal-badge { font-size: 7px; }
 }
 
 /* Map mock for Kina */
