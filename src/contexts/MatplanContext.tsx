@@ -223,7 +223,13 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       supabase.from('recipes').select('*').order('name'),
       supabase.from('meal_plan').select('*').order('date'),
       supabase.from('staple_items').select('*').order('name'),
-      supabase.from('grocery_items').select('*').order('created_at'),
+      // Sekundær sortering på id: flere rader fra samme syncGroceryList()-batch
+      // (Fra ukens middager / Basisvarer) deler ofte nøyaktig samme created_at
+      // (satt av now() i én transaksjon), og en UPDATE (f.eks. avhuking)
+      // flytter raden fysisk i tabellen — uten en stabil tiebreaker kunne to
+      // etterfølgende henting derfor returnere de tvillingene i ulik rekkefølge,
+      // og raden "hoppet" i lista midt i hold-animasjonen i HandlelisteCard.tsx.
+      supabase.from('grocery_items').select('*').order('created_at').order('id'),
       supabase.from('grocery_category_overrides').select('*'),
     ]);
     if (rec) setRecipes(rec.map(recipeFromRow));

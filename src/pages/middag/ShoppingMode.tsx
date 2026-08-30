@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMatplan, weekDates, type GroceryItem } from '../../contexts/MatplanContext';
 import { handleukeStart } from '../../hooks/useWeeklyBucket';
@@ -40,7 +39,7 @@ function ShoppingRow({ group, onToggle, onCategoryChange }: {
   return (
     <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
       <button onClick={onToggle} style={{
-        flex: 1, display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+        flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
         padding: '16px 4px', background: 'transparent', border: 'none', cursor: 'pointer',
         opacity: group.done ? 0.4 : 1, minHeight: 60,
       }}>
@@ -50,8 +49,13 @@ function ShoppingRow({ group, onToggle, onCategoryChange }: {
           background: group.done ? 'var(--ink-4)' : 'transparent',
           display: 'grid', placeItems: 'center', color: '#fff', fontSize: 16, fontWeight: 700,
         }}>{group.done ? '✓' : ''}</span>
+        {/* minWidth: 0 overstyrer flex-items sin standard min-width: auto — uten
+            den nekter dette elementet å krympe under et langt, usammenbrutt
+            varenavns min-content-bredde, som presser hele raden (og dermed hele
+            det position:fixed Handlemodus-overlayet) bredere enn viewporten. Se
+            samtalen for hvorfor dette ga horisontal sildring på mobil. */}
         <span style={{
-          flex: 1, fontSize: 19, fontWeight: 600, color: 'var(--ink)',
+          flex: 1, minWidth: 0, fontSize: 19, fontWeight: 600, color: 'var(--ink)',
           textDecoration: group.done ? 'line-through' : 'none',
         }}>
           {group.name}
@@ -78,8 +82,7 @@ function ShoppingRow({ group, onToggle, onCategoryChange }: {
 }
 
 export default function ShoppingMode({ onClose }: { onClose: () => void }) {
-  const { groceryItems, toggleGroceryItem, addGroceryItem, setGroceryCategory } = useMatplan();
-  const [newItem, setNewItem] = useState('');
+  const { groceryItems, toggleGroceryItem, setGroceryCategory } = useMatplan();
 
   useScrollLock();
   useWakeLock(true);
@@ -114,19 +117,6 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
   // på nettopp det).
   const changeCategory = (group: MergedGroup, category: string) => void setGroceryCategory(group.ids[0], category);
 
-  const submitNewItem = async () => {
-    const name = newItem.trim();
-    if (!name) return;
-    setNewItem('');
-    try {
-      await addGroceryItem({ name, amount: 1 });
-    } catch {
-      // Feilen er allerede varslet av addGroceryItem (MatplanContext.tsx) —
-      // her legges bare varenavnet tilbake i feltet slik at forsøket ikke går tapt.
-      setNewItem(name);
-    }
-  };
-
   return createPortal(
     <div style={{
       position: 'fixed', inset: 0, zIndex: 500, background: 'var(--bg)',
@@ -151,7 +141,7 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px calc(16px + env(safe-area-inset-bottom, 0px))' }}>
         {visibleCategories.length === 0 && (
           <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 15, color: 'var(--ink-4)' }}>
             Handlelisten er tom
@@ -175,19 +165,6 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ))}
-      </div>
-
-      <div style={{
-        flexShrink: 0, borderTop: '1px solid var(--line)', background: 'var(--bg)',
-        padding: '10px 20px calc(10px + env(safe-area-inset-bottom, 0px))',
-        display: 'flex', gap: 8,
-      }}>
-        <input className="input" placeholder="Legg til vare…" value={newItem}
-          onChange={e => setNewItem(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && void submitNewItem()}
-          style={{ flex: 1, fontSize: 16 }} />
-        <button onClick={() => void submitNewItem()} className="btn primary" disabled={!newItem.trim()}
-          style={{ opacity: !newItem.trim() ? 0.4 : 1 }}>+ Legg til</button>
       </div>
     </div>,
     document.body,
