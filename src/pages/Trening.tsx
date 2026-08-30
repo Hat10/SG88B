@@ -1343,7 +1343,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
   // første logga økt; senere år (når det finnes data fra i fjor) fra 1. januar.
   // Samme regel som i lib/treningPulse.ts, så tallet og pulsmeldinga er enige.
   const firstEver = done.length ? Math.min(...done.map(s => new Date(s.startedAt).getTime())) : Date.now();
-  const countFrom = new Date(firstEver).getFullYear() === year ? firstEver : new Date(year, 0, 1).getTime();
+  // startOfWeek(firstEver), ikke det rå tidsstempelet — countFrom må selv være
+  // en mandag 00:00 for at (thisWeekStart - countFrom) blir et EKSAKT multiplum
+  // av 7 dager. Med det rå tidsstempelet tapte Math.floor under opptil nesten
+  // en hel ukes brøkdel hver gang, og med få uker i nevneren (tidlig i
+  // sporingshistorikken) ga det et sterkt oppblåst snitt — bekreftet empirisk:
+  // 7,5/uke vist mot 5,48 reelt, og 4/uke mot 3,06 reelt.
+  const countFrom = new Date(firstEver).getFullYear() === year ? startOfWeek(new Date(firstEver)).getTime() : new Date(year, 0, 1).getTime();
   // Kun HELE, avsluttede uker telles — verken i teller eller nevner. Uken som
   // pågår nå er ufullstendig og ville dratt snittet kunstig ned. thisWeekStart
   // er samme mandag-ankrede uke-grense (startOfWeek) som resten av sidens
