@@ -1,12 +1,12 @@
 import { INGREDIENT_UNITS } from '../../contexts/MatplanContext';
 
 // Delt mellom oppskrift-editoren (OppskrifterTab) og «Legg til kjøpsfrekvens»
-// i StapleManager (DagligvarerTab) — samme nedtrekksmeny for enhet. Trukket
-// ut hit etter at Enhet-plassholderens disabled/hidden-fiks (den skal aldri
-// være et valgbart alternativ i selve den nedfelte listen, kun grå
-// plasshoildertekst før noe er valgt) først bare ble gjort i det ene av de
-// to stedene den fantes — én komponent betyr den typen fiks nå kun trengs
-// én gang, ikke én gang per skjema.
+// i StapleManager (nå på Handleliste-siden, src/pages/Handleliste.tsx) —
+// samme nedtrekksmeny for enhet. Trukket ut hit etter at Enhet-plassholderens
+// disabled/hidden-fiks (den skal aldri være et valgbart alternativ i selve
+// den nedfelte listen, kun grå plasshoildertekst før noe er valgt) først bare
+// ble gjort i det ene av de to stedene den fantes — én komponent betyr den
+// typen fiks nå kun trengs én gang, ikke én gang per skjema.
 export default function UnitSelect({ value, onChange, style }: {
   value: string; onChange: (unit: string) => void; style?: React.CSSProperties;
 }) {

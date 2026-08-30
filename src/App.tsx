@@ -3,6 +3,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { useScrollLock } from './lib/useScrollLock';
 import { Couple } from './components';
 import { ErrorBoundary } from './ErrorBoundary';
+import { TopbarSlotProvider } from './lib/topbarSlot';
 import { useSnackbar } from './contexts/SnackbarContext';
 import { FinanceProvider } from './contexts/FinanceContext';
 import { CategoryProvider } from './contexts/CategoryContext';
@@ -158,7 +159,7 @@ const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub:
   'ting-vi-vil-gjore': { eyebrow: '', title: <>Ting vi vil <em>gjøre</em></>, sub: '' },
   gjoremal: { eyebrow: '', title: 'Gjøremål', sub: '' },
   trening: { eyebrow: 'Hverdag', title: 'Trening', sub: '' }, // siden lager sitt eget hode (se HEADLESS_ROUTES)
-  middag: { eyebrow: 'Hverdag', title: 'Middag', sub: 'Oppskrifter · Ukeplan · Dagligvarer' },
+  middag: { eyebrow: 'Hverdag', title: 'Middag', sub: 'Oppskrifter · Ukeplan' },
   handleliste: { eyebrow: 'Hverdag', title: 'Handleliste', sub: 'Dagligvarer' },
   okonomi: { eyebrow: '', title: 'Forbruk', sub: '' },
   kalender: { eyebrow: 'Hverdag', title: 'Kalender', sub: '' }, // sub is computed live in Page (current month)
@@ -284,19 +285,28 @@ function Sidebar({ route, setRoute, open, dragX, themeMode, setThemeMode }: { ro
   );
 }
 
-function Topbar({ route, setRoute, onMenuToggle }: { route: Route; setRoute: (r: Route) => void; onMenuToggle: () => void }) {
+function Topbar({ route, setRoute, onMenuToggle, onSlotReady }: {
+  route: Route; setRoute: (r: Route) => void; onMenuToggle: () => void; onSlotReady: (el: HTMLDivElement | null) => void;
+}) {
   return (
-    <div className="topbar">
-      <button className="menu-btn" onClick={onMenuToggle} aria-label="Meny">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-        </svg>
-      </button>
-      <div className="crumbs">
-        <span onClick={() => setRoute('home')} style={{ cursor: 'pointer' }}>felles</span>
-        <span className="sep">/</span>
-        <span className="here">{route === 'home' ? 'hjem' : route}</span>
+    <div className={'topbar' + (TOPBAR_SLOT_ROUTES.includes(route) ? ' has-nav' : '')}>
+      <div className="topbar-left">
+        <button className="menu-btn" onClick={onMenuToggle} aria-label="Meny">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+        <div className="crumbs">
+          <span onClick={() => setRoute('home')} style={{ cursor: 'pointer' }}>felles</span>
+          <span className="sep">/</span>
+          <span className="here">{route === 'home' ? 'hjem' : route}</span>
+        </div>
       </div>
+      {/* Mål for TopbarPortal (lib/topbarSlot.tsx) — sider som Trening portalerer
+          egen navigasjon hit i stedet for en egen rad under sidetittelen. Tom
+          (og usynlig, siden .topbar sin justify-content:space-between ikke
+          bryr seg om et tomt flex-element) for alle andre sider. */}
+      <div className="topbar-slot" ref={onSlotReady} />
     </div>
   );
 }
@@ -321,6 +331,13 @@ const FULLSCREEN_ROUTES: Route[] = ['kart'];
 // Sider som rendrer sin egen .page-head fordi tittelen avhenger av innholdet
 // (Trening bytter mellom «Klar for Pull A?» og statistikk-visningen).
 const HEADLESS_ROUTES: Route[] = ['trening'];
+
+// Sider som portalerer noe inn i .topbar-slot (TopbarPortal, lib/topbarSlot.tsx)
+// — brukes til å skjule brødsmulesti-teksten på mobil for å gi plass (se
+// .topbar.has-nav .crumbs i styles.css). Må holdes i sync manuelt: en side som
+// tar i bruk TopbarPortal uten å stå her mister bare den mobil-tilpasningen,
+// den slutter ikke å fungere.
+const TOPBAR_SLOT_ROUTES: Route[] = ['trening', 'hus'];
 
 // Vises mens en side-chunk lastes. Sidehodet rendres allerede synkront, så
 // dette er kun en tynn plassholder for innholdsområdet (chunkene er små og
@@ -385,6 +402,8 @@ function AppInner() {
     return NAV.find(n => n.id === p) ? p : 'home';
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Portal-mål for TopbarPortal (lib/topbarSlot.tsx) — se Topbar.
+  const [topbarSlot, setTopbarSlot] = useState<HTMLDivElement | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readInitialMode);
   const [autoDark, setAutoDark] = useState(isNightNow);
   // The Gangskjerm always follows the time-based auto theme, regardless of the
@@ -459,13 +478,13 @@ function AppInner() {
           className="main"
           style={FULLSCREEN_ROUTES.includes(route) ? { height: '100dvh', overflow: 'hidden' } : undefined}
         >
-          <Topbar route={route} setRoute={setRoute} onMenuToggle={() => setSidebarOpen(o => !o)} />
+          <Topbar route={route} setRoute={setRoute} onMenuToggle={() => setSidebarOpen(o => !o)} onSlotReady={setTopbarSlot} />
           <Page route={route as Exclude<Route, 'skjerm'>} />
         </main>
       </div>
     );
 
-  return <SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider>;
+  return <TopbarSlotProvider value={topbarSlot}><SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider></TopbarSlotProvider>;
 }
 
 export default function App() {

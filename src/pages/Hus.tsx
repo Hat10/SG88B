@@ -6,6 +6,7 @@ import { useHusGoal } from '../hooks/useHusGoal';
 import { bpFromEntry, bpFromCombined, type BuyingPowerParams } from '../lib/buyingPower';
 import { useBuyingPowerParams } from '../hooks/useBuyingPowerParams';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { TopbarPortal } from '../lib/topbarSlot';
 import HusPrognose from './HusPrognose';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -210,11 +211,11 @@ function FilterToggle({ value, onChange }: { value: PersonFilter; onChange: (f: 
   );
 }
 
-// A line chart card with its own person filter — independent per graph, always defaults to "felles".
-function FilterableChart({ title, combined, m, l, monthsM, monthsL, goal }: {
-  title: string; combined: number[]; m: number[]; l: number[]; monthsM: string[]; monthsL: string[]; goal?: number;
+// A line chart card, filtered by the page-wide person switcher (topbar) — no
+// longer its own independent control, see PageHus.
+function FilterableChart({ title, combined, m, l, monthsM, monthsL, goal, filter }: {
+  title: string; combined: number[]; m: number[]; l: number[]; monthsM: string[]; monthsL: string[]; goal?: number; filter: PersonFilter;
 }) {
-  const [filter, setFilter] = useState<PersonFilter>('felles');
   const series = filteredSeries(filter, combined, m, l);
   const months = filter === 'L' ? monthsL : monthsM;
   // Skalaen må dekke ALLE kurvene som tegnes — på «Felles» ligger begge de
@@ -224,7 +225,7 @@ function FilterableChart({ title, combined, m, l, monthsM, monthsL, goal }: {
   const main = series[0].values;
   const delta = main.length > 1 ? main[main.length - 1] - main[0] : 0;
   return (
-    <Card eyebrow="Utvikling" title={title} action={<FilterToggle value={filter} onChange={setFilter} />}>
+    <Card eyebrow="Utvikling" title={title}>
       <Legend items={series} />
       {main.length > 1 && (
         <div style={{
@@ -564,10 +565,9 @@ function DeltaRow({ deltas }: { deltas: (number | undefined)[] }) {
   );
 }
 
-function WealthDelta({ allM, allL, eyebrow, calc }: {
-  allM: FinanceEntry[]; allL: FinanceEntry[]; eyebrow: string; calc: (e: FinanceEntry) => number;
+function WealthDelta({ allM, allL, eyebrow, calc, filter }: {
+  allM: FinanceEntry[]; allL: FinanceEntry[]; eyebrow: string; calc: (e: FinanceEntry) => number; filter: PersonFilter;
 }) {
-  const [filter, setFilter] = useState<PersonFilter>('felles');
   const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 11, fontVariantNumeric: 'tabular-nums' };
 
   const allRows = [
@@ -588,7 +588,7 @@ function WealthDelta({ allM, allL, eyebrow, calc }: {
   });
 
   return (
-    <Card eyebrow={eyebrow} title="Siden sist måned" action={<FilterToggle value={filter} onChange={setFilter} />}>
+    <Card eyebrow={eyebrow} title="Siden sist måned">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {rows.map(r => (
           <div key={r.label}>
@@ -622,6 +622,11 @@ export default function PageHus() {
   const { finance, loading, save } = useFinance();
   const { goal, save: saveGoal } = useHusGoal();
   const [view, setView] = useState<'oversikt' | 'prognose'>('oversikt');
+  // Eneste person-visningsfilter på siden nå — sticky i toppbaren (TopbarPortal
+  // under), styrer hero, person-kort og alle grafer/delta-bokser samlet. IKKE
+  // koblet til AddForm sin egen who-state (den er hvem man LOGGER for, en
+  // skjema-kontroll, ikke et visningsfilter) eller LogTable (viser alltid begge).
+  const [pageWho, setPageWho] = useState<PersonFilter>('felles');
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
   const [preset, setPreset] = useState<Preset | null>(null);
@@ -633,7 +638,14 @@ export default function PageHus() {
   const latestM = allM[allM.length - 1] ?? EMPTY_ENTRY;
   const latestL = allL[allL.length - 1] ?? EMPTY_ENTRY;
   const { params: bpParams } = useBuyingPowerParams();
-  const combined = bpFromCombined(latestM, latestL, bpParams);
+  // Samme BuyingPowerResult-form uansett kilde (bpFromEntry/bpFromCombined
+  // deler shape), så resten av hero-blokken under leser fra `combined` helt
+  // uendret enten det er ett individuelt tall eller det samlede.
+  const combined = pageWho === 'M' ? bpFromEntry(latestM, bpParams)
+    : pageWho === 'L' ? bpFromEntry(latestL, bpParams)
+    : bpFromCombined(latestM, latestL, bpParams);
+  const heroLabel = pageWho === 'M' ? 'Andreas sin kjøpekraft' : pageWho === 'L' ? 'Taran sin kjøpekraft' : 'Samlet kjøpekraft';
+  const heroMonth = pageWho === 'L' ? latestL.month : latestM.month;
   const goalPct = Math.min(100, combined.maxPurchase > 0 ? (combined.maxPurchase / goal) * 100 : 0);
 
   const monthsM = allM.map(e => e.month);
@@ -656,13 +668,14 @@ export default function PageHus() {
 
   return (
     <>
-      <div style={{ marginBottom: 4 }}>
+      <TopbarPortal>
         <Tabs
           items={[{ id: 'oversikt', label: 'Oversikt' }, { id: 'prognose', label: '🔭 Prognose' }]}
           value={view}
           onChange={v => setView(v as 'oversikt' | 'prognose')}
         />
-      </div>
+        <FilterToggle value={pageWho} onChange={setPageWho} />
+      </TopbarPortal>
 
       {view === 'prognose' && <HusPrognose finance={finance} goal={goal} saveGoal={saveGoal} />}
 
@@ -679,7 +692,7 @@ export default function PageHus() {
       {hasData && <div className="card dark" style={{ padding: '28px 32px', gap: 20, marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <div className="card-eyebrow">Samlet kjøpekraft · {latestM.month}</div>
+            <div className="card-eyebrow">{heroLabel} · {heroMonth}</div>
             <div style={{ fontSize: 'clamp(32px, 8.5vw, 56px)', fontWeight: 400, letterSpacing: '-0.04em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', marginTop: 10 }}>
               {fmtKr(combined.maxPurchase)}
             </div>
@@ -718,7 +731,7 @@ export default function PageHus() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {[
-            { label: 'Samlet formue (EK)', val: combined.equity },
+            { label: pageWho === 'felles' ? 'Samlet formue (EK)' : `${pageWho === 'M' ? 'Andreas' : 'Taran'} sin formue (EK)`, val: combined.equity },
             { label: `Maks lån (${bpParams.loanMultiple} × inntekt − gjeld)`, val: combined.maxLoan },
           ].map(r => (
             <div key={r.label} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.05)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -761,22 +774,28 @@ export default function PageHus() {
       </div>}
 
       {/* ── Person cards + equity/formue delta ── */}
-      {hasData && (
-        <div className="grid grid-12" style={{ alignItems: 'start' }}>
-          <div className="col-3"><PersonCard who="M" entry={latestM} params={bpParams} /></div>
-          <div className="col-3"><PersonCard who="L" entry={latestL} params={bpParams} /></div>
-          <div className="col-3"><WealthDelta allM={allM} allL={allL} eyebrow="Egenkapital" calc={e => e.assets - e.boligLaan} /></div>
-          <div className="col-3"><WealthDelta allM={allM} allL={allL} eyebrow="Positiv formue" calc={e => e.assets - e.boligLaan - e.annetLaan} /></div>
-        </div>
-      )}
+      {hasData && (() => {
+        // Filtrert til én person blir det tre bokser i raden i stedet for fire
+        // (bare ett person-kort) — col-4 fyller da raden i stedet for å la
+        // tre tomme kolonner stå igjen.
+        const cardCol = pageWho === 'felles' ? 'col-3' : 'col-4';
+        return (
+          <div className="grid grid-12" style={{ alignItems: 'start' }}>
+            {pageWho !== 'L' && <div className={cardCol}><PersonCard who="M" entry={latestM} params={bpParams} /></div>}
+            {pageWho !== 'M' && <div className={cardCol}><PersonCard who="L" entry={latestL} params={bpParams} /></div>}
+            <div className={cardCol}><WealthDelta allM={allM} allL={allL} eyebrow="Egenkapital" calc={e => e.assets - e.boligLaan} filter={pageWho} /></div>
+            <div className={cardCol}><WealthDelta allM={allM} allL={allL} eyebrow="Positiv formue" calc={e => e.assets - e.boligLaan - e.annetLaan} filter={pageWho} /></div>
+          </div>
+        );
+      })()}
 
       {/* ── Charts + form ── */}
       <div className="grid grid-12" style={{ alignItems: 'start' }}>
         {hasData && (
           <div className="col-8 col" style={{ gap: 16 }}>
-            <FilterableChart title="Kjøpekraft over tid" combined={bpCombined} m={bpM} l={bpL} monthsM={monthsM} monthsL={monthsL} goal={goal} />
-            <FilterableChart title="Egenkapital over tid" combined={equityCombined} m={equityM} l={equityL} monthsM={monthsM} monthsL={monthsL} />
-            <FilterableChart title="Positiv formue over tid" combined={netWorthCombined} m={netWorthM} l={netWorthL} monthsM={monthsM} monthsL={monthsL} />
+            <FilterableChart title="Kjøpekraft over tid" combined={bpCombined} m={bpM} l={bpL} monthsM={monthsM} monthsL={monthsL} goal={goal} filter={pageWho} />
+            <FilterableChart title="Egenkapital over tid" combined={equityCombined} m={equityM} l={equityL} monthsM={monthsM} monthsL={monthsL} filter={pageWho} />
+            <FilterableChart title="Positiv formue over tid" combined={netWorthCombined} m={netWorthM} l={netWorthL} monthsM={monthsM} monthsL={monthsL} filter={pageWho} />
           </div>
         )}
         <div className={hasData ? 'col-4' : 'col-12'}>

@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
+import { TopbarPortal } from '../lib/topbarSlot';
 import type { Who } from '../data';
 import {
   WHO_LABEL, TRAINERS, dayKey, fmtNum, startOfWeek,
@@ -75,6 +76,11 @@ function fmtDay(iso: string): string {
   if (diff === 1) return 'i går';
   if (diff < 7) return d.toLocaleDateString('nb-NO', { weekday: 'long' });
   return d.toLocaleDateString('nb-NO', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+/** dd.mm.åååå — norsk tallformat, brukt for badge-forklaringens «Opptjent»-dato. */
+function fmtDateNumeric(iso: string): string {
+  return new Date(iso).toLocaleDateString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 /** «sist i går» / «sist for 12 dager siden» / «aldri». */
@@ -1188,14 +1194,12 @@ function Dashboard({ onSelectPerson, onRegister, onNewCategory, onEditCategory }
 
   return (
     <>
+      <TopbarPortal><TreningNav activeWho={null} onSelectPerson={onSelectPerson} onRegister={() => onRegister()} /></TopbarPortal>
       <div className="page-head" style={isMobile ? { paddingBottom: 10 } : undefined}>
         <div>
           <div className="page-sub">På gymmen</div>
           <h1 className="page-title">Hva har dere <em>trent</em>?</h1>
           {!isMobile && <div className="page-sub" style={{ marginTop: 8 }}>Huk av en kategori når en økt er gjennomført — velg hvem og når.</div>}
-        </div>
-        <div className="page-actions">
-          <TreningNav activeWho={null} onSelectPerson={onSelectPerson} onRegister={() => onRegister()} />
         </div>
       </div>
 
@@ -1333,14 +1337,22 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
   const year = new Date().getFullYear();
   const thisYear = done.filter(s => new Date(s.startedAt).getFullYear() === year);
+  const thisWeekStart = startOfWeek(new Date()).getTime();
   // Det aller første loggeåret startet dere ikke 1. januar — å dele på alle ukene
   // siden nyttår ville gitt et kunstig lavt snitt. Så det første året teller fra
   // første logga økt; senere år (når det finnes data fra i fjor) fra 1. januar.
   // Samme regel som i lib/treningPulse.ts, så tallet og pulsmeldinga er enige.
   const firstEver = done.length ? Math.min(...done.map(s => new Date(s.startedAt).getTime())) : Date.now();
   const countFrom = new Date(firstEver).getFullYear() === year ? firstEver : new Date(year, 0, 1).getTime();
-  const weeksElapsed = Math.max(1, Math.ceil((Date.now() - countFrom) / (7 * 86400000)));
-  const perWeek = thisYear.length / weeksElapsed;
+  // Kun HELE, avsluttede uker telles — verken i teller eller nevner. Uken som
+  // pågår nå er ufullstendig og ville dratt snittet kunstig ned. thisWeekStart
+  // er samme mandag-ankrede uke-grense (startOfWeek) som resten av sidens
+  // uke-baserte tall — ikke den tidligere rene dager-siden-countFrom-
+  // tellingen, som ikke brukte noen kalenderuke-avgrensning i det hele tatt.
+  // Delt logikk med lib/treningPulse.ts — hold de to i sync.
+  const weeksElapsed = Math.max(1, Math.floor((thisWeekStart - countFrom) / (7 * 86400000)));
+  const completedThisYear = thisYear.filter(s => new Date(s.startedAt).getTime() < thisWeekStart);
+  const perWeek = completedThisYear.length / weeksElapsed;
 
   const lastYear = done.filter(s => new Date(s.startedAt).getFullYear() === year - 1);
   const perWeekLast = lastYear.length / 52;
@@ -1433,6 +1445,16 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     () => earnedBadges.filter(b => b.who === who),
     [earnedBadges, who]);
 
+  // `${who}-${badgeKey}` for den badgen touch-forklaringen viser nå, om noen
+  // — title-attributtet under dekker desktop-hover som før, dette er kun
+  // touch-tillegget. Trenger ikke nullstilles ved personbytte: finnes ikke
+  // id-en lenger i myBadges under, faller boksen bort av seg selv.
+  const [openBadge, setOpenBadge] = useState<string | null>(null);
+  const openBadgeInfo = openBadge
+    ? myBadges.map(b => ({ b, def: BADGE_DEFS.find(d => d.key === b.badgeKey) }))
+        .find(({ b, def }) => def && `${b.who}-${b.badgeKey}` === openBadge)
+    : undefined;
+
   const prs = useMemo(() => buildPRs(records), [records]);
   const visiblePrs = isPerson ? prs.filter(p => p.who === who) : prs;
   const streakWho = isPerson ? [who] : TRAINERS;
@@ -1471,15 +1493,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
   return (
     <>
+      <TopbarPortal><TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} /></TopbarPortal>
       <div className="page-head">
         <div>
           <div className="page-sub">
             Oversikt <span className="meta">• {year}</span>
           </div>
           <h1 className="page-title">Slik trener <em>{isPerson ? WHO_LABEL[who] : 'dere'}</em></h1>
-        </div>
-        <div className="page-actions">
-          <TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} />
         </div>
       </div>
 
@@ -1491,16 +1511,42 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
         <div className="note" style={{ borderLeftColor: pulse?.color ?? 'var(--accent-deep)' }}>
           {pulse && <>{pulse.text}<span className="note-from">{pulse.from}</span></>}
           {myBadges.length > 0 && (
-            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: pulse ? 10 : 0 }}>
-              {myBadges.map(b => {
-                const def = BADGE_DEFS.find(d => d.key === b.badgeKey);
-                if (!def) return null;
-                return (
-                  <span key={`${b.who}-${b.badgeKey}`} title={`${def.label}${isPerson ? '' : ` · ${WHO_LABEL[b.who]}`}`}
-                    style={{ fontSize: 17, fontStyle: 'normal', lineHeight: 1 }}>{def.icon}</span>
-                );
-              })}
-            </div>
+            <>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: pulse ? 10 : 0 }}>
+                {myBadges.map(b => {
+                  const def = BADGE_DEFS.find(d => d.key === b.badgeKey);
+                  if (!def) return null;
+                  const badgeId = `${b.who}-${b.badgeKey}`;
+                  return (
+                    <span key={badgeId} title={`${def.label}${isPerson ? '' : ` · ${WHO_LABEL[b.who]}`}`}
+                      role="button" tabIndex={0}
+                      onClick={() => setOpenBadge(cur => cur === badgeId ? null : badgeId)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenBadge(cur => cur === badgeId ? null : badgeId); } }}
+                      style={{ fontSize: 17, fontStyle: 'normal', lineHeight: 1, cursor: 'pointer' }}>{def.icon}</span>
+                  );
+                })}
+              </div>
+              {/* Touch-tillegg til title-attributtet over — en svevende tooltip
+                  festet til selve ikonet er upålitelig på mobil, så forklaringen
+                  vises her i stedet, alltid på samme sted uansett hvilket badge
+                  som ble trykket. Trykk hvor som helst i boksen lukker den. */}
+              {openBadgeInfo?.def && (
+                <div
+                  onClick={() => setOpenBadge(null)}
+                  style={{
+                    marginTop: 8, padding: '8px 12px', borderRadius: 6, cursor: 'pointer',
+                    background: 'var(--surface-2)', border: '1px solid var(--line)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                    {openBadgeInfo.def.icon} {openBadgeInfo.def.label}
+                    {!isPerson && <span style={{ fontWeight: 400, color: 'var(--ink-3)' }}> · {WHO_LABEL[openBadgeInfo.b.who]}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{openBadgeInfo.def.message}</div>
+                  <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 4 }}>Opptjent {fmtDateNumeric(openBadgeInfo.b.earnedAt)}</div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1678,7 +1724,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
                   <div className="row" style={{ gap: 7, minWidth: 0 }}>
                     <CatTag category={s.category} />
                   </div>
-                  <div className="sub">{fmtDay(s.startedAt)} · {new Date(s.startedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="sub">{fmtDay(s.startedAt)}</div>
                   {s.note && <div className="sub" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>📝 {s.note}</div>}
                 </div>
                 <button
