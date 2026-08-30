@@ -362,11 +362,14 @@ alter publication supabase_realtime add table public.workout_records;
 create index workout_records_exercise_idx on public.workout_records (exercise, who, date desc);
 
 -- [CONFIRMED] scripts/trening-migration.sql / trening-goals-migration.sql,
--- recreated identically by rebuild (final shape below)
+-- recreated identically by rebuild (final shape below). who's default and
+-- CHECK narrowed by trening-goals-who-constraint-migration.sql once «Felles»
+-- was removed from Trening — 'f' is no longer a valid value (see also
+-- trening-fjern-felles-mal-migration.sql, which deletes any leftover rows).
 create table public.workout_goals (
   id          uuid primary key default gen_random_uuid(),
   title       text not null,
-  who         text not null default 'f' check (who in ('f','M','L')),
+  who         text not null check (who in ('M','L')),
   kind        text not null check (kind in (
                 'sessions_year','sessions_month','sessions_total','hours_year',
                 'minutes_week','together_week','weekly_streak','record')),

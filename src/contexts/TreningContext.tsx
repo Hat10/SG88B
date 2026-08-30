@@ -90,7 +90,7 @@ export type GoalKind =
 export interface WorkoutGoal {
   id: string;
   title: string;
-  who: Who;
+  who: Trainer;
   kind: GoalKind;
   target: number;
   /** Bare for kind='record': øvelsen og enheten målet gjelder. */
@@ -196,7 +196,7 @@ const recordFromRow = (r: Record<string, unknown>): WorkoutRecord => ({
 const goalFromRow = (r: Record<string, unknown>): WorkoutGoal => ({
   id: r.id as string,
   title: r.title as string,
-  who: (r.who as Who) ?? 'f',
+  who: (r.who as Trainer) ?? 'M',
   kind: (r.kind as GoalKind) ?? 'sessions_year',
   target: Number(r.target ?? 0),
   exercise: (r.exercise as string | null) ?? null,

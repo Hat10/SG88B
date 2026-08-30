@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { WorkoutSession, WorkoutRecord, WorkoutGoal, GoalKind } from '../../contexts/TreningContext';
+import type { WorkoutSession, WorkoutRecord, WorkoutGoal, GoalKind, Trainer } from '../../contexts/TreningContext';
 import {
   goalStatus, totalMinutes, durationMin, fmtDur, dayKey, startOfWeek, median,
   weekStreak, bestWeekStreak, streakShortfall, pickPulse, pulseBand, buildPulseRules,
@@ -165,9 +165,8 @@ describe('streak', () => {
 
   it('regner weekly_streak-mål etter samme definisjon', () => {
     const s = [...fullWeek(1), ...fullWeek(2)];
-    expect(goalStatus(goal('weekly_streak', 4, { who: 'f' }), s, []).now).toBe(2);
     expect(goalStatus(goal('weekly_streak', 4, { who: 'M' }), s, []).now).toBe(2);
-    // Taran dropper uke 1 → hennes personlige streak er kortere enn den felles.
+    // Taran dropper uke 1 → hennes streak er kortere enn Andreas sin.
     const uneven = [...inWeek(1, 'M', 3), ...inWeek(1, 'L', 1), ...fullWeek(2)];
     expect(goalStatus(goal('weekly_streak', 4, { who: 'L' }), uneven, []).now).toBe(0);
     expect(goalStatus(goal('weekly_streak', 4, { who: 'M' }), uneven, []).now).toBe(2);
@@ -175,51 +174,32 @@ describe('streak', () => {
 });
 
 describe('regler bygget fra øktlogg', () => {
-  const ids = (s: WorkoutSession[], r: WorkoutRecord[] = [], g: WorkoutGoal[] = []) =>
-    new Set(buildPulseRules(s, r, g).map(x => x.id));
-  const weightOf = (s: WorkoutSession[], id: string) =>
-    buildPulseRules(s, [], []).find(x => x.id === id)?.weight ?? 0;
+  const ids = (s: WorkoutSession[], r: WorkoutRecord[] = [], g: WorkoutGoal[] = [], who: Trainer = 'M') =>
+    new Set(buildPulseRules(s, r, g, who).map(x => x.id));
+  const weightOf = (s: WorkoutSession[], id: string, who: Trainer = 'M') =>
+    buildPulseRules(s, [], [], who).find(x => x.id === id)?.weight ?? 0;
 
   it('gir samme svar uansett rekkefølge på øktene', () => {
     // `sessions` kom sortert nyest først fra Supabase, og etterslepsregelen
     // plukket «siste økt» med find(). Usortert input ga da helt feil dagtall.
-    const s = [...inWeek(0, 'M', 3), ...inWeek(4, 'M', 3), ...inWeek(0, 'L', 3)];
+    const s = [...inWeek(0, 'M', 3), ...inWeek(4, 'M', 3)];
     const asc = [...s].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
     const desc = [...asc].reverse();
     const text = (x: WorkoutSession[]) =>
-      buildPulseRules(x, [], []).map(r => `${r.id}:${r.text}`).sort().join('|');
+      buildPulseRules(x, [], [], 'M').map(r => `${r.id}:${r.text}`).sort().join('|');
     expect(text(asc)).toBe(text(desc));
     expect(text([...s].sort(() => Math.random() - 0.5))).toBe(text(desc));
   });
 
-  it('lar ikke «har aldri trent» skjule at den andre ligger etter', () => {
-    // Var if/else før: da sto boksen fast på Taran, og Andreas sin tre ukers pause
-    // ble aldri nevnt.
-    const s = Array.from({ length: 12 }, (_, i) => at(30 + i * 3, 50, 'M'));
-    const r = ids(s);
-    expect(r.has('ingen-okter')).toBe(true);
-    expect(r.has('etterslep')).toBe(true);
-  });
-
-  it('lar «har aldri trent» falme, så den ikke eier boksen for alltid', () => {
-    const fresh = [at(1, 50, 'M'), at(3, 50, 'M')];
-    const old = Array.from({ length: 20 }, (_, i) => at(i * 14, 50, 'M'));
-    expect(weightOf(fresh, 'ingen-okter')).toBeGreaterThan(90);
-    expect(weightOf(old, 'ingen-okter')).toBeLessThan(45);
-  });
-
   it('gjentar ikke etterslepet som «tom uke»', () => {
-    const s = Array.from({ length: 12 }, (_, i) => [
-      ...[0, 1].map(k => at(20 + i * 3 + k, 50, 'M')),
-      ...[0, 1].map(k => at(20 + i * 3 + k, 50, 'L')),
-    ]).flat();
+    const s = Array.from({ length: 12 }, (_, i) => [0, 1].map(k => at(20 + i * 3 + k, 50, 'M'))).flat();
     const r = ids(s);
     expect(r.has('etterslep')).toBe(true);
     expect(r.has('tom-uke')).toBe(false);
   });
 
   it('lar skrytet om lengste rekke falme utover uka', () => {
-    // Uten aldring sto «det er den lengste rekka deres til nå» i boksen hver
+    // Uten aldring sto «det er den lengste rekka di til nå» i boksen hver
     // eneste dag så lenge rekka varte — altså i månedsvis.
     const s = [...fullWeek(0), ...fullWeek(1), ...fullWeek(2)];
     const w = weightOf(s, 'beste-streak');
@@ -234,7 +214,7 @@ describe('regler bygget fra øktlogg', () => {
     // testen bare kunne akseptere begge utfall.
     const s = [...fullWeek(1), ...fullWeek(2)];
     const rules = buildPulseRules(s, [rec(100, dayKey(new Date()), 'M', 'kg'),
-      rec(200, dayKey(new Date()), 'M', 'reps')], []);
+      rec(200, dayKey(new Date()), 'M', 'reps')], [], 'M');
     expect(rules.find(x => x.id === 'ny-rekord-Benkpress-M-kg')!.text).toContain('100 kg');
     expect(rules.find(x => x.id === 'ny-rekord-Benkpress-M-reps')!.text).toContain('200 reps');
   });
@@ -358,7 +338,7 @@ describe('øktbaserte mål', () => {
 
   it('teller alt for sessions_total', () => {
     expect(goalStatus(goal('sessions_total', 10), sessions, []).now).toBe(3); // bare M
-    expect(goalStatus(goal('sessions_total', 10, { who: 'f' }), sessions, []).now).toBe(4);
+    expect(goalStatus(goal('sessions_total', 10, { who: 'L' }), sessions, []).now).toBe(1);
   });
 
   it('summerer minutter for uka', () => {
