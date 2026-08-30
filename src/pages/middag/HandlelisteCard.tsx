@@ -561,7 +561,12 @@ export default function HandlelisteCard() {
           </div>
           {freeformActive.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {freeformActive.map(g => (
+              {/* Nyeste øverst — groceryItems (og dermed freeform/freeformActive) er
+                  hentet sortert på created_at STIGENDE (se load() i MatplanContext.tsx),
+                  så en nylagt vare havner sist i den rekkefølgen. Reverseres kun her,
+                  ved rendering — påvirker ikke doneIds/«Vis handlet»/tomme-liste-sjekken,
+                  som bare bryr seg om medlemskap/antall, ikke rekkefølge. */}
+              {[...freeformActive].reverse().map(g => (
                 <FreeGroceryRow key={g.id} item={g}
                   editing={editingKeys.has(g.id)} onEditToggle={() => toggleEditKey(g.id)}
                   onToggle={() => toggleWithHold([g.id])}

@@ -101,11 +101,21 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
   const byCategory = new Map<GroceryCategory, MergedGroup[]>();
   for (const cat of GROCERY_CATEGORIES) byCategory.set(cat, []);
   for (const group of groups) byCategory.get(categoryOf(group))!.push(group);
-  // Kjøpte varer til bunnen av SIN EGEN kategori, ikke en egen global
-  // «kjøpt»-seksjon — stabil sort bevarer ellers rekkefølgen innad i hver av
-  // de to gruppene (aktive/kjøpte).
-  for (const list of byCategory.values()) list.sort((a, b) => Number(a.done) - Number(b.done));
-  const visibleCategories = GROCERY_CATEGORIES.filter(cat => (byCategory.get(cat)?.length ?? 0) > 0);
+
+  // Kjøpte varer samles i ÉN egen «Kjøpte varer»-liste nederst, tydelig
+  // atskilt fra de aktive kategori-seksjonene — IKKE liggende nederst i sin
+  // egen kategori-gruppe (det var forrige oppførsel). Rekkefølgen i den lista
+  // følger fortsatt kategori-rekkefølgen (GROCERY_CATEGORIES), som en stabil,
+  // forutsigbar sortering — ingen egne kategori-overskrifter inni selve
+  // «Kjøpte varer»-lista.
+  const activeByCategory = new Map<GroceryCategory, MergedGroup[]>();
+  const purchased: MergedGroup[] = [];
+  for (const cat of GROCERY_CATEGORIES) {
+    const list = byCategory.get(cat)!;
+    activeByCategory.set(cat, list.filter(g => !g.done));
+    purchased.push(...list.filter(g => g.done));
+  }
+  const visibleCategories = GROCERY_CATEGORIES.filter(cat => (activeByCategory.get(cat)?.length ?? 0) > 0);
 
   const totalCount = groups.length;
   const doneCount = groups.filter(g => g.done).length;
@@ -142,7 +152,7 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px calc(16px + env(safe-area-inset-bottom, 0px))' }}>
-        {visibleCategories.length === 0 && (
+        {visibleCategories.length === 0 && purchased.length === 0 && (
           <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 15, color: 'var(--ink-4)' }}>
             Handlelisten er tom
           </div>
@@ -157,7 +167,7 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
               <span aria-hidden style={{ fontSize: 18 }}>{CATEGORY_EMOJI[cat]}</span> {cat}
             </div>
             <div>
-              {byCategory.get(cat)!.map(group => (
+              {activeByCategory.get(cat)!.map(group => (
                 <ShoppingRow key={group.key} group={group}
                   onToggle={() => toggleGroup(group)}
                   onCategoryChange={c => changeCategory(group, c)} />
@@ -165,6 +175,25 @@ export default function ShoppingMode({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ))}
+
+        {purchased.length > 0 && (
+          <div style={{ marginTop: 28, paddingTop: 16, borderTop: '2px solid var(--line)' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2,
+              fontSize: 13, fontWeight: 700, color: 'var(--ink-3)',
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+            }}>
+              <span aria-hidden style={{ fontSize: 18 }}>✅</span> Kjøpte varer
+            </div>
+            <div>
+              {purchased.map(group => (
+                <ShoppingRow key={group.key} group={group}
+                  onToggle={() => toggleGroup(group)}
+                  onCategoryChange={c => changeCategory(group, c)} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body,
