@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { useScrollLock } from '../lib/useScrollLock';
 import { type ShoppingItem, type Priority, type PriceSource } from '../data';
 import { useWish, type ListKey, type WishPatch } from '../contexts/WishContext';
+import { useAuth } from '../contexts/AuthContext';
+import { trainerFromEmail } from '../contexts/TreningContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Card, Check, Tabs, fmtKr, Fab, SkeletonList } from '../components';
@@ -10,6 +12,7 @@ import { burst } from '../confetti';
 
 type SortKey = 'date-desc' | 'date-asc' | 'priority-desc' | 'priority-asc';
 type PriceMode = 'none' | 'manual' | 'prisjakt';
+type WishRow = ShoppingItem & { origin: ListKey };
 
 const LISTS: { key: ListKey; title: string; sub: string }[] = [
   { key: 'felles', title: '❤️ Felles',  sub: 'Ting vi ønsker sammen' },
@@ -21,6 +24,10 @@ const PRIORITY_ORDER: Record<Priority, number> = { lav: 1, middels: 2, høy: 3 }
 const PRIORITY_COLOR: Record<Priority, string> = { høy: '#D95F5F', middels: '#C9963A', lav: '#7AB394' };
 const PRIORITY_BG:    Record<Priority, string> = { høy: 'rgba(217,95,95,0.1)', middels: 'rgba(201,150,58,0.1)', lav: 'rgba(122,179,148,0.1)' };
 
+// Fargen på venstre kant av boksen viser hvilken liste ønsket hører til
+// (relevant siden Felles-fanen viser alle tre listene samlet).
+const LIST_COLOR: Record<ListKey, string> = { felles: '#D95F5F', andreas: '#3B82B8', taran: '#8B5CF6' };
+
 const SORT_LABELS: Record<SortKey, string> = {
   'date-desc': 'Nyeste først', 'date-asc': 'Eldste først',
   'priority-desc': 'Høy → Lav', 'priority-asc': 'Lav → Høy',
@@ -31,7 +38,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function sorted(items: ShoppingItem[], sort: SortKey): ShoppingItem[] {
+function sorted<T extends { addedAt: string; priority: Priority }>(items: T[], sort: SortKey): T[] {
   return [...items].sort((a, b) => {
     if (sort === 'date-desc') return b.addedAt.localeCompare(a.addedAt);
     if (sort === 'date-asc')  return a.addedAt.localeCompare(b.addedAt);
@@ -40,8 +47,8 @@ function sorted(items: ShoppingItem[], sort: SortKey): ShoppingItem[] {
   });
 }
 
-function ItemRow({ it, onToggle, onEdit, onRemove }: {
-  it: ShoppingItem; onToggle: () => void; onEdit: () => void; onRemove: () => void;
+function ItemRow({ it, origin, onToggle, onEdit, onRemove }: {
+  it: ShoppingItem; origin: ListKey; onToggle: () => void; onEdit: () => void; onRemove: () => void;
 }) {
   const checkRef = useRef<HTMLDivElement>(null);
 
@@ -58,7 +65,7 @@ function ItemRow({ it, onToggle, onEdit, onRemove }: {
       display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
       background: it.on ? 'var(--surface-2)' : 'var(--bg)',
       borderRadius: 6, border: '1px solid var(--line)',
-      borderLeft: `3px solid ${it.on ? 'var(--line)' : PRIORITY_COLOR[it.priority]}`,
+      borderLeft: `3px solid ${it.on ? 'var(--line)' : LIST_COLOR[origin]}`,
       opacity: it.on ? 0.55 : 1,
     }}>
       <div ref={checkRef} style={{ paddingTop: 2 }}><Check on={it.on} onClick={handleToggle} /></div>
@@ -164,8 +171,14 @@ function EditScreen({ title, onClose, children }: { title: string; onClose: () =
 
 export default function PageOnskeliste() {
   const { items, loading, add, toggle, update, patchPrice, remove } = useWish();
+  const { session } = useAuth();
   const { notify } = useSnackbar();
   const { confirm } = useConfirm();
+
+  // Fanerekkefølge: Felles, den innloggede, den andre — samme forhåndsvalg som i Trening.
+  const loggedInKey: ListKey = trainerFromEmail(session?.user?.email) === 'L' ? 'taran' : 'andreas';
+  const otherKey: ListKey = loggedInKey === 'andreas' ? 'taran' : 'andreas';
+  const orderedLists = ([ 'felles', loggedInKey, otherKey ] as ListKey[]).map(key => LISTS.find(l => l.key === key)!);
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
@@ -318,9 +331,18 @@ export default function PageOnskeliste() {
   });
 
   const editItem = editKey ? items[editKey.list].find(i => i.id === editKey.id) : null;
-  const remaining   = (k: ListKey) => items[k].filter(it => !it.on).length;
-  const activeItems = sorted(items[tab].filter(it => !it.on), sort);
-  const doneItems   = sorted(items[tab].filter(it =>  it.on), sort);
+  const remaining = (k: ListKey) => items[k].filter(it => !it.on).length;
+
+  // Felles-fanen viser alle tre listene samlet; de andre viser kun sin egen liste.
+  const tabRows: WishRow[] = tab === 'felles'
+    ? [
+        ...items.felles.map(it => ({ ...it, origin: 'felles' as const })),
+        ...items.andreas.map(it => ({ ...it, origin: 'andreas' as const })),
+        ...items.taran.map(it => ({ ...it, origin: 'taran' as const })),
+      ]
+    : items[tab].map(it => ({ ...it, origin: tab }));
+  const activeItems = sorted(tabRows.filter(it => !it.on), sort);
+  const doneItems   = sorted(tabRows.filter(it =>  it.on), sort);
 
   // Shared form content (used both inline and in mobile bottom sheet)
   const formInner = (
@@ -434,7 +456,7 @@ export default function PageOnskeliste() {
         {/* Filter tabs — between form and list */}
         <div className="col-12">
           <Tabs
-            items={LISTS.map(l => ({ id: l.key, label: l.title, count: String(remaining(l.key)) }))}
+            items={orderedLists.map(l => ({ id: l.key, label: l.title, count: String(remaining(l.key)) }))}
             value={tab}
             onChange={id => setTab(id as ListKey)}
           />
@@ -462,10 +484,10 @@ export default function PageOnskeliste() {
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {activeItems.map(it => (
-                <ItemRow key={it.id} it={it}
+                <ItemRow key={it.id} it={it} origin={it.origin}
                   onToggle={() => handleToggle(it.id!, it.on)}
-                  onEdit={() => startEdit(it.id!, tab)}
-                  onRemove={() => handleRemove(it, tab)} />
+                  onEdit={() => startEdit(it.id!, it.origin)}
+                  onRemove={() => handleRemove(it, it.origin)} />
               ))}
             </div>
 
@@ -478,10 +500,10 @@ export default function PageOnskeliste() {
                 {showDone[tab] && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
                     {doneItems.map(it => (
-                      <ItemRow key={it.id} it={it}
+                      <ItemRow key={it.id} it={it} origin={it.origin}
                         onToggle={() => handleToggle(it.id!, it.on)}
-                        onEdit={() => startEdit(it.id!, tab)}
-                        onRemove={() => handleRemove(it, tab)} />
+                        onEdit={() => startEdit(it.id!, it.origin)}
+                        onRemove={() => handleRemove(it, it.origin)} />
                     ))}
                   </div>
                 )}
