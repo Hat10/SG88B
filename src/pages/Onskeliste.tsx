@@ -187,9 +187,10 @@ export default function PageOnskeliste() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  const [tab,      setTab]      = useState<ListKey>('felles');
-  const [sort,     setSort]     = useState<SortKey>('date-desc');
-  const [showDone, setShowDone] = useState<Record<ListKey, boolean>>({ felles: false, andreas: false, taran: false });
+  const [tab,        setTab]        = useState<ListKey>('felles');
+  const [sort,       setSort]       = useState<SortKey>('priority-desc');
+  const [onlyFelles, setOnlyFelles] = useState(true);
+  const [showDone,   setShowDone]   = useState<Record<ListKey, boolean>>({ felles: false, andreas: false, taran: false });
 
   // Form
   const [addTarget, setAddTarget] = useState<ListKey>('felles');
@@ -333,16 +334,16 @@ export default function PageOnskeliste() {
   const editItem = editKey ? items[editKey.list].find(i => i.id === editKey.id) : null;
   const remaining = (k: ListKey) => items[k].filter(it => !it.on).length;
 
-  // Felles-fanen viser alle tre listene samlet; de andre viser kun sin egen liste.
-  const tabRows: WishRow[] = tab === 'felles'
-    ? [
-        ...items.felles.map(it => ({ ...it, origin: 'felles' as const })),
-        ...items.andreas.map(it => ({ ...it, origin: 'andreas' as const })),
-        ...items.taran.map(it => ({ ...it, origin: 'taran' as const })),
-      ]
-    : items[tab].map(it => ({ ...it, origin: tab }));
-  const activeItems = sorted(tabRows.filter(it => !it.on), sort);
-  const doneItems   = sorted(tabRows.filter(it =>  it.on), sort);
+  // Felles-fanen viser alle tre listene, gruppert i rekkefølge (Felles, innlogget,
+  // den andre) og sortert på valgt sortering innad i hver gruppe — ikke blandet sammen.
+  const groupOrder: ListKey[] = tab === 'felles'
+    ? (onlyFelles ? ['felles'] : ['felles', loggedInKey, otherKey])
+    : [tab];
+  const groupRows = (key: ListKey): WishRow[] => items[key].map(it => ({ ...it, origin: key }));
+  const rowsWithDone = (on: boolean): WishRow[] =>
+    groupOrder.flatMap(key => sorted(groupRows(key).filter(it => it.on === on), sort));
+  const activeItems = rowsWithDone(false);
+  const doneItems   = rowsWithDone(true);
 
   // Shared form content (used both inline and in mobile bottom sheet)
   const formInner = (
@@ -470,10 +471,18 @@ export default function PageOnskeliste() {
                 <div className="card-eyebrow">{LISTS.find(l => l.key === tab)!.sub}</div>
                 <h3 className="card-title" style={{ marginTop: 4 }}>{LISTS.find(l => l.key === tab)!.title}</h3>
               </div>
-              <select value={sort} onChange={e => setSort(e.target.value as SortKey)}
-                style={{ padding: '5px 10px', borderRadius: 6, cursor: 'pointer', background: 'var(--surface-2)', border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', flexShrink: 0 }}>
-                {SORT_CYCLE.map(s => <option key={s} value={s}>{SORT_LABELS[s]}</option>)}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                {tab === 'felles' && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                    <input type="checkbox" checked={onlyFelles} onChange={e => setOnlyFelles(e.target.checked)} />
+                    Kun felles
+                  </label>
+                )}
+                <select value={sort} onChange={e => setSort(e.target.value as SortKey)}
+                  style={{ padding: '5px 10px', borderRadius: 6, cursor: 'pointer', background: 'var(--surface-2)', border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
+                  {SORT_CYCLE.map(s => <option key={s} value={s}>{SORT_LABELS[s]}</option>)}
+                </select>
+              </div>
             </div>
 
             {loading && (
