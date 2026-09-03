@@ -333,16 +333,14 @@ export default function PageOnskeliste() {
   const editItem = editKey ? items[editKey.list].find(i => i.id === editKey.id) : null;
   const remaining = (k: ListKey) => items[k].filter(it => !it.on).length;
 
-  // Felles-fanen viser alle tre listene samlet; de andre viser kun sin egen liste.
-  const tabRows: WishRow[] = tab === 'felles'
-    ? [
-        ...items.felles.map(it => ({ ...it, origin: 'felles' as const })),
-        ...items.andreas.map(it => ({ ...it, origin: 'andreas' as const })),
-        ...items.taran.map(it => ({ ...it, origin: 'taran' as const })),
-      ]
-    : items[tab].map(it => ({ ...it, origin: tab }));
-  const activeItems = sorted(tabRows.filter(it => !it.on), sort);
-  const doneItems   = sorted(tabRows.filter(it =>  it.on), sort);
+  // Felles-fanen viser alle tre listene, gruppert i rekkefølge (Felles, innlogget,
+  // den andre) og sortert på valgt sortering innad i hver gruppe — ikke blandet sammen.
+  const groupOrder: ListKey[] = tab === 'felles' ? ['felles', loggedInKey, otherKey] : [tab];
+  const groupRows = (key: ListKey): WishRow[] => items[key].map(it => ({ ...it, origin: key }));
+  const rowsWithDone = (on: boolean): WishRow[] =>
+    groupOrder.flatMap(key => sorted(groupRows(key).filter(it => it.on === on), sort));
+  const activeItems = rowsWithDone(false);
+  const doneItems   = rowsWithDone(true);
 
   // Shared form content (used both inline and in mobile bottom sheet)
   const formInner = (
