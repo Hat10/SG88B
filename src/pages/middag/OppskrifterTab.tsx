@@ -1,9 +1,83 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMatplan, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { Card, Tag, SkeletonList } from '../../components';
 import UnitSelect from './UnitSelect';
+
+// Spesialverdi for «ingen tags»-filteret — kan ikke kollidere med en ekte tag
+// siden brukerens tags trimmes og aldri kan bli tom streng.
+const NO_TAGS = '';
+
+function TagFilterDropdown({ tags, selected, onChange }: {
+  tags: string[]; selected: Set<string>; onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [open]);
+
+  const toggle = (value: string) => {
+    const next = new Set(selected);
+    if (next.has(value)) next.delete(value); else next.add(value);
+    onChange(next);
+  };
+
+  const label = selected.size === 0 ? 'Filtrer på tags' : `Tags (${selected.size})`;
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{
+          padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
+          background: selected.size ? 'var(--ink)' : 'var(--surface-2)',
+          color: selected.size ? 'var(--bg)' : 'var(--ink-3)',
+          border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11,
+          whiteSpace: 'nowrap',
+        }}>
+        {label} ▾
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 20,
+          minWidth: 180, maxHeight: 260, overflowY: 'auto',
+          background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 6,
+        }}>
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5,
+            cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-2)',
+          }}>
+            <input type="checkbox" checked={selected.has(NO_TAGS)} onChange={() => toggle(NO_TAGS)} />
+            Ingen tags
+          </label>
+          {tags.length > 0 && <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />}
+          {tags.map(t => (
+            <label key={t} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5,
+              cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-2)',
+            }}>
+              <input type="checkbox" checked={selected.has(t)} onChange={() => toggle(t)} />
+              {t}
+            </label>
+          ))}
+          {selected.size > 0 && (
+            <button onClick={() => onChange(new Set())} className="btn ghost sm" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}>
+              Nullstill
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null, amountRange: null });
 
@@ -105,8 +179,15 @@ export default function OppskrifterTab() {
   const [editId, setEditId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [saving, setSaving] = useState(false);
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
 
   const stapleNames = new Set(stapleItems.map(s => s.name.trim().toLowerCase()));
+
+  const allTags = Array.from(new Set(recipes.flatMap(r => r.tags))).sort((a, b) => a.localeCompare(b, 'nb'));
+  const filteredRecipes = tagFilter.size === 0
+    ? recipes
+    : recipes.filter(r =>
+        (tagFilter.has(NO_TAGS) && r.tags.length === 0) || r.tags.some(t => tagFilter.has(t)));
 
   const startEdit = (r: Recipe) => { setEditId(r.id); setDraft(draftFromRecipe(r)); };
   const cancelEdit = () => { setEditId(null); setDraft(emptyDraft()); };
@@ -156,15 +237,21 @@ export default function OppskrifterTab() {
   return (
     <div className="grid grid-12">
       <div className="col-7">
-        <Card eyebrow="Oppskrifter" title={`Alle oppskrifter (${recipes.length})`}>
+        <Card eyebrow="Oppskrifter" title={`Alle oppskrifter (${filteredRecipes.length})`}
+          action={<TagFilterDropdown tags={allTags} selected={tagFilter} onChange={setTagFilter} />}>
           {loading && <SkeletonList rows={4} />}
           {!loading && recipes.length === 0 && (
             <div style={{ padding: '24px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
               Ingen oppskrifter ennå
             </div>
           )}
+          {!loading && recipes.length > 0 && filteredRecipes.length === 0 && (
+            <div style={{ padding: '24px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
+              Ingen oppskrifter matcher valgte tags
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {recipes.map(r => (
+            {filteredRecipes.map(r => (
               <div key={r.id} style={{
                 display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8,
                 padding: '12px 14px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 6,
