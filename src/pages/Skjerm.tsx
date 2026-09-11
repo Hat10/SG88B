@@ -8,6 +8,8 @@ import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
 import { fireworkRain } from '../confetti';
 import { TreningQuickRegister } from '../TreningQuickRegister';
+import { QuickTodoForm } from '../QuickAdd';
+import { useScrollLock } from '../lib/useScrollLock';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
@@ -500,6 +502,95 @@ interface AnyEvent {
   todoId?: string; // present only for todo events — lets us check them off in place
 }
 
+// ─── Quick-add popups (Gjøremål / Handleliste) ─────────────────────────────
+// Samme mønster som Registrer trening (TreningQuickRegister): fast mørk
+// «.card.dark»-kort på svart bakdrop, ikke det vanlige lys/mørk-temaet —
+// Gangskjermen skal alltid se slik ut, uavhengig av appens theme-valg.
+
+function ScreenPopup({ eyebrowText, title, onClose, viewportH, width, children }: {
+  eyebrowText: string; title: string; onClose: () => void; viewportH: number; width: number;
+  children: React.ReactNode;
+}) {
+  useScrollLock();
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, height: viewportH, zIndex: 200,
+        background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20, overflowY: 'auto',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="card dark"
+        style={{
+          padding: '28px 32px', width, maxWidth: 'calc(100vw - 48px)',
+          maxHeight: viewportH - 40, overflowY: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div className="card-eyebrow">{eyebrowText}</div>
+            <div className="card-title" style={{ fontSize: 22, fontWeight: 300, marginTop: 6, letterSpacing: '-0.01em' }}>{title}</div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'pointer', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
+          >✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TodoQuickAddModal({ isMobile, onClose, viewportH }: { isMobile: boolean; onClose: () => void; viewportH: number }) {
+  return (
+    <ScreenPopup eyebrowText="Gjøremål" title="Nytt gjøremål" onClose={onClose} viewportH={viewportH} width={460}>
+      <QuickTodoForm isMobile={isMobile} onClose={onClose} onDirtyChange={() => {}} />
+    </ScreenPopup>
+  );
+}
+
+// Kun navn, bevisst — ingen antall/enhet i denne raske varianten (kan legges
+// til på Handleliste-siden etterpå om det trengs).
+function GroceryQuickAddModal({ onClose, viewportH }: { onClose: () => void; viewportH: number }) {
+  const { addGroceryItem } = useMatplan();
+  const { notify } = useSnackbar();
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    try {
+      await addGroceryItem({ name: trimmed, amount: 1 });
+      notify(`«${trimmed}» lagt til på handlelisten`);
+      onClose();
+    } catch {
+      // Feilen er allerede varslet av addGroceryItem (MatplanContext.tsx) —
+      // la navnet stå igjen i feltet slik at forsøket ikke går tapt.
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <ScreenPopup eyebrowText="Handleliste" title="Legg til vare" onClose={onClose} viewportH={viewportH} width={420}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 20 }}>
+        <input className="input" placeholder="Navn på vare…" value={name} autoFocus
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') void submit(); }}
+          style={{ fontSize: 16, padding: '12px 14px' }} />
+        <button onClick={() => void submit()} className="btn primary" disabled={!name.trim() || saving}
+          style={{ justifyContent: 'center', opacity: (!name.trim() || saving) ? 0.5 : 1 }}>
+          {saving ? 'Lagrer…' : 'Legg til'}
+        </button>
+      </div>
+    </ScreenPopup>
+  );
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 interface Props { onBack: () => void }
@@ -525,6 +616,17 @@ function ScreenCheck({ checked, onClick, label }: {
         </svg>
       )}
     </button>
+  );
+}
+
+function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button onClick={onClick} aria-label={label} style={{
+      width: 24, height: 24, flexShrink: 0, cursor: 'pointer', padding: 0,
+      borderRadius: 6, display: 'grid', placeItems: 'center', lineHeight: 1,
+      border: '1px solid var(--line-2)', background: 'transparent',
+      color: 'var(--ink-3)', fontSize: 15, fontWeight: 700,
+    }}>+</button>
   );
 }
 
@@ -573,6 +675,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [weatherOpen, setWeatherOpen] = useState(false);
   const [recipeModalOpen, setRecipeModalOpen] = useState(false);
   const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
+  const [todoQuickAddOpen, setTodoQuickAddOpen] = useState(false);
+  const [groceryQuickAddOpen, setGroceryQuickAddOpen] = useState(false);
   const { categories: trCategories } = useTrening();
   const [tommeplan, setTommeplan]           = useState<TommeplanData | null>(null);
   const [tommeplanError, setTommeplanError] = useState(false);
@@ -1227,7 +1331,10 @@ export default function PageSkjerm({ onBack }: Props) {
         {/* Gjøremål — alle aktive (ikke bare dagens), med avkrysning + skjermbredt konfetti */}
         <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={eyebrow}>✅ Gjøremål</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={eyebrow}>✅ Gjøremål</div>
+              <AddButton onClick={() => setTodoQuickAddOpen(true)} label="Nytt gjøremål" />
+            </div>
             {activeTodoRows.length > 0 && (
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--ink-4)' }}>{activeTodoRows.length}</span>
             )}
@@ -1319,7 +1426,10 @@ export default function PageSkjerm({ onBack }: Props) {
         {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
         <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={eyebrow}>🛒 Handleliste</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={eyebrow}>🛒 Handleliste</div>
+              <AddButton onClick={() => setGroceryQuickAddOpen(true)} label="Legg til vare" />
+            </div>
             {previewRows.length > 0 && (
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>{previewRows.length} varer</span>
             )}
@@ -1564,6 +1674,16 @@ export default function PageSkjerm({ onBack }: Props) {
       {/* ── Registrer trening (rask, fra headeren) ── */}
       {treningRegisterOpen && (
         <TreningQuickRegister categories={trCategories} onClose={() => setTreningRegisterOpen(false)} />
+      )}
+
+      {/* ── Nytt gjøremål (rask, fra Gjøremål-boksen) ── */}
+      {todoQuickAddOpen && (
+        <TodoQuickAddModal isMobile={isMobile} onClose={() => setTodoQuickAddOpen(false)} viewportH={viewportH} />
+      )}
+
+      {/* ── Legg til vare (rask, fra Handleliste-boksen) ── */}
+      {groceryQuickAddOpen && (
+        <GroceryQuickAddModal onClose={() => setGroceryQuickAddOpen(false)} viewportH={viewportH} />
       )}
     </div>
   );
