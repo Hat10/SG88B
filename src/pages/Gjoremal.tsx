@@ -330,7 +330,12 @@ export default function PageGjoremal() {
   const handleDelete = async (item: TodoEntry) => {
     if (!await confirm({ title: 'Slett gjøremål?', message: `«${item.title}»`, confirmLabel: 'Slett' })) return;
     if (editId === item.id) cancelEdit();
-    void removeItem(item.id);
+    try {
+      await removeItem(item.id);
+    } catch (err) {
+      notify(`Sletting feilet: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     notify('Gjøremål slettet', {
       actionLabel: 'Angre',
       onAction: () => void addItem({
@@ -357,6 +362,8 @@ export default function PageGjoremal() {
       };
       if (editId) { await updateItem(editId, payload); cancelEdit(); }
       else        { await addItem(payload); resetForm(); }
+    } catch (err) {
+      notify(`Lagring feilet: ${err instanceof Error ? err.message : String(err)}`);
     } finally { setSaving(false); }
   };
 
@@ -498,7 +505,8 @@ export default function PageGjoremal() {
       {items.map(item => (
         <TodoRow
           key={item.id} item={item}
-          onToggle={() => void toggleItem(item.id, item.done)}
+          onToggle={() => void toggleItem(item.id, item.done).catch(err =>
+            notify(`Oppdatering feilet: ${err instanceof Error ? err.message : String(err)}`))}
           onEdit={() => startEdit(item.id)}
           onRemove={() => handleDelete(item)}
         />

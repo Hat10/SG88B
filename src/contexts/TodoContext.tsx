@@ -210,7 +210,7 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addItem = async (item: Omit<TodoEntry, 'id'>) => {
-    await supabase.from('todo_items').insert({
+    const { error } = await supabase.from('todo_items').insert({
       title: item.title,
       description: item.description ?? null,
       who: item.who,
@@ -225,6 +225,11 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
       repeat_unit: item.repeatUnit ?? null,
       repeat_month_mode: item.repeatMonthMode ?? null,
     });
+    // Uten denne kastes en avvist innsetting (RLS, constraint-brudd, skjema-
+    // avvik) aldri videre — skjemaet ville tømt seg som om det gikk bra,
+    // mens gjøremålet i realiteten aldri ble lagt inn. Se samme fiks i
+    // MatplanContext/BoligflippingContext for grocery_items/flipping_projects.
+    if (error) throw error;
     await load();
   };
 
@@ -245,7 +250,8 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
     if ('repeatInterval' in patch) db.repeat_interval = patch.repeatInterval ?? null;
     if ('repeatUnit' in patch)     db.repeat_unit     = patch.repeatUnit ?? null;
     if ('repeatMonthMode' in patch) db.repeat_month_mode = patch.repeatMonthMode ?? null;
-    await supabase.from('todo_items').update(db).eq('id', id);
+    const { error } = await supabase.from('todo_items').update(db).eq('id', id);
+    if (error) throw error;
     await load();
   };
 
@@ -253,13 +259,14 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
     const completing = !done;
     const year   = completing ? String(new Date().getFullYear()) : undefined;
     const doneAt = completing ? new Date().toISOString() : null;
-    await supabase.from('todo_items').update({ done: completing, done_year: year ?? null, done_at: doneAt }).eq('id', id);
+    const { error } = await supabase.from('todo_items').update({ done: completing, done_year: year ?? null, done_at: doneAt }).eq('id', id);
+    if (error) throw error;
 
     // Spawn next occurrence when completing a recurring item
     if (completing) {
       const item = items.find(i => i.id === id);
       if (item?.repeat && item.deadline) {
-        await supabase.from('todo_items').insert({
+        const { error: spawnError } = await supabase.from('todo_items').insert({
           title:       item.title,
           description: item.description ?? null,
           who:         item.who,
@@ -274,6 +281,7 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
           repeat_unit:     item.repeatUnit ?? null,
           repeat_month_mode: item.repeatMonthMode ?? null,
         });
+        if (spawnError) throw spawnError;
       }
     }
 
@@ -281,7 +289,8 @@ export function TodoProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeItem = async (id: string) => {
-    await supabase.from('todo_items').delete().eq('id', id);
+    const { error } = await supabase.from('todo_items').delete().eq('id', id);
+    if (error) throw error;
     await load();
   };
 
