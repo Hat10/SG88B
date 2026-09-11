@@ -97,7 +97,7 @@ function QuickSheet({ eyebrow, title, isMobile, dirty, onClose, children }: {
 
 // ─── quick todo form ─────────────────────────────────────────────────────────
 
-function QuickTodoForm({ isMobile, onClose, onDirtyChange }: {
+export function QuickTodoForm({ isMobile, onClose, onDirtyChange }: {
   isMobile: boolean; onClose: () => void; onDirtyChange: (dirty: boolean) => void;
 }) {
   const { addItem } = useTodo();
