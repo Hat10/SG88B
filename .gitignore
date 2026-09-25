@@ -6,3 +6,5 @@ testdata
 .vercel
 .env*.local
 backups/
+.vercel
+.env*
