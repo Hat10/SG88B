@@ -23,7 +23,7 @@ function handleukeStartWithOffset(offset: number): string {
 }
 
 export default function UkeplanTab() {
-  const { recipes, mealPlan, loading, setMealPlan, clearMealPlan } = useMatplan();
+  const { recipes, mealPlan, groceryItems, loading, setMealPlan, clearMealPlan, addMealToGroceryListNow } = useMatplan();
   const [weekOffset, setWeekOffset] = useState(0);
 
   const weekStart = handleukeStartWithOffset(weekOffset);
@@ -49,6 +49,12 @@ export default function UkeplanTab() {
           {days.map((date, i) => {
             const planned = mealPlan.find(mp => mp.date === date);
             const isToday = date === today;
+            // «Legg til nå» gir kun mening for en middag i en FREMTIDIG
+            // handleuke (weekOffset > 0) — inneværende ukes middager fanges
+            // uansett automatisk opp av syncGroceryList() neste gang noen
+            // åpner Handleliste, se HandlelisteCard.tsx.
+            const showAddToGroceryList = !!planned?.recipeId && weekOffset > 0;
+            const alreadyAdded = !!planned && groceryItems.some(g => g.mealPlanId === planned.id);
             return (
               <div key={date} style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
@@ -71,6 +77,17 @@ export default function UkeplanTab() {
                   <option value="">— Ingen middag planlagt —</option>
                   {recipes.map(r => <option key={r.id} value={r.id}>{r.name}{r.cookTimeMinutes != null ? ` (${r.cookTimeMinutes} min)` : ''}</option>)}
                 </select>
+                {showAddToGroceryList && (
+                  <button
+                    onClick={() => void addMealToGroceryListNow(planned!.id)}
+                    disabled={alreadyAdded}
+                    className="btn ghost sm"
+                    title={alreadyAdded ? 'Allerede lagt til i handlelisten' : 'Legg til i handlelisten allerede nå'}
+                    style={{ flexShrink: 0, opacity: alreadyAdded ? 0.5 : 1 }}
+                  >
+                    {alreadyAdded ? '✓' : '🛒+'}
+                  </button>
+                )}
               </div>
             );
           })}

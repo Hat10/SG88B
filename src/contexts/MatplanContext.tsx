@@ -101,6 +101,8 @@ interface MatplanCtx {
   restoreStaple: (s: StapleItem) => Promise<void>;
   /** Genererer manglende handlelistevarer for denne uken (planlagte middager + forfalte basisvarer). Idempotent. */
   syncGroceryList: () => Promise<void>;
+  /** Legger til handlelisterader for ÉN bestemt middag med det samme, uavhengig av handleukeStart()-vinduet. Idempotent. */
+  addMealToGroceryListNow: (mealPlanId: string) => Promise<void>;
   /** Frittstående dagligvare — ikke koblet til en middag eller basisvare. */
   addGroceryItem: (input: { name: string; amount: number | null }) => Promise<void>;
   setGroceryAmount: (id: string, amount: number) => Promise<void>;
@@ -117,7 +119,7 @@ const MatplanContext = createContext<MatplanCtx>({
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
   setMealPlan: noop, clearMealPlan: noop,
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
-  syncGroceryList: noop, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
+  syncGroceryList: noop, addMealToGroceryListNow: noop, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
   toggleGroceryItem: noop, removeGroceryItem: noop,
 });
 
@@ -202,6 +204,21 @@ function isStapleDue(s: StapleItem, today: string): boolean {
     / (7 * 86_400_000)
   );
   return cyclesPassed >= s.intervalWeeks;
+}
+
+/**
+ * Handlelisterader for ÉN planlagt middag — delt av syncGroceryList() (hele
+ * ukens middager) og addMealToGroceryListNow() (én bestemt middag, uavhengig
+ * av handleuke-vinduet). onGroceryList === false er den eneste ekskluderingen
+ * (se Ingredient-typen for hvorfor kun eksplisitt false teller).
+ */
+function mealRowsFor(mp: MealPlanEntry, recipe: Recipe, resolveCategory: (name: string) => string | null): Record<string, unknown>[] {
+  return recipe.ingredients
+    .filter(ing => ing.onGroceryList !== false)
+    .map(ing => ({
+      name: ing.name, amount: ing.amount, amount_range: ing.amountRange ?? null, unit: ing.unit,
+      meal_plan_id: mp.id, staple_item_id: null, category: resolveCategory(ing.name),
+    }));
 }
 
 export function MatplanProvider({ children }: { children: React.ReactNode }) {
@@ -400,20 +417,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     for (const mp of plannedThisWeek) {
       const recipe = recipes.find(r => r.id === mp.recipeId);
       if (!recipe) continue;
-      for (const ing of recipe.ingredients) {
-        // onGroceryList er besluttet og lagret på selve ingrediensen ved
-        // opprettelse/redigering av oppskriften (se Ingredient-typen) — kun
-        // eksplisitt false ekskluderer. Oppskrifter fra før feltet fantes
-        // mangler det (undefined) og skal oppføre seg akkurat som de alltid
-        // har gjort: alle ingrediensene deres var alltid med på handlelisten,
-        // og blir det fortsatt inntil oppskriften redigeres og feltet settes
-        // eksplisitt.
-        if (ing.onGroceryList === false) continue;
-        mealRows.push({
-          name: ing.name, amount: ing.amount, amount_range: ing.amountRange ?? null, unit: ing.unit,
-          meal_plan_id: mp.id, staple_item_id: null, category: resolveCategory(ing.name),
-        });
-      }
+      mealRows.push(...mealRowsFor(mp, recipe, resolveCategory));
     }
     // En rad som allerede finnes for (meal_plan_id, navn) hoppes bare over —
     // rører aldri en eksisterende rads avhuking.
@@ -440,6 +444,26 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       reportDbError('Synk av basisvarer', error);
     }
 
+    await load();
+  };
+
+  // Legger til handlelisterader for ÉN bestemt middag med det samme, uansett
+  // om middagens dato faller i inneværende handleuke (se handleukeStart) —
+  // brukt av «Legg til nå»-knappen i UkeplanTab for middager planlagt i en
+  // fremtidig uke. Idempotent på samme måte som syncGroceryList (samme unike
+  // indekser, se grocery-dedupe-migration.sql), og trygt om syncGroceryList
+  // senere også genererer de samme radene når ukens faktiske vindu kommer —
+  // upsert med ignoreDuplicates hopper da bare over det som allerede finnes.
+  const addMealToGroceryListNow = async (mealPlanId: string) => {
+    const mp = mealPlan.find(m => m.id === mealPlanId);
+    if (!mp) return;
+    const recipe = recipes.find(r => r.id === mp.recipeId);
+    if (!recipe) return;
+    const rows = mealRowsFor(mp, recipe, resolveCategory);
+    if (!rows.length) return;
+    const { error } = await supabase.from('grocery_items')
+      .upsert(rows, { onConflict: 'meal_plan_id,name', ignoreDuplicates: true });
+    if (reportDbError('Å legge middagen til handlelisten', error)) return;
     await load();
   };
 
@@ -514,7 +538,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
       setMealPlan, clearMealPlan,
       addStaple, updateStaple, removeStaple, restoreStaple,
-      syncGroceryList, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, removeGroceryItem,
+      syncGroceryList, addMealToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, removeGroceryItem,
     }}>
       {children}
     </MatplanContext.Provider>
