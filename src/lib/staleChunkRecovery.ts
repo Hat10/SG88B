@@ -1,3 +1,5 @@
+import { formatError } from './formatError';
+
 // Etter en ny deploy peker en allerede-åpen fane fortsatt på gamle,
 // hash-navngitte chunk-filer i minnet (React.lazy-importene i App.tsx) — de
 // finnes ikke lenger på serveren, siden den nye deployen bare har de nye
@@ -15,7 +17,7 @@ const STALE_CHUNK_PATTERNS = [
 ];
 
 export function isStaleChunkError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = formatError(error);
   return STALE_CHUNK_PATTERNS.some(p => p.test(message));
 }
 
