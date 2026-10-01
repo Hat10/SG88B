@@ -8,6 +8,7 @@ import { Check, Fab, SkeletonList } from '../components';
 import RepeatPicker, { EMPTY_REPEAT, type RepeatState } from '../RepeatPicker';
 import type { Who } from '../data';
 import { burst } from '../confetti';
+import { formatError } from '../lib/formatError';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -333,7 +334,7 @@ export default function PageGjoremal() {
     try {
       await removeItem(item.id);
     } catch (err) {
-      notify(`Sletting feilet: ${err instanceof Error ? err.message : String(err)}`);
+      notify(`Sletting feilet: ${formatError(err)}`);
       return;
     }
     notify('Gjøremål slettet', {
@@ -363,7 +364,7 @@ export default function PageGjoremal() {
       if (editId) { await updateItem(editId, payload); cancelEdit(); }
       else        { await addItem(payload); resetForm(); }
     } catch (err) {
-      notify(`Lagring feilet: ${err instanceof Error ? err.message : String(err)}`);
+      notify(`Lagring feilet: ${formatError(err)}`);
     } finally { setSaving(false); }
   };
 
@@ -506,7 +507,7 @@ export default function PageGjoremal() {
         <TodoRow
           key={item.id} item={item}
           onToggle={() => void toggleItem(item.id, item.done).catch(err =>
-            notify(`Oppdatering feilet: ${err instanceof Error ? err.message : String(err)}`))}
+            notify(`Oppdatering feilet: ${formatError(err)}`))}
           onEdit={() => startEdit(item.id)}
           onRemove={() => handleDelete(item)}
         />
