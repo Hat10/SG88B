@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 
-export const config = { maxDuration: 10 };
+export const config = { maxDuration: 30 };
 
 // Event-ID er avledet direkte fra datoen, så samme dag alltid treffer samme
 // hendelse (upsert i stedet for å hope opp duplikater ved re-valg av middag).
@@ -26,7 +26,9 @@ type Calendar = Awaited<ReturnType<typeof getCalendar>>;
 
 // 'HH:MM:SS' / 'YYYY-MM-DD' i Oslo lokal tid for et vilkårlig ISO-tidspunkt —
 // samme sv-SE-triks som resten av appen bruker for lokal dato/tid uten et
-// tredjeparts tidssone-bibliotek (se f.eks. api/cron/rollover.ts).
+// tredjeparts tidssone-bibliotek (se f.eks. api/cron/rollover.ts). All
+// tidsberegning i denne filen går via Europe/Oslo, aldri serverens egen
+// tidssone (Vercel kjører UTC).
 function osloTimeOfDay(iso: string): string {
   return new Date(iso).toLocaleTimeString('sv-SE', { timeZone: 'Europe/Oslo', hour12: false });
 }
@@ -35,13 +37,17 @@ function osloDateOf(iso: string): string {
 }
 
 // Legger `hours` timer til et 'HH:MM:SS'-klokkeslett — ren klokke-aritmetikk
-// (tidssonen er allerede håndtert av kalleren), med midnatts-rullover for
-// sikkerhets skyld selv om det ikke er en realistisk case her.
+// (tidssonen er allerede håndtert av kalleren). Passerer resultatet midnatt,
+// klemmes det til 23:59:59 slik at slutt aldri havner FØR start på samme dato.
 function addHours(time: string, hours: number): string {
   const [h, m, s] = time.split(':').map(Number);
-  const total = (((h * 60 + m + hours * 60) % (24 * 60)) + 24 * 60) % (24 * 60);
+  const total = h * 60 + m + hours * 60;
+  if (total >= 24 * 60) return '23:59:59';
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
+
+const DEFAULT_MEAL_TIME = '19:00:00';
+const TRAINING_NO_END_MEAL_TIME = '20:00:00';
 
 // Finner en hendelse med EKSAKT denne tittelen på denne datoen (Oslo lokal
 // dato), i den oppgitte kalenderen — direkte mot Google Calendar API med
@@ -72,21 +78,70 @@ async function findEventByTitle(calendar: Calendar, calendarId: string, date: st
 
 // Middagens starttid: 19:00 som standard, men styrt av en eventuell
 // Trening-hendelse samme dag i den felles kalenderen — spiser man ikke
-// middag midt i en treningsøkt. Finnes Trening med et satt sluttidspunkt,
-// blir DET middagens starttid; finnes Trening uten sluttidspunkt (eller et
-// heldags-arrangement uten klokkeslett), faller vi tilbake til 20:00.
+// middag midt i en treningsøkt. Finnes Trening med et satt sluttidspunkt
+// (samme Oslo-dato), blir DET middagens starttid; finnes Trening uten
+// sluttidspunkt (eller et heldags-arrangement uten klokkeslett, eller en
+// økt som slutter etter midnatt), faller vi tilbake til 20:00.
 // Feiler selve oppslaget mot Google (uavhengig av om skriving fungerer),
 // faller vi tilbake til standardtiden i stedet for å la hele synken feile
 // — samme best-effort-filosofi som resten av denne ruten.
 async function resolveMealStartTime(calendar: Calendar, calendarId: string, date: string): Promise<string> {
   try {
     const trening = await findEventByTitle(calendar, calendarId, date, 'Trening');
-    if (!trening) return '19:00:00';
+    if (!trening) return DEFAULT_MEAL_TIME;
     const end = trening.end?.dateTime;
-    return end ? osloTimeOfDay(end) : '20:00:00';
+    if (!end || osloDateOf(end) !== date) return TRAINING_NO_END_MEAL_TIME;
+    return osloTimeOfDay(end);
   } catch (e: any) {
     console.warn('middag-kalender: klarte ikke sjekke for Trening-hendelse, bruker standardtid', e?.message ?? e);
-    return '19:00:00';
+    return DEFAULT_MEAL_TIME;
+  }
+}
+
+const httpStatus = (e: any): number | undefined => e?.code ?? e?.response?.status;
+
+// Slår av/på Google-eventet for én dato. `title === null` fjerner det.
+// Duplisert i api/cron/rollover.ts (Vercel bundler hver api-fil isolert, så
+// kryss-import mellom rutefiler krasjer i drift) — hold de to kopiene i synk.
+async function syncMealEvent(calendar: Calendar, calendarId: string, date: string, title: string | null) {
+  const eventId = eventIdForDate(date);
+
+  if (!title) {
+    try {
+      await calendar.events.delete({ calendarId, eventId });
+    } catch (e: any) {
+      // 404/410: finnes ikke / allerede slettet — da er målet nådd.
+      if (httpStatus(e) !== 404 && httpStatus(e) !== 410) throw e;
+    }
+    return;
+  }
+
+  const startTime = await resolveMealStartTime(calendar, calendarId, date);
+  const endTime = addHours(startTime, 1);
+  // status: 'confirmed' er med hver gang: Google beholder ID-en til et slettet
+  // event som «cancelled», og en patch uten status svarer 200 uten å gjøre
+  // eventet synlig igjen.
+  const requestBody = {
+    status: 'confirmed',
+    summary: `🍽️ ${title}`,
+    start: { dateTime: `${date}T${startTime}`, timeZone: 'Europe/Oslo' },
+    end: { dateTime: `${date}T${endTime}`, timeZone: 'Europe/Oslo' },
+  };
+  const patch = () => calendar.events.patch({ calendarId, eventId, requestBody });
+
+  try {
+    await patch();
+  } catch (e: any) {
+    // 404: aldri opprettet. 410: slettet for godt. Begge → opprett på nytt.
+    if (httpStatus(e) !== 404 && httpStatus(e) !== 410) throw e;
+    try {
+      await calendar.events.insert({ calendarId, requestBody: { id: eventId, ...requestBody } });
+    } catch (e2: any) {
+      // 409: ID-en finnes allerede (cancelled event, eller samtidig insert) —
+      // patch med status: 'confirmed' reaktiverer/oppdaterer det.
+      if (httpStatus(e2) !== 409) throw e2;
+      await patch();
+    }
   }
 }
 
@@ -113,7 +168,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { date, title } = (req.body ?? {}) as { date?: string; title?: string | null };
+  const { date } = (req.body ?? {}) as { date?: string };
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     res.status(400).send('Ugyldig dato');
     return;
@@ -133,39 +188,23 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const eventId = eventIdForDate(date);
-
   try {
-    if (!title) {
-      // Middagen ble fjernet fra ukeplanen — fjern også hendelsen, hvis den finnes.
-      try {
-        await calendar.events.delete({ calendarId, eventId });
-      } catch (e: any) {
-        if (e?.code !== 404 && e?.response?.status !== 404) throw e;
-      }
-      res.status(200).json({ ok: true, deleted: true });
-      return;
-    }
+    // Databasen er sannhetskilden: klienten sender bare datoen, og vi leser
+    // gjeldende meal_plan-rad her. Samtidige kall for samme dato konvergerer
+    // da alle mot samme sluttilstand, uavhengig av rekkefølgen de fullføres i.
+    const { data: row, error: dbError } = await supabase
+      .from('meal_plan')
+      .select('recipes(name)')
+      .eq('date', date)
+      .maybeSingle();
+    if (dbError) throw new Error(`meal_plan: ${dbError.message}`);
 
-    const startTime = await resolveMealStartTime(calendar, calendarId, date);
-    const endTime = addHours(startTime, 1);
-    const requestBody = {
-      summary: `🍽️ ${title}`,
-      start: { dateTime: `${date}T${startTime}`, timeZone: 'Europe/Oslo' },
-      end: { dateTime: `${date}T${endTime}`, timeZone: 'Europe/Oslo' },
-    };
+    const recipe = (row as any)?.recipes;
+    const name = Array.isArray(recipe) ? recipe[0]?.name : recipe?.name;
+    const title: string | null = row ? (name || 'Middag') : null;
 
-    try {
-      await calendar.events.patch({ calendarId, eventId, requestBody });
-    } catch (e: any) {
-      if (e?.code === 404 || e?.response?.status === 404) {
-        await calendar.events.insert({ calendarId, requestBody: { id: eventId, ...requestBody } });
-      } else {
-        throw e;
-      }
-    }
-
-    res.status(200).json({ ok: true });
+    await syncMealEvent(calendar, calendarId, date, title);
+    res.status(200).json({ ok: true, deleted: title === null });
   } catch (e: any) {
     console.error('middag-kalender: klarte ikke oppdatere Google-kalenderen', e?.message ?? e);
     res.status(502).json({ ok: false, error: 'Kunne ikke oppdatere kalenderen' });

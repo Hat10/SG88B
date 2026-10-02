@@ -355,40 +355,46 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
 
   // ── Ukeplan ────────────────────────────────────────────────────────────────
 
-  // Speiler valgt middag til den delte Google-kalenderen (19:30–20:30 samme
-  // dag). Best-effort: kalenderen kan mangle konfigurasjon (GOOGLE_*-env-vars)
-  // uten at selve ukeplanleggingen skal feile, derfor kun logget, ikke kastet.
-  const syncDinnerCalendar = async (date: string, title: string | null) => {
+  // Ber serveren speile middagen på `date` til den delte Google-kalenderen
+  // (19:00–20:00 som standard, senere hvis det er Trening samme dag). Klienten
+  // sender bare datoen — serveren leser selve meal_plan-raden og avgjør om
+  // hendelsen skal opprettes/oppdateres eller fjernes, så samtidige endringer
+  // på samme dato ikke kan overskrive hverandre. Kalles ETTER at meal_plan er
+  // skrevet. Feiler synken, får brukeren beskjed (middagen er likevel lagret);
+  // keepalive lar kallet fullføre selv om man bytter side med en gang.
+  const syncDinnerCalendar = async (date: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { console.warn('Middag-kalender: ingen innlogget sesjon, hopper over synk'); return; }
+      if (!session) { notify('Middagen er lagret, men kalenderen ble ikke oppdatert (ikke innlogget).'); return; }
       const resp = await fetch('/api/middag-kalender', {
         method: 'POST',
+        keepalive: true,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ date, title }),
+        body: JSON.stringify({ date }),
       });
       if (!resp.ok) {
         console.error('Middag-kalender: serveren avviste synken', resp.status, await resp.text());
+        notify('Middagen er lagret, men kunne ikke legges i Google-kalenderen.');
       }
     } catch (err) {
       console.warn('Klarte ikke synke middag til Google-kalenderen', err);
+      notify('Middagen er lagret, men kunne ikke legges i Google-kalenderen.');
     }
   };
 
   const setMealPlan = async (date: string, recipeId: string) => {
     await supabase.from('meal_plan').upsert({ date, recipe_id: recipeId }, { onConflict: 'date' });
     await load();
-    const recipe = recipes.find(r => r.id === recipeId);
-    void syncDinnerCalendar(date, recipe?.name ?? 'Middag');
+    void syncDinnerCalendar(date);
   };
 
   const clearMealPlan = async (date: string) => {
     await supabase.from('meal_plan').delete().eq('date', date);
     await load();
-    void syncDinnerCalendar(date, null);
+    void syncDinnerCalendar(date);
   };
 
   // ── Basisvarer ─────────────────────────────────────────────────────────────
