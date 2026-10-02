@@ -103,8 +103,8 @@ interface MatplanCtx {
   syncGroceryList: () => Promise<void>;
   /** Legger til handlelisterader for ÉN bestemt middag med det samme, uavhengig av handleukeStart()-vinduet. Idempotent. */
   addMealToGroceryListNow: (mealPlanId: string) => Promise<void>;
-  /** Legger til (eller reaktiverer) handlelisteraden for ÉN bestemt basisvare med det samme, uavhengig av om den er forfalt nå. Flipper en avhuket rad tilbake til done: false. */
-  addStapleToGroceryListNow: (stapleId: string) => Promise<void>;
+  /** Legger til (eller reaktiverer) handlelisteraden for ÉN bestemt basisvare med det samme, uavhengig av om den er forfalt nå. Flipper en avhuket rad tilbake til done: false. Returnerer true hvis raden ble lagret. */
+  addStapleToGroceryListNow: (stapleId: string) => Promise<boolean>;
   /** Frittstående dagligvare — ikke koblet til en middag eller basisvare. */
   addGroceryItem: (input: { name: string; amount: number | null }) => Promise<void>;
   setGroceryAmount: (id: string, amount: number) => Promise<void>;
@@ -121,7 +121,7 @@ const MatplanContext = createContext<MatplanCtx>({
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
   setMealPlan: noop, clearMealPlan: noop,
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
-  syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: noop, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
+  syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: async () => false, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
   toggleGroceryItem: noop, removeGroceryItem: noop,
 });
 
@@ -500,11 +500,12 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   // aldri last_bought_at — den settes først når raden hukes av.
   const addStapleToGroceryListNow = async (stapleId: string) => {
     const s = stapleItems.find(x => x.id === stapleId);
-    if (!s) return;
+    if (!s) return false;
     const { error } = await supabase.from('grocery_items')
       .upsert(stapleRowFor(s, resolveCategory), { onConflict: 'staple_item_id' });
-    if (reportDbError('Å legge basisvaren til handlelisten', error)) return;
+    if (reportDbError('Å legge basisvaren til handlelisten', error)) return false;
     await load();
+    return true;
   };
 
   const addGroceryItem = async ({ name, amount }: { name: string; amount: number | null }) => {
