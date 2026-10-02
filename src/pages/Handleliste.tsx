@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMatplan, isStapleDueNextWeek, todayKey, type StapleItem } from '../contexts/MatplanContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { useSnackbar } from '../contexts/SnackbarContext';
 import { Card } from '../components';
 import HandlelisteCard from './middag/HandlelisteCard';
 import UnitSelect from './middag/UnitSelect';
@@ -38,6 +39,7 @@ function sortStaples(items: StapleItem[]): StapleItem[] {
 function StapleManager() {
   const { stapleItems, groceryItems, addStaple, updateStaple, removeStaple, restoreStaple, addStapleToGroceryListNow } = useMatplan();
   const { confirm } = useConfirm();
+  const { notify } = useSnackbar();
   const [draft, setDraft] = useState(emptyStapleDraft());
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -46,6 +48,27 @@ function StapleManager() {
   // basisvarer trolig bare trenger et navn.
   const [showFrequency, setShowFrequency] = useState(false);
   const today = todayKey();
+  const [addingNextWeek, setAddingNextWeek] = useState(false);
+
+  // Uavhuket rad finnes allerede (trykk, eller syncGroceryList/manuelt) — da er
+  // det ingenting å legge til, bare vis at den er på listen.
+  const isOnList = (s: StapleItem) => groceryItems.some(g => g.stapleItemId === s.id && !g.done);
+  // Varer som forfaller neste handleuke og ikke allerede står på listen.
+  const nextWeekDue = stapleItems.filter(s => isStapleDueNextWeek(s, today) && !isOnList(s));
+
+  const addAllNextWeek = async () => {
+    if (addingNextWeek || !nextWeekDue.length) return;
+    setAddingNextWeek(true);
+    try {
+      // Parallelt, ikke én om gangen. Feil varsles allerede per vare i
+      // addStapleToGroceryListNow — her telles bare de som faktisk ble lagret.
+      const results = await Promise.all(nextWeekDue.map(s => addStapleToGroceryListNow(s.id)));
+      const added = results.filter(Boolean).length;
+      if (added) notify(`${added} ${added === 1 ? 'vare' : 'varer'} lagt til handlelisten`);
+    } finally {
+      setAddingNextWeek(false);
+    }
+  };
 
   const startEdit = (s: StapleItem) => {
     setEditId(s.id);
@@ -84,7 +107,15 @@ function StapleManager() {
 
   return (
     <Card eyebrow="Basisvarer" title="Faste og sjeldne basisvarer" action={
-      <button onClick={() => setOpen(o => !o)} className="btn ghost sm">{open ? 'Skjul' : 'Administrer'}</button>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        {nextWeekDue.length > 0 && (
+          <button onClick={() => void addAllNextWeek()} disabled={addingNextWeek} className="btn primary sm"
+            title="Legg til alle basisvarer som forfaller neste handleuke">
+            🛒+ Legg til {nextWeekDue.length} {nextWeekDue.length === 1 ? 'vare' : 'varer'} for neste uke
+          </button>
+        )}
+        <button onClick={() => setOpen(o => !o)} className="btn ghost sm">{open ? 'Skjul' : 'Administrer'}</button>
+      </div>
     }>
       {!open && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>
@@ -95,9 +126,7 @@ function StapleManager() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {sortStaples(stapleItems).map(s => {
             const dueNextWeek = isStapleDueNextWeek(s, today);
-            // Uavhuket rad finnes allerede (trykk, eller syncGroceryList/manuelt) —
-            // da er det ingenting å legge til, bare vis at den er på listen.
-            const onList = groceryItems.some(g => g.stapleItemId === s.id && !g.done);
+            const onList = isOnList(s);
             return (
             <div key={s.id} style={{
               display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
@@ -112,16 +141,11 @@ function StapleManager() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
-                {dueNextWeek && (onList ? (
+                {dueNextWeek && onList && (
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', padding: '0 6px' }}>
                     ✓ på listen
                   </span>
-                ) : (
-                  <button onClick={() => void addStapleToGroceryListNow(s.id)} className="btn ghost sm"
-                    title="Forfaller neste handleuke — legg til nå">
-                    🛒+ neste uke
-                  </button>
-                ))}
+                )}
                 <button onClick={() => startEdit(s)} aria-label="Rediger basisvare" style={{
                   background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
                   cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)',
