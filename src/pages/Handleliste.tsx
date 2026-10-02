@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMatplan, type StapleItem } from '../contexts/MatplanContext';
+import { useMatplan, isStapleDueNextWeek, todayKey, type StapleItem } from '../contexts/MatplanContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Card } from '../components';
 import HandlelisteCard from './middag/HandlelisteCard';
@@ -36,7 +36,7 @@ function sortStaples(items: StapleItem[]): StapleItem[] {
 }
 
 function StapleManager() {
-  const { stapleItems, addStaple, updateStaple, removeStaple, restoreStaple } = useMatplan();
+  const { stapleItems, groceryItems, addStaple, updateStaple, removeStaple, restoreStaple, addStapleToGroceryListNow } = useMatplan();
   const { confirm } = useConfirm();
   const [draft, setDraft] = useState(emptyStapleDraft());
   const [open, setOpen] = useState(false);
@@ -45,6 +45,7 @@ function StapleManager() {
   // holder dem skjult til man faktisk trenger dem, siden de fleste
   // basisvarer trolig bare trenger et navn.
   const [showFrequency, setShowFrequency] = useState(false);
+  const today = todayKey();
 
   const startEdit = (s: StapleItem) => {
     setEditId(s.id);
@@ -92,7 +93,12 @@ function StapleManager() {
       )}
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {sortStaples(stapleItems).map(s => (
+          {sortStaples(stapleItems).map(s => {
+            const dueNextWeek = isStapleDueNextWeek(s, today);
+            // Uavhuket rad finnes allerede (trykk, eller syncGroceryList/manuelt) —
+            // da er det ingenting å legge til, bare vis at den er på listen.
+            const onList = groceryItems.some(g => g.stapleItemId === s.id && !g.done);
+            return (
             <div key={s.id} style={{
               display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
               background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 6,
@@ -102,9 +108,20 @@ function StapleManager() {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', marginLeft: 8 }}>
                   {s.intervalWeeks != null ? `hver ${s.intervalWeeks}. uke` : 'ingen fast frekvens'}
                   {s.lastBoughtAt ? ` · sist kjøpt ${s.lastBoughtAt}` : ''}
+                  {dueNextWeek ? ' · forfaller neste uke' : ''}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+                {dueNextWeek && (onList ? (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', padding: '0 6px' }}>
+                    ✓ på listen
+                  </span>
+                ) : (
+                  <button onClick={() => void addStapleToGroceryListNow(s.id)} className="btn ghost sm"
+                    title="Forfaller neste handleuke — legg til nå">
+                    🛒+ neste uke
+                  </button>
+                ))}
                 <button onClick={() => startEdit(s)} aria-label="Rediger basisvare" style={{
                   background: 'transparent', border: '1px solid var(--line)', borderRadius: 6,
                   cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)',
@@ -117,7 +134,8 @@ function StapleManager() {
                 }}>×</button>
               </div>
             </div>
-          ))}
+            );
+          })}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
             {editId && (

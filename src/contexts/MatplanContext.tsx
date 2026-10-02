@@ -103,6 +103,8 @@ interface MatplanCtx {
   syncGroceryList: () => Promise<void>;
   /** Legger til handlelisterader for ÉN bestemt middag med det samme, uavhengig av handleukeStart()-vinduet. Idempotent. */
   addMealToGroceryListNow: (mealPlanId: string) => Promise<void>;
+  /** Legger til (eller reaktiverer) handlelisteraden for ÉN bestemt basisvare med det samme, uavhengig av om den er forfalt nå. Flipper en avhuket rad tilbake til done: false. */
+  addStapleToGroceryListNow: (stapleId: string) => Promise<void>;
   /** Frittstående dagligvare — ikke koblet til en middag eller basisvare. */
   addGroceryItem: (input: { name: string; amount: number | null }) => Promise<void>;
   setGroceryAmount: (id: string, amount: number) => Promise<void>;
@@ -119,7 +121,7 @@ const MatplanContext = createContext<MatplanCtx>({
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
   setMealPlan: noop, clearMealPlan: noop,
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
-  syncGroceryList: noop, addMealToGroceryListNow: noop, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
+  syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: noop, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
   toggleGroceryItem: noop, removeGroceryItem: noop,
 });
 
@@ -178,7 +180,7 @@ export function weekDates(startKey: string): string[] {
   });
 }
 
-const todayKey = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
+export const todayKey = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
 
 // En basisvare er forfalt når minst intervallet i hele handleuke-sykluser
 // (lørdag–fredag) har passert siden handleuken sist kjøpt-datoen falt i —
@@ -189,7 +191,7 @@ const todayKey = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europ
 // syklus de faktisk ble kjøpt. Ingen definert frekvens (intervalWeeks null)
 // ⇒ ren referanse i lista, forfaller aldri av seg selv — uendret fra før
 // denne ombyggingen.
-function isStapleDue(s: StapleItem, today: string): boolean {
+export function isStapleDue(s: StapleItem, today: string): boolean {
   if (s.intervalWeeks == null) return false;
   if (s.postponedUntil && s.postponedUntil > today) return false;
   if (!s.lastBoughtAt) return true;
@@ -206,6 +208,21 @@ function isStapleDue(s: StapleItem, today: string): boolean {
   return cyclesPassed >= s.intervalWeeks;
 }
 
+const addDaysKey = (key: string, n: number): string => {
+  const d = new Date(key + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// Ikke forfalt nå, men ville vært det i neste handleuke — samme utregning som
+// isStapleDue, bare med today skjøvet 7 dager frem (ett helt syklusskifte),
+// uten å røre last_bought_at eller annen lagret tilstand. En utsatt-dato midt
+// i neste uke regnes likevel som forfalt: det er nøyaktig hva syncGroceryList
+// ville gjort fra lørdag av.
+export function isStapleDueNextWeek(s: StapleItem, today: string): boolean {
+  return !isStapleDue(s, today) && isStapleDue(s, addDaysKey(today, 7));
+}
+
 /**
  * Handlelisterader for ÉN planlagt middag — delt av syncGroceryList() (hele
  * ukens middager) og addMealToGroceryListNow() (én bestemt middag, uavhengig
@@ -219,6 +236,17 @@ function mealRowsFor(mp: MealPlanEntry, recipe: Recipe, resolveCategory: (name: 
       name: ing.name, amount: ing.amount, amount_range: ing.amountRange ?? null, unit: ing.unit,
       meal_plan_id: mp.id, staple_item_id: null, category: resolveCategory(ing.name),
     }));
+}
+
+/**
+ * Handlelisterad for ÉN basisvare — delt av syncGroceryList() (alle forfalte)
+ * og addStapleToGroceryListNow() (én bestemt, uavhengig av forfall).
+ */
+function stapleRowFor(s: StapleItem, resolveCategory: (name: string) => string | null): Record<string, unknown> {
+  return {
+    name: s.name, amount: s.amount, unit: s.unit, category: resolveCategory(s.name),
+    meal_plan_id: null, staple_item_id: s.id, done: false,
+  };
 }
 
 export function MatplanProvider({ children }: { children: React.ReactNode }) {
@@ -430,10 +458,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     const stapleRows: Record<string, unknown>[] = [];
     for (const s of stapleItems) {
       if (!isStapleDue(s, today)) continue;
-      stapleRows.push({
-        name: s.name, amount: s.amount, unit: s.unit, category: resolveCategory(s.name),
-        meal_plan_id: null, staple_item_id: s.id, done: false,
-      });
+      stapleRows.push(stapleRowFor(s, resolveCategory));
     }
     // Én rad per basisvare, for alltid — når den forfaller på nytt etter å ha
     // vært kjøpt, gjenbrukes samme rad (flippes til done:false, navn/mengde/
@@ -464,6 +489,21 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.from('grocery_items')
       .upsert(rows, { onConflict: 'meal_plan_id,name', ignoreDuplicates: true });
     if (reportDbError('Å legge middagen til handlelisten', error)) return;
+    await load();
+  };
+
+  // Legger til handlelisterad for ÉN bestemt basisvare med det samme, uansett
+  // om den er forfalt (se isStapleDue) — brukt av «🛒+ neste uke» i
+  // StapleManager. Samme upsert som syncGroceryList (onConflict staple_item_id,
+  // UTEN ignoreDuplicates): en allerede avhuket rad flippes tilbake til
+  // done: false, siden formålet er å faktisk få varen på listen igjen. Rører
+  // aldri last_bought_at — den settes først når raden hukes av.
+  const addStapleToGroceryListNow = async (stapleId: string) => {
+    const s = stapleItems.find(x => x.id === stapleId);
+    if (!s) return;
+    const { error } = await supabase.from('grocery_items')
+      .upsert(stapleRowFor(s, resolveCategory), { onConflict: 'staple_item_id' });
+    if (reportDbError('Å legge basisvaren til handlelisten', error)) return;
     await load();
   };
 
@@ -538,7 +578,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
       setMealPlan, clearMealPlan,
       addStaple, updateStaple, removeStaple, restoreStaple,
-      syncGroceryList, addMealToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, removeGroceryItem,
+      syncGroceryList, addMealToGroceryListNow, addStapleToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, removeGroceryItem,
     }}>
       {children}
     </MatplanContext.Provider>
