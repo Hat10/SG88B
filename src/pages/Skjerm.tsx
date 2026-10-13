@@ -8,6 +8,7 @@ import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
 import { addDaysLocal, consecutiveDays, formatIngredientAmount } from '../lib/dagensMiddag';
 import { fireworkRain } from '../confetti';
+import { kpLevel, type KpLevel } from '../lib/kpLevel';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
 import { useScrollLock } from '../lib/useScrollLock';
@@ -377,6 +378,14 @@ const AURORA_CHANCE_COLOR: Record<AuroraChance, string> = {
 // skjer akkurat da, i stedet for å etterlate et uforklart hull.
 const AURORA_DAYLIGHT_BAR = 'rgba(255,255,255,0.12)';
 
+// Kp-visning: samme tre farger, men nivået kommer fra Kp alene (ikke skydekke).
+const KP_LEVEL_COLOR: Record<KpLevel, string> = {
+  lav: AURORA_CHANCE_COLOR.lav, middels: AURORA_CHANCE_COLOR.middels, hoy: AURORA_CHANCE_COLOR.høy,
+};
+const KP_LEVEL_LABEL: Record<KpLevel, string> = {
+  lav: 'Lav Kp (under 2)', middels: 'Middels Kp (2 til under 4)', hoy: 'Høy Kp (4 og over)',
+};
+
 type AuroraView = 'sannsynlighet' | 'kp';
 const KP_MAX = 9;
 const KP_TICKS = [0, 3, 6, 9];
@@ -473,7 +482,7 @@ function AuroraHourlyChart({ hourly, view }: { hourly: AuroraHourlyEntry[]; view
         return (
           <rect key={i}
             x={xc(i) - barW / 2} y={barAreaBot - bh} width={barW} height={bh}
-            fill={h.dark ? AURORA_CHANCE_COLOR[h.chance] : AURORA_DAYLIGHT_BAR}
+            fill={!h.dark ? AURORA_DAYLIGHT_BAR : isKp ? KP_LEVEL_COLOR[kpLevel(h.kp)] : AURORA_CHANCE_COLOR[h.chance]}
             opacity={h.dark ? 1 : 0.6} rx="2" />
         );
       })}
@@ -1687,12 +1696,19 @@ export default function PageSkjerm({ onBack }: Props) {
 
             {/* Legend */}
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.35)' }}>
-              {(['høy', 'middels', 'lav'] as AuroraChance[]).map(c => (
-                <span key={c} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ display: 'inline-block', width: 10, height: 10, background: AURORA_CHANCE_COLOR[c], borderRadius: 2 }} />
-                  {AURORA_LABEL[c]}
-                </span>
-              ))}
+              {auroraView === 'kp'
+                ? (['hoy', 'middels', 'lav'] as KpLevel[]).map(l => (
+                    <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ display: 'inline-block', width: 10, height: 10, background: KP_LEVEL_COLOR[l], borderRadius: 2 }} />
+                      {KP_LEVEL_LABEL[l]}
+                    </span>
+                  ))
+                : (['høy', 'middels', 'lav'] as AuroraChance[]).map(c => (
+                    <span key={c} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ display: 'inline-block', width: 10, height: 10, background: AURORA_CHANCE_COLOR[c], borderRadius: 2 }} />
+                      {AURORA_LABEL[c]}
+                    </span>
+                  ))}
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ display: 'inline-block', width: 10, height: 10, background: AURORA_DAYLIGHT_BAR, borderRadius: 2 }} />
                 Dagslys — ikke synlig
@@ -1700,7 +1716,7 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
             {auroraView === 'kp' && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.45)', marginTop: -8 }}>
-                Høyden viser Kp-indeks (0–9). Fargen tar fortsatt hensyn til skydekke.
+                Høyde og farge viser begge Kp-indeks (0–9).
               </div>
             )}
           </div>
