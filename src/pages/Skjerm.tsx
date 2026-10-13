@@ -1719,11 +1719,6 @@ export default function PageSkjerm({ onBack }: Props) {
                 Dagslys — ikke synlig
               </span>
             </div>
-            {auroraView === 'kp' && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.45)', marginTop: -8 }}>
-                Høyde og farge viser begge Kp-indeks (0–9).
-              </div>
-            )}
           </div>
         </div>
       )}
