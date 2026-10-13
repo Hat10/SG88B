@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTodo, type Priority } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
@@ -377,6 +377,10 @@ const AURORA_CHANCE_COLOR: Record<AuroraChance, string> = {
 // skjer akkurat da, i stedet for å etterlate et uforklart hull.
 const AURORA_DAYLIGHT_BAR = 'rgba(255,255,255,0.12)';
 
+type AuroraView = 'sannsynlighet' | 'kp';
+const KP_MAX = 9;
+const KP_TICKS = [0, 3, 6, 9];
+
 /**
  * Nordlys-prognose time for time, neste ~20 timer. Egen komponent (ikke
  * HourlyChart, som er bygget rundt temperatur+nedbør) — men samme visuelle
@@ -386,12 +390,28 @@ const AURORA_DAYLIGHT_BAR = 'rgba(255,255,255,0.12)';
  * ren time-of-day-akse ville krøllet seg ved midnatt når vinduet strekker
  * seg over et døgnskifte.
  */
-function AuroraHourlyChart({ hourly }: { hourly: AuroraHourlyEntry[] }) {
+function AuroraHourlyChart({ hourly, view }: { hourly: AuroraHourlyEntry[]; view: AuroraView }) {
+  const [selected, setSelected] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // Trykk utenfor grafen skjuler etiketten (touch + mus).
+  useEffect(() => {
+    if (selected === null) return;
+    const onDown = (e: PointerEvent) => {
+      if (!svgRef.current?.contains(e.target as Node)) setSelected(null);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [selected]);
+  // Bytte visning skjuler etiketten (innholdet i den er visningsavhengig).
+  useEffect(() => { setSelected(null); }, [view]);
+
   const n = hourly.length;
   if (n < 2) return null;
 
+  const isKp = view === 'kp';
   const W = 760, H = 190;
-  const padL = 10, padR = 10, padT = 14, labelH = 22;
+  const padL = isKp ? 30 : 10, padR = 10, padT = 28, labelH = 22;
   const barAreaTop = padT;
   const barAreaBot = H - labelH;
   const barAreaH   = barAreaBot - barAreaTop;
@@ -404,7 +424,15 @@ function AuroraHourlyChart({ hourly }: { hourly: AuroraHourlyEntry[] }) {
   // Rå 0-4-score (ikke bare de 3 sjanse-bøttene) gir søylene ekte høydevariasjon
   // time for time — skydekket har reell timeoppløsning selv om Kp er flatt
   // gjennom sin 3-timersbolk.
-  const barH = (h: AuroraHourlyEntry) => Math.max(3, (h.score / 4) * barAreaH);
+  // I Kp-visning er høyden selve Kp-verdien (0-9); fargen følger fortsatt
+  // sjanse-nivået, så skydekke påvirker farge men ikke høyde.
+  const barH = (h: AuroraHourlyEntry) => Math.max(3,
+    isKp ? (Math.min(h.kp, KP_MAX) / KP_MAX) * barAreaH : (h.score / 4) * barAreaH);
+  const chancePct = (h: AuroraHourlyEntry) => Math.round((h.score / 4) * 100);
+  const labelText = (h: AuroraHourlyEntry) => {
+    const kp = `Kp ${Math.round(h.kp * 10) / 10}`;
+    return view === 'sannsynlighet' && h.dark ? `${kp} · ${chancePct(h)} %` : kp;
+  };
 
   const labelEvery = slot >= 50 ? 1 : slot >= 25 ? 2 : 3;
   const osloHour = (iso: string) => parseInt(
@@ -420,7 +448,18 @@ function AuroraHourlyChart({ hourly }: { hourly: AuroraHourlyEntry[] }) {
   if (bandStart !== null) daylightBands.push({ from: bandStart, to: n - 1 });
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', touchAction: 'manipulation' }}>
+      {isKp && KP_TICKS.map(t => {
+        const y = barAreaBot - (t / KP_MAX) * barAreaH;
+        return (
+          <g key={t}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y}
+              stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray={t === 0 ? undefined : '3 4'} />
+            <text x={padL - 6} y={y + 3.5} textAnchor="end"
+              fontSize="10" fontFamily="var(--font-mono)" fill="rgba(207,224,239,0.5)">{t}</text>
+          </g>
+        );
+      })}
       {daylightBands.map((b, i) => (
         <rect key={i}
           x={padL + slot * b.from} y={barAreaTop} width={slot * (b.to - b.from + 1)} height={barAreaH}
@@ -438,6 +477,30 @@ function AuroraHourlyChart({ hourly }: { hourly: AuroraHourlyEntry[] }) {
             opacity={h.dark ? 1 : 0.6} rx="2" />
         );
       })}
+
+      {selected !== null && (() => {
+        const h = hourly[selected];
+        const text = labelText(h);
+        const w = text.length * 6.6 + 14;
+        const cx = Math.min(W - padR - w / 2, Math.max(padL + w / 2, xc(selected)));
+        const y = Math.max(2, barAreaBot - barH(h) - 6 - 18);
+        return (
+          <g pointerEvents="none">
+            <rect x={cx - w / 2} y={y} width={w} height={18} rx="4"
+              fill="rgba(15,23,32,0.95)" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+            <text x={cx} y={y + 12.5} textAnchor="middle"
+              fontSize="11" fontFamily="var(--font-mono)" fill="#E8EFF7">{text}</text>
+          </g>
+        );
+      })()}
+
+      {/* Trykkflater: hele slot-høyden, ikke bare den fargede søylen */}
+      {hourly.map((_, i) => (
+        <rect key={i}
+          x={padL + slot * i} y={barAreaTop} width={slot} height={barAreaH}
+          fill="transparent" style={{ cursor: 'pointer' }}
+          onClick={() => setSelected(sel => (sel === i ? null : i))} />
+      ))}
 
       {hourly.map((h, i) => {
         if (i !== 0 && i % labelEvery !== 0) return null;
@@ -684,6 +747,7 @@ export default function PageSkjerm({ onBack }: Props) {
   const [aurora, setAurora]           = useState<AuroraData | null>(null);
   const [auroraError, setAuroraError] = useState(false);
   const [auroraOpen, setAuroraOpen]   = useState(false);
+  const [auroraView, setAuroraView]   = useState<AuroraView>('sannsynlighet');
   const { items: countdowns, add: addCd, update: updateCd, remove: removeCd, restore: restoreCd, loading: cdLoading } = useCountdowns();
   const cd = countdowns[0] ?? null;
   const [cdEditing, setCdEditing] = useState(false);
@@ -1582,10 +1646,22 @@ export default function PageSkjerm({ onBack }: Props) {
                   {AURORA_LABEL[aurora.probability]} akkurat nå
                 </div>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div role="tablist" style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, overflow: 'hidden' }}>
+                  {([['sannsynlighet', 'Sannsynlighet'], ['kp', 'Kp-indeks']] as [AuroraView, string][]).map(([v, label]) => (
+                    <button key={v} role="tab" aria-selected={auroraView === v}
+                      onClick={() => setAuroraView(v)}
+                      style={{ border: 'none', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '6px 12px',
+                        background: auroraView === v ? 'rgba(255,255,255,0.16)' : 'transparent',
+                        color: auroraView === v ? '#E8EFF7' : 'rgba(207,224,239,0.5)' }}
+                    >{label}</button>
+                  ))}
+                </div>
               <button
                 onClick={() => setAuroraOpen(false)}
                 style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
               >✕</button>
+              </div>
             </div>
 
             {/* Summary */}
@@ -1607,7 +1683,7 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
 
             {/* Chart */}
-            <AuroraHourlyChart hourly={aurora.hourly} />
+            <AuroraHourlyChart hourly={aurora.hourly} view={auroraView} />
 
             {/* Legend */}
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.35)' }}>
@@ -1622,6 +1698,11 @@ export default function PageSkjerm({ onBack }: Props) {
                 Dagslys — ikke synlig
               </span>
             </div>
+            {auroraView === 'kp' && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.45)', marginTop: -8 }}>
+                Høyden viser Kp-indeks (0–9). Fargen tar fortsatt hensyn til skydekke.
+              </div>
+            )}
           </div>
         </div>
       )}
