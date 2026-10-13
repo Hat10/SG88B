@@ -389,6 +389,8 @@ const KP_LEVEL_LABEL: Record<KpLevel, string> = {
 type AuroraView = 'sannsynlighet' | 'kp';
 const KP_MAX = 9;
 const KP_TICKS = [0, 3, 6, 9];
+// Sannsynlighet-aksen: score/4 i 25 %-steg (poeng 0-4).
+const PROB_TICKS = [0, 1, 2, 3, 4];
 
 /**
  * Nordlys-prognose time for time, neste ~20 timer. Egen komponent (ikke
@@ -420,7 +422,7 @@ function AuroraHourlyChart({ hourly, view }: { hourly: AuroraHourlyEntry[]; view
 
   const isKp = view === 'kp';
   const W = 760, H = 190;
-  const padL = isKp ? 30 : 10, padR = 10, padT = 28, labelH = 22;
+  const padL = 38, padR = 10, padT = 28, labelH = 22;
   const barAreaTop = padT;
   const barAreaBot = H - labelH;
   const barAreaH   = barAreaBot - barAreaTop;
@@ -458,14 +460,17 @@ function AuroraHourlyChart({ hourly, view }: { hourly: AuroraHourlyEntry[]; view
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', touchAction: 'manipulation' }}>
-      {isKp && KP_TICKS.map(t => {
-        const y = barAreaBot - (t / KP_MAX) * barAreaH;
+      {(isKp
+        ? KP_TICKS.map(t => ({ frac: t / KP_MAX, label: String(t) }))
+        : PROB_TICKS.map(t => ({ frac: t / 4, label: `${t * 25} %` }))
+      ).map(({ frac, label }, ti) => {
+        const y = barAreaBot - frac * barAreaH;
         return (
-          <g key={t}>
+          <g key={ti}>
             <line x1={padL} y1={y} x2={W - padR} y2={y}
-              stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray={t === 0 ? undefined : '3 4'} />
+              stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray={frac === 0 ? undefined : '3 4'} />
             <text x={padL - 6} y={y + 3.5} textAnchor="end"
-              fontSize="10" fontFamily="var(--font-mono)" fill="rgba(207,224,239,0.5)">{t}</text>
+              fontSize="10" fontFamily="var(--font-mono)" fill="rgba(207,224,239,0.5)">{label}</text>
           </g>
         );
       })}
