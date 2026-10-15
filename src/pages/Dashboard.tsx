@@ -939,10 +939,30 @@ export default function PageDashboard() {
     groupByNameUnit(groceryItems.filter(g => g.mealPlanId && !g.done)).length +
     groceryItems.filter(g => g.stapleItemId && !g.done).length;
 
+  // Snarvei til Gangskjerm, høyrejustert på samme linje som hilsen/dato i
+  // page-head (rendres i App.tsx, rett over dette innholdet). Plassert absolutt
+  // relativt til rot-diven, så den ikke påvirker flyten. Offset = .page-gap +
+  // page-head border (1px) + padding-bottom (se styles.css: 24+1+16 desktop,
+  // 16+1+12 mobil). Stilen speiler "← Hjem"-knappen i Skjerm.tsx.
+  const skjermBtn = (
+    <button
+      onClick={() => navigate('skjerm')}
+      style={{
+        position: 'absolute', right: 0, bottom: '100%',
+        marginBottom: isMobile ? 29 : 41,
+        background: 'transparent', border: '1px solid var(--line-2)', borderRadius: 4,
+        color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', fontSize: isMobile ? 12 : 13,
+        padding: '5px 12px', cursor: 'default', letterSpacing: '0.04em',
+      }}
+    >Skjerm →</button>
+  );
+
   // ── Mobile layout ──
   if (isMobile) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 28, position: 'relative' }}>
+        {skjermBtn}
+
 
         {/* Snarveier: registrer trening / legg til gjøremål */}
         <div style={{ display: 'flex', gap: 10 }}>
@@ -1012,7 +1032,8 @@ export default function PageDashboard() {
   );
 
   return (
-    <div className="grid grid-12" style={{ rowGap: 24 }}>
+    <div className="grid grid-12" style={{ rowGap: 24, position: 'relative' }}>
+      {skjermBtn}
 
       {/* Status-strip: kjips til venstre, snarveier til høyre, samme rad —
           to selv-krympende grupper i én justify-content:space-between-rad,
