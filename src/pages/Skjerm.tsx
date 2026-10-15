@@ -987,7 +987,8 @@ export default function PageSkjerm({ onBack }: Props) {
 
   const timeStr = now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
   const secStr  = now.toLocaleTimeString('nb-NO', { second: '2-digit' }).replace(/.*:/, '');
-  const dateStr = now.toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateRaw = now.toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateStr = dateRaw.charAt(0).toUpperCase() + dateRaw.slice(1);
 
   const yearStart   = new Date(now.getFullYear(), 0, 1).getTime();
   const yearEnd     = new Date(now.getFullYear() + 1, 0, 1).getTime();
@@ -1121,7 +1122,7 @@ export default function PageSkjerm({ onBack }: Props) {
             <span style={{ fontSize: isMobile ? m.clockNum : screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 36 : 56, fontWeight: isMobile ? 400 : 300, letterSpacing: '-0.04em', fontVariantNumeric: 'tabular-nums', color: '#E8EFF7' }}>{timeStr}</span>
             <span style={{ fontSize: isMobile ? m.clockSec : screenSize === 'desktop' ? 32 : screenSize === 'tablet' ? 15 : 24, fontWeight: 300, color: 'rgba(207,224,239,0.4)', marginLeft: 6, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{secStr}</span>
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : screenSize === 'tablet' ? 10 : 16, color: 'rgba(207,224,239,0.5)', textTransform: 'capitalize', letterSpacing: '0.03em', ...(isMobile ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } : {}) }}>{dateStr}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : screenSize === 'tablet' ? 10 : 16, color: 'rgba(207,224,239,0.5)', letterSpacing: '0.03em', ...(isMobile ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } : {}) }}>{dateStr}</div>
 
           {/* Tømmeplan — slått sammen inn i klokke-boksen, én diskret linje.
               Ingen feilmelding/placeholder her hvis dataene mangler — den

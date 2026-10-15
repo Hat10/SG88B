@@ -31,9 +31,11 @@ function symbolCategory(symbol: string): 'clear' | 'fair' | 'cloudy' | 'rain' | 
   return 'cloudy';
 }
 
-function windChill(temp: number, wind: number): number {
+// Environment Canada-formelen forventer km/h; yr gir wind_speed i m/s.
+export function windChill(temp: number, wind: number): number {
   if (temp > 10 || wind <= 1.5) return temp;
-  return 13.12 + 0.6215 * temp - 11.37 * Math.pow(wind, 0.16) + 0.3965 * temp * Math.pow(wind, 0.16);
+  const kmh = Math.pow(wind * 3.6, 0.16);
+  return 13.12 + 0.6215 * temp - 11.37 * kmh + 0.3965 * temp * kmh;
 }
 
 export default async function handler(_req: any, res: any) {
