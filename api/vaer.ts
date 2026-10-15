@@ -31,9 +31,13 @@ function symbolCategory(symbol: string): 'clear' | 'fair' | 'cloudy' | 'rain' | 
   return 'cloudy';
 }
 
-function windChill(temp: number, wind: number): number {
-  if (temp > 10 || wind <= 1.5) return temp;
-  return 13.12 + 0.6215 * temp - 11.37 * Math.pow(wind, 0.16) + 0.3965 * temp * Math.pow(wind, 0.16);
+// Environment Canada-formelen forventer vind i km/h; yr leverer m/s.
+// Terskelen (1.5) sammenlignes med den opprinnelige m/s-verdien (≈ 5.4 km/h,
+// like over formelens gyldighetsgrense på 4.8 km/h).
+export function windChill(temp: number, windMs: number): number {
+  if (temp > 10 || windMs <= 1.5) return temp;
+  const v = Math.pow(windMs * 3.6, 0.16);
+  return 13.12 + 0.6215 * temp - 11.37 * v + 0.3965 * temp * v;
 }
 
 export default async function handler(_req: any, res: any) {
