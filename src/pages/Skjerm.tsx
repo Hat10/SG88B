@@ -975,6 +975,21 @@ export default function PageSkjerm({ onBack }: Props) {
   // The weekly "ting vi vil gjøre" reminder is shared across all devices and
   // rolls over the night into Monday — see useWeeklyBucket / api/cron/rollover.
 
+  const isMobile = screenSize === 'mobile';
+  // Alle mobilverdier (< 700 px) samlet ett sted. Brukes KUN i mobil-grener —
+  // tablet/desktop-verdiene står uendret der de alltid har stått.
+  const M = {
+    pagePad: '12px 14px', gap: 12,
+    cardPad: '14px 16px', cardPadLg: '16px 18px', cardGap: 10,
+    eyebrow: 12,
+    clockPad: '16px 18px', clockGap: 6, clockTime: 44, clockSec: 18, clockDate: 13, clockPlast: 12,
+    wxGap: 12, wxIcon: 36, wxTemp: 40, wxDeg: 18, wxDesc: 13, wxFeels: 12, wxStat: 22, wxSun: 16, wxClothes: 14,
+    mealName: 16, cdLabel: 17, cdNum: 44, auroraTitle: 16,
+    rowPad: '9px 8px', rowGap: 10, rowTitle: 16,
+    ticker: 11,
+    popPad: '18px 16px', popTemp: 30, chartMinW: 600,
+  };
+
   const cell: React.CSSProperties = {
     background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8,
     overflow: 'hidden',
@@ -982,20 +997,27 @@ export default function PageSkjerm({ onBack }: Props) {
 
   // Shared style for section eyebrow labels
   const eyebrow: React.CSSProperties = {
-    fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700,
+    fontFamily: 'var(--font-mono)', fontSize: isMobile ? M.eyebrow : 15, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)',
   };
   const eyebrowDark: React.CSSProperties = {
     ...eyebrow, color: 'rgba(207,224,239,0.5)',
   };
 
-  const isMobile = screenSize === 'mobile';
   const isTablet = screenSize === 'tablet';
   // iPad Pro 12.9": landscape = 1366px (wide), portrait = 1024px (narrow).
   // Narrow tablet reflows to fewer columns so nothing is cut off horizontally.
   const isNarrowTablet = isTablet && winW < 1200;
-  const tabletPadding = screenSize === 'tablet' ? '8px 14px' : screenSize === 'desktop' ? '28px 36px' : '16px 20px';
-  const tabletGap = screenSize === 'tablet' ? 8 : 24;
+  const tabletPadding = screenSize === 'tablet' ? '8px 14px' : screenSize === 'desktop' ? '28px 36px' : M.pagePad;
+  const tabletGap = isMobile ? M.gap : screenSize === 'tablet' ? 8 : 24;
+  // Lange titler brytes på mobil i stedet for å kuttes med «…».
+  const ellipsis: React.CSSProperties = isMobile
+    ? { overflowWrap: 'anywhere' }
+    : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+  // Mobil: hele grafen får horisontal scroll i stedet for å krympe til uleselig tekst.
+  const chartWrap = (el: React.ReactNode) => isMobile
+    ? <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}><div style={{ minWidth: M.chartMinW }}>{el}</div></div>
+    : el;
 
   // ─── Wishlist deals: items the cron flagged as "cheapest in 30 days" ───
   // ?dealdemo in the URL injects a sample deal so the notice can be previewed
@@ -1080,7 +1102,7 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 1: Clock (m. tømmeplan) · Weather ── (compact — natural height, no stretch) */}
-      <div style={{ display: 'grid', gridTemplateColumns: (isMobile || isNarrowTablet) ? '1fr 1fr' : '1.3fr 1.4fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isNarrowTablet ? '1fr 1fr' : '1.3fr 1.4fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Clock */}
         <div style={{
@@ -1088,14 +1110,14 @@ export default function PageSkjerm({ onBack }: Props) {
           // value is too light to keep the box's white text readable) —
           // "ta ut plast i kveld/nå" is un-done and due tonight or today.
           background: plastAlert?.urgent ? '#C0392B' : 'var(--ink-fixed)',
-          borderRadius: 8, padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 3 : 8, position: 'relative', overflow: 'hidden',
+          borderRadius: 8, padding: screenSize === 'tablet' ? '10px 14px' : screenSize === 'desktop' ? '28px 32px' : M.clockPad, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: screenSize === 'tablet' ? 3 : isMobile ? M.clockGap : 8, position: 'relative', overflow: 'hidden',
         }}>
           <div style={eyebrowDark}>Tid nå</div>
           <div style={{ display: 'flex', alignItems: 'baseline', lineHeight: 1 }}>
-            <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 36 : 56, fontWeight: 300, letterSpacing: '-0.04em', fontVariantNumeric: 'tabular-nums', color: '#E8EFF7' }}>{timeStr}</span>
-            <span style={{ fontSize: screenSize === 'desktop' ? 32 : screenSize === 'tablet' ? 15 : 24, fontWeight: 300, color: 'rgba(207,224,239,0.4)', marginLeft: 6, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{secStr}</span>
+            <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 36 : M.clockTime, fontWeight: 300, letterSpacing: '-0.04em', fontVariantNumeric: 'tabular-nums', color: '#E8EFF7' }}>{timeStr}</span>
+            <span style={{ fontSize: screenSize === 'desktop' ? 32 : screenSize === 'tablet' ? 15 : M.clockSec, fontWeight: 300, color: 'rgba(207,224,239,0.4)', marginLeft: 6, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{secStr}</span>
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: screenSize === 'tablet' ? 10 : 16, color: 'rgba(207,224,239,0.5)', textTransform: 'capitalize', letterSpacing: '0.03em' }}>{dateStr}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: screenSize === 'tablet' ? 10 : isMobile ? M.clockDate : 16, color: 'rgba(207,224,239,0.5)', textTransform: 'capitalize', letterSpacing: '0.03em', ...(isMobile ? { whiteSpace: 'nowrap' } : {}) }}>{dateStr}</div>
 
           {/* Tømmeplan — slått sammen inn i klokke-boksen, én diskret linje.
               Ingen feilmelding/placeholder her hvis dataene mangler — den
@@ -1104,8 +1126,8 @@ export default function PageSkjerm({ onBack }: Props) {
             const nextPlast = tommeplan.pickups.find(p => p.types.some(t => t.category === 'plast'));
             if (!nextPlast) return null;
             return (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: screenSize === 'tablet' ? 11 : 15, color: 'rgba(207,224,239,0.4)', letterSpacing: '0.02em', marginTop: screenSize === 'tablet' ? 6 : 10 }}>
-                ♻️ Neste plast: {nextPlast.weekday} {nextPlast.dateLabel}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: screenSize === 'tablet' ? 11 : isMobile ? M.clockPlast : 15, color: 'rgba(207,224,239,0.4)', letterSpacing: '0.02em', marginTop: screenSize === 'tablet' ? 6 : 10 }}>
+                ♻️ Neste plast: <span style={isMobile ? { whiteSpace: 'nowrap' } : undefined}>{nextPlast.weekday} {nextPlast.dateLabel}</span>
               </div>
             );
           })()}
@@ -1114,7 +1136,7 @@ export default function PageSkjerm({ onBack }: Props) {
               det synlig litt til med en rød påminnelse selv om boksen ikke
               lenger trenger å rope med hele bakgrunnen. */}
           {plastAlert && !plastAlert.urgent && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: screenSize === 'tablet' ? 11 : 15, color: '#F87171', letterSpacing: '0.02em', marginTop: screenSize === 'tablet' ? 6 : 10 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: screenSize === 'tablet' ? 11 : isMobile ? M.clockPlast : 15, color: '#F87171', letterSpacing: '0.02em', marginTop: screenSize === 'tablet' ? 6 : 10 }}>
               {plastAlert.label}
             </div>
           )}
@@ -1152,7 +1174,7 @@ export default function PageSkjerm({ onBack }: Props) {
         {/* Weather */}
         <div
           onClick={() => weather && setWeatherOpen(v => !v)}
-          style={{ ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '28px 32px' : '20px 24px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 7 : 16, cursor: 'default' }}
+          style={{ ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '28px 32px' : M.cardPadLg, display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 7 : isMobile ? M.wxGap : 16, cursor: 'default' }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={eyebrow}>Vær · Bodø</div>
@@ -1164,24 +1186,24 @@ export default function PageSkjerm({ onBack }: Props) {
           ) : (
             <>
               {/* Top row: icon + temp/description  |  KLE PÅ SEG */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', ...(isMobile ? { flexWrap: 'wrap', rowGap: 10 } : {}) }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 6 : 12 }}>
-                  <WeatherIcon category={weather.category} size={screenSize === 'desktop' ? 64 : screenSize === 'tablet' ? 28 : 48} />
+                  <WeatherIcon category={weather.category} size={screenSize === 'desktop' ? 64 : screenSize === 'tablet' ? 28 : M.wxIcon} />
                   <div>
-                    <div style={{ fontSize: screenSize === 'desktop' ? 64 : screenSize === 'tablet' ? 28 : 48, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
-                      {weather.temp}<span style={{ fontSize: screenSize === 'desktop' ? 28 : screenSize === 'tablet' ? 12 : 20, opacity: 0.4 }}>°</span>
+                    <div style={{ fontSize: screenSize === 'desktop' ? 64 : screenSize === 'tablet' ? 28 : M.wxTemp, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums', ...(isMobile ? { whiteSpace: 'nowrap' } : {}) }}>
+                      {weather.temp}<span style={{ fontSize: screenSize === 'desktop' ? 28 : screenSize === 'tablet' ? 12 : M.wxDeg, opacity: 0.4, ...(isMobile ? { verticalAlign: 'top', lineHeight: 1 } : {}) }}>°</span>
                     </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, color: 'var(--ink-2)', marginTop: 8 }}>{weather.description}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--ink-4)', marginTop: 3 }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? M.wxDesc : 15, fontWeight: 600, color: 'var(--ink-2)', marginTop: 8 }}>{weather.description}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? M.wxFeels : 14, color: 'var(--ink-4)', marginTop: 3, ...(isMobile ? { whiteSpace: 'nowrap' } : {}) }}>
                       føles {weather.feelsLike}° · vind {weather.wind} m/s
                     </div>
                   </div>
                 </div>
 
                 {/* KLE PÅ SEG — moved above the divider */}
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ textAlign: 'right', flexShrink: 0, ...(isMobile ? { textAlign: 'left', flexShrink: 1, flexBasis: '100%' } : {}) }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--ink-4)', letterSpacing: '0.06em', marginBottom: 5 }}>KLE PÅ SEG</div>
-                  <div style={{ maxWidth: 220, textAlign: 'right' }}>
+                  <div style={{ maxWidth: 220, textAlign: 'right', ...(isMobile ? { maxWidth: 'none', textAlign: 'left' } : {}) }}>
                     {(() => {
                       const max = weather.todayMax;
                       const min = weather.todayMin;
@@ -1197,8 +1219,8 @@ export default function PageSkjerm({ onBack }: Props) {
                       const spreadWarning = min < 15 && (max - min) >= 5 && max >= 8;
 
                       return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-                          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink-2)', lineHeight: 1.35, textWrap: 'balance' } as React.CSSProperties}>{text}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: isMobile ? 'flex-start' : 'flex-end' }}>
+                          <span style={{ fontSize: isMobile ? M.wxClothes : 15, fontWeight: 600, color: 'var(--ink-2)', lineHeight: 1.35, textWrap: 'balance' } as React.CSSProperties}>{text}</span>
                           {spreadWarning && (
                             <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-4)', lineHeight: 1.35, textWrap: 'balance' } as React.CSSProperties}>
                               🌡️ Vurder å ta med noe varmere til morgen og kveld
@@ -1213,21 +1235,21 @@ export default function PageSkjerm({ onBack }: Props) {
 
               {/* Bottom row: MIN/MAKS/NEDBØR  |  Soloppgang/nedgang */}
               <div style={{ paddingTop: 8, borderTop: '1px solid var(--line)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...(isMobile ? { flexWrap: 'wrap', gap: 10 } : {}) }}>
                   <div style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>MIN</span>
-                      <span style={{ fontSize: 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{weather.todayMin}°</span>
+                      <span style={{ fontSize: isMobile ? M.wxStat : 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{weather.todayMin}°</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>MAKS</span>
-                      <span style={{ fontSize: 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{weather.todayMax}°</span>
+                      <span style={{ fontSize: isMobile ? M.wxStat : 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{weather.todayMax}°</span>
                     </div>
                     {weather.todayPrecip > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>NEDBØR</span>
                         <span style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
-                          <span style={{ fontSize: 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em', color: 'var(--accent)' }}>{weather.todayPrecip}</span>
+                          <span style={{ fontSize: isMobile ? M.wxStat : 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em', color: 'var(--accent)' }}>{weather.todayPrecip}</span>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, color: 'var(--accent)', opacity: 0.7 }}>mm</span>
                         </span>
                       </div>
@@ -1238,13 +1260,13 @@ export default function PageSkjerm({ onBack }: Props) {
                       {weather.sunrise && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>↑ SOL</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{weather.sunrise}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? M.wxSun : 18, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{weather.sunrise}</span>
                         </div>
                       )}
                       {weather.sunset && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>↓ SOL</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{weather.sunset}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? M.wxSun : 18, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{weather.sunset}</span>
                         </div>
                       )}
                     </div>
@@ -1257,7 +1279,7 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 2: Dagens middag + Nedtelling + Nordlysvarsel ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
 
         {/* Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn —
             trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
@@ -1266,13 +1288,13 @@ export default function PageSkjerm({ onBack }: Props) {
           style={{
             ...cell, width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
             cursor: todayRecipe ? 'pointer' : 'default',
-            padding: screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
+            padding: screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : M.cardPad,
             display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 3 : 4,
           }}
         >
           <div style={eyebrow}>🍽️ Dagens middag</div>
           {todayRecipe ? (
-            <div style={{ fontSize: screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 13 : 17, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 13 : M.mealName, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', ...ellipsis }}>
               {todayRecipe.name}
               {mealDays > 1 && (
                 <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 400, color: 'var(--ink-4)', letterSpacing: 0 }}>
@@ -1286,7 +1308,7 @@ export default function PageSkjerm({ onBack }: Props) {
         </button>
 
         {/* Countdown */}
-        <div style={{ ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12 }}>
+        <div style={{ ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : M.cardPad, display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : isMobile ? M.cardGap : 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={eyebrow}>Nedtelling</div>
             {cd && (
@@ -1306,9 +1328,9 @@ export default function PageSkjerm({ onBack }: Props) {
           ) : !cdEditing ? (
             cd ? (
               <>
-                <div style={{ fontSize: screenSize === 'tablet' ? 16 : 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink-2)' }}>{cd.label}</div>
+                <div style={{ fontSize: screenSize === 'tablet' ? 16 : isMobile ? M.cdLabel : 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink-2)' }}>{cd.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: screenSize === 'tablet' ? 6 : 8 }}>
-                  <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 28 : 56, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 28 : M.cdNum, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
                     {Math.max(0, cdDays)}
                   </span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: 'var(--ink-3)' }}>
@@ -1351,8 +1373,8 @@ export default function PageSkjerm({ onBack }: Props) {
         <div
           onClick={() => (aurora?.hourly?.length ?? 0) >= 2 && setAuroraOpen(v => !v)}
           style={{
-            ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
-            display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12, cursor: 'default',
+            ...cell, padding: screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : M.cardPad,
+            display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : isMobile ? M.cardGap : 12, cursor: 'default',
           }}>
           <div style={eyebrow}>🌌 Nordlys · Bodø</div>
 
@@ -1364,7 +1386,7 @@ export default function PageSkjerm({ onBack }: Props) {
           )}
           {!auroraError && aurora && (
             <>
-              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 14 : 18, fontWeight: 600, letterSpacing: '-0.01em', color: AURORA_COLOR[aurora.probability] }}>
+              <div style={{ fontSize: screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 14 : M.auroraTitle, fontWeight: 600, letterSpacing: '-0.01em', color: AURORA_COLOR[aurora.probability] }}>
                 {AURORA_LABEL[aurora.probability]}
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
@@ -1376,10 +1398,10 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) + Handleliste — grows to fill ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
         {/* Kalender — kun i dag, ikke kommende dager */}
-        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
+        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : M.cardPad, display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : isMobile ? M.cardGap : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={eyebrow}>Kalender · i dag</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● LIVE</div>
@@ -1393,8 +1415,8 @@ export default function PageSkjerm({ onBack }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', ...(isTablet ? { flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : {}) }}>
               {todayCalEvents.map((e, i) => (
                 <div key={e.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  padding: '11px 10px',
+                  display: 'flex', alignItems: 'center', gap: isMobile ? M.rowGap : 14,
+                  padding: isMobile ? M.rowPad : '11px 10px',
                   borderBottom: i < todayCalEvents.length - 1 ? '1px solid var(--line)' : '0',
                   borderLeft: `3px solid ${e.color}`,
                   background: 'rgba(120,120,120,0.08)',
@@ -1405,10 +1427,10 @@ export default function PageSkjerm({ onBack }: Props) {
                       {fmtTime(e.start)}
                     </span>
                   )}
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: isMobile ? M.rowTitle : 18, fontWeight: 600, ...ellipsis }}>
                     {e.title}
                   </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: e.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: e.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(isMobile ? { whiteSpace: 'normal', textOverflow: 'clip', textAlign: 'right' } : {}) }}>
                     {e.who ?? SOURCE_LABEL[e.source] ?? e.source}
                   </span>
                 </div>
@@ -1418,7 +1440,7 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
 
         {/* Gjøremål — alle aktive (ikke bare dagens), med avkrysning + skjermbredt konfetti */}
-        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 14 }}>
+        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : M.cardPad, display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : isMobile ? M.cardGap : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={eyebrow}>✅ Gjøremål</div>
@@ -1467,8 +1489,8 @@ export default function PageSkjerm({ onBack }: Props) {
 
                 return (
                   <div key={row.todoId} style={{
-                    display: 'flex', alignItems: 'center', gap: 14,
-                    padding: '11px 10px',
+                    display: 'flex', alignItems: 'center', gap: isMobile ? M.rowGap : 14,
+                    padding: isMobile ? M.rowPad : '11px 10px',
                     borderBottom: i < activeTodoRows.length - 1 ? '1px solid var(--line)' : '0',
                     borderLeft: `3px solid ${row.color}`,
                     background: row.overdueSince ? 'rgba(192,57,43,0.45)' : 'rgba(120,120,120,0.08)',
@@ -1483,8 +1505,8 @@ export default function PageSkjerm({ onBack }: Props) {
                       onClick={() => startEditTodo(row.todoId)}
                       title="Trykk for å endre navn/frist"
                       style={{
-                        flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, cursor: 'pointer',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        flex: 1, minWidth: 0, fontSize: isMobile ? M.rowTitle : 18, fontWeight: 600, cursor: 'pointer',
+                        ...ellipsis,
                       }}>
                       {row.title}
                     </span>
@@ -1502,7 +1524,7 @@ export default function PageSkjerm({ onBack }: Props) {
                         )}
                       </div>
                     )}
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: row.whoColor, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: row.whoColor, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(isMobile ? { whiteSpace: 'normal', textOverflow: 'clip', textAlign: 'right' } : {}) }}>
                       {row.overdueSince ? `${row.who ?? 'Felles'} · forfalt ${fmtOverdue(row.overdueSince)}` : (row.who ?? 'Felles')}
                     </span>
                   </div>
@@ -1513,7 +1535,7 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
 
         {/* Handleliste — utdrag, med touch-scroll (vertikal). Full redigering på Handleliste-siden. */}
-        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : 12 }}>
+        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 22px' : M.cardPad, display: 'flex', flexDirection: 'column', gap: screenSize === 'tablet' ? 6 : isMobile ? M.cardGap : 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={eyebrow}>🛒 Handleliste</div>
@@ -1536,7 +1558,7 @@ export default function PageSkjerm({ onBack }: Props) {
               {previewRows.map(r => (
                 <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <ScreenCheck checked={false} onClick={r.toggle} label={`Merk «${r.name}» som kjøpt`} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, ...ellipsis }}>{r.name}</span>
                   {(r.amount != null || r.unit) && (
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)', flexShrink: 0 }}>
                       {r.amount ?? ''}{r.approx ? '+' : ''} {r.unit ?? ''}
@@ -1551,10 +1573,10 @@ export default function PageSkjerm({ onBack }: Props) {
 
       {/* ── Year ticker ── */}
       <div style={{ paddingTop: 4, ...(isTablet ? { flex: '0 0 auto' } : {}) }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{now.getFullYear()}</span>
-          <span style={{ fontFamily:'var(--font-mono)', fontSize:14, color:'var(--ink-3)', letterSpacing:'0.06em' }}>Dag {daysElapsed} av {daysInYear} · {yearPct.toFixed(1).replace('.',',')}%</span>
-          <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{daysLeft} dager igjen</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, ...(isMobile ? { flexWrap: 'wrap', gap: '2px 8px' } : {}) }}>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize: isMobile ? M.ticker : 14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{now.getFullYear()}</span>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize: isMobile ? M.ticker : 14, color:'var(--ink-3)', letterSpacing:'0.06em' }}>Dag {daysElapsed} av {daysInYear} · {yearPct.toFixed(1).replace('.',',')}%</span>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize: isMobile ? M.ticker : 14, fontWeight: 700, color:'var(--ink-4)', letterSpacing:'0.1em', textTransform:'uppercase' }}>{daysLeft} dager igjen</span>
         </div>
         <div style={{ position: 'relative', height: 3, background: 'var(--line)', borderRadius: 2 }}>
           <div style={{ width: yearPct+'%', height: '100%', background: 'var(--ink-3)', borderRadius: 2, transition: 'width 1s linear' }} />
@@ -1569,7 +1591,7 @@ export default function PageSkjerm({ onBack }: Props) {
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 860, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20 }}
+            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 860, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20, ...(isMobile ? { padding: M.popPad, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', gap: 16 } : {}) }}
           >
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1586,18 +1608,18 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
 
             {/* Summary */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', ...(isMobile ? { flexWrap: 'wrap', gap: 12, paddingBottom: 14 } : {}) }}>
               <WeatherIcon category={weather.category} size={44} cloud="rgba(207,224,239,0.92)" cloudLine="rgba(207,224,239,0.5)" />
               <div>
-                <div style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.03em', color: '#E8EFF7', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                <div style={{ fontSize: isMobile ? M.popTemp : 36, fontWeight: 300, letterSpacing: '-0.03em', color: '#E8EFF7', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
                   {weather.temp}<span style={{ fontSize: 20, opacity: 0.4 }}>°</span>
-                  <span style={{ fontSize: 18, color: 'rgba(207,224,239,0.4)', marginLeft: 14 }}>føles {weather.feelsLike}°</span>
+                  <span style={{ fontSize: isMobile ? 15 : 18, color: 'rgba(207,224,239,0.4)', marginLeft: isMobile ? 10 : 14 }}>føles {weather.feelsLike}°</span>
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', marginTop: 6 }}>
                   {weather.description} · vind {weather.wind} m/s
                 </div>
               </div>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 28 }}>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 28, ...(isMobile ? { marginLeft: 0, gap: '10px 20px', flexWrap: 'wrap', flexBasis: '100%' } : {}) }}>
                 {[
                   { label: 'Min / Maks', val: `${weather.todayMin}° / ${weather.todayMax}°`, color: '#E8EFF7' },
                   ...(weather.todayPrecip > 0 ? [{ label: 'Nedbør', val: `${weather.todayPrecip} mm`, color: 'var(--accent)' }] : []),
@@ -1614,11 +1636,11 @@ export default function PageSkjerm({ onBack }: Props) {
 
             {/* Chart */}
             {weather.hourly && weather.hourly.length >= 2 && (
-              <HourlyChart hourly={weather.hourly} now={now} sunrise={weather.sunrise} sunset={weather.sunset} />
+              chartWrap(<HourlyChart hourly={weather.hourly} now={now} sunrise={weather.sunrise} sunset={weather.sunset} />)
             )}
 
             {/* Legend */}
-            <div style={{ display: 'flex', gap: 24, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.35)' }}>
+            <div style={{ display: 'flex', gap: 24, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.35)', ...(isMobile ? { flexWrap: 'wrap', gap: '6px 16px' } : {}) }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ display: 'inline-block', width: 22, height: 2, background: '#F97316', borderRadius: 1 }} />
                 Temperatur
@@ -1650,7 +1672,7 @@ export default function PageSkjerm({ onBack }: Props) {
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 860, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20 }}
+            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 860, maxWidth: 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: 20, ...(isMobile ? { padding: M.popPad, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', gap: 16 } : {}) }}
           >
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1660,7 +1682,7 @@ export default function PageSkjerm({ onBack }: Props) {
                   {AURORA_LABEL[aurora.probability]} akkurat nå
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, ...(isMobile ? { flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8 } : {}) }}>
                 <div role="tablist" style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, overflow: 'hidden' }}>
                   {([['sannsynlighet', 'Sannsynlighet'], ['kp', 'Kp-indeks']] as [AuroraView, string][]).map(([v, label]) => (
                     <button key={v} role="tab" aria-selected={auroraView === v}
@@ -1679,7 +1701,7 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
 
             {/* Summary */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 28, paddingBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 28, paddingBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', ...(isMobile ? { flexWrap: 'wrap', gap: '10px 20px', paddingBottom: 14 } : {}) }}>
               {[
                 { label: 'Kp', val: String(aurora.kp), color: '#E8EFF7' },
                 { label: 'Skydekke', val: `${aurora.cloudCover}%`, color: '#E8EFF7' },
@@ -1697,7 +1719,7 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
 
             {/* Chart */}
-            <AuroraHourlyChart hourly={aurora.hourly} view={auroraView} />
+            {chartWrap(<AuroraHourlyChart hourly={aurora.hourly} view={auroraView} />)}
 
             {/* Legend */}
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.35)' }}>
@@ -1731,7 +1753,7 @@ export default function PageSkjerm({ onBack }: Props) {
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 640, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}
+            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '28px 32px', width: 640, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20, ...(isMobile ? { padding: M.popPad, maxHeight: 'calc(100dvh - 32px)', gap: 16 } : {}) }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
@@ -1759,7 +1781,7 @@ export default function PageSkjerm({ onBack }: Props) {
                   {todayRecipe.ingredients.map((ing, i) => {
                     const qty = formatIngredientAmount(ing, mealDays);
                     return (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 15, color: '#E8EFF7', paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 15, color: '#E8EFF7', paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)', ...(isMobile ? { flexWrap: 'wrap', overflowWrap: 'anywhere' } : {}) }}>
                         <span>{ing.name}</span>
                         {qty && (
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', flexShrink: 0 }}>
