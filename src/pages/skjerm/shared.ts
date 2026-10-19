@@ -1,7 +1,29 @@
 import type React from 'react';
 import type { AuroraChance, AuroraHourlyEntry, AuroraNight } from '../../../api/nordlys';
+import type { WeatherDay } from '../../../api/vaer';
 
 export const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
+
+// ─── Vær ───────────────────────────────────────────────────────────────────
+
+export interface HourlyEntry { hour: number; temp: number; precip: number; category: string; /** 6 = grovt 6-timers punkt (kun i daily.hours). */ step?: 1 | 6; }
+
+export interface WeatherData {
+  temp: number;
+  feelsLike: number;
+  wind: number;
+  category: 'clear' | 'fair' | 'cloudy' | 'rain' | 'snow' | 'thunder' | 'fog';
+  description: string;
+  todayMin: number;
+  todayMax: number;
+  todayPrecip: number;
+  todayCategory: string;
+  sunrise: string;
+  sunset: string;
+  hourly?: HourlyEntry[];
+  /** I dag, i morgen, overmorgen. Mangler hos eldre/degradert svar. */
+  daily?: WeatherDay[];
+}
 
 // ─── Nordlys ───────────────────────────────────────────────────────────────
 
