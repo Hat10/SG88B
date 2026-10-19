@@ -58,7 +58,15 @@ export function BucketProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Realtime for endringer fra andre faner/enheter (krever bucket_items i supabase_realtime —
+    // se scripts/bucket-realtime-migration.sql). Uten den fungerer appen som før.
+    const ch = supabase.channel('bucket_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_items' }, () => { void load(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(ch); };
+  }, []);
 
   const addItem = async (item: Omit<BucketEntry, 'id'>) => {
     const { data } = await supabase.from('bucket_items').insert({
