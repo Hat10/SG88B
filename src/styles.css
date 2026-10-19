@@ -905,21 +905,6 @@ details[open] > summary::before { content: "−"; }
   from { transform: translate(-50%, 16px); opacity: 0; }
   to   { transform: translate(-50%, 0);    opacity: 1; }
 }
-@keyframes snack-soft-in {
-  from { transform: translate(-50%, 16px); opacity: 0; }
-  to   { transform: translate(-50%, 0);    opacity: 1; }
-}
-@keyframes snack-soft-out {
-  from { transform: translate(-50%, 0);    opacity: 1; }
-  to   { transform: translate(-50%, 16px); opacity: 0; }
-}
-.snack-soft { animation: snack-soft-in 0.25s ease-out both; }
-.snack-soft.snack-soft-leaving { animation: snack-soft-out 0.2s ease-in both; pointer-events: none; }
-@media (prefers-reduced-motion: reduce) {
-  .snack-soft { animation: none; }
-  .snack-soft.snack-soft-leaving { animation: none; opacity: 0; }
-  .snack-soft-bar { animation: none !important; }
-}
 @keyframes quick-sheet-up {
   from { transform: translateY(100%); opacity: 0.6; }
   to   { transform: translateY(0);    opacity: 1; }
@@ -1149,3 +1134,23 @@ button:not(:disabled):hover, [role="button"]:not([aria-disabled="true"]):hover {
 .merchant-row.expanded { background: var(--bg); }
 .merchant-del { color: var(--muted); }
 .merchant-del:hover { color: #e57373; filter: none; }
+
+/* Angre-stabel på Gangskjerm (src/pages/skjerm/UndoToastStack.tsx): en ny melding
+   vokser inn nederst og skyver de eldre oppover; en som forsvinner kollapser, og
+   de andre glir på plass. */
+@keyframes undo-toast-in {
+  from { max-height: 0; opacity: 0; transform: translateY(16px); }
+  to   { max-height: 80px; opacity: 1; transform: translateY(0); }
+}
+@keyframes undo-toast-out {
+  from { max-height: 80px; opacity: 1; }
+  to   { max-height: 0; opacity: 0; }
+}
+.undo-toast-slot { overflow: hidden; padding: 0 16px; max-height: 80px; box-sizing: border-box; animation: undo-toast-in 0.25s ease-out both; }
+.undo-toast-slot > div { margin: 4px 0; }
+.undo-toast-slot.undo-toast-leaving { animation: undo-toast-out 0.22s ease-in both; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .undo-toast-slot, .undo-toast-slot.undo-toast-leaving { animation: none; }
+  .undo-toast-slot.undo-toast-leaving { opacity: 0; max-height: 0; }
+  .undo-toast-bar { animation: none !important; }
+}

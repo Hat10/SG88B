@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTodo, type Priority } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
@@ -7,7 +7,8 @@ import { osloToday, upcomingCountdowns } from '../lib/countdowns';
 import { useMatplan } from '../contexts/MatplanContext';
 import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
-import { snapshotGroceryRows, addUndoEntry, flattenSnapshots, boughtMessage, type UndoEntry } from '../lib/groceryUndo';
+import { snapshotGroceryRows, pushToast, startLeaving, removeToast, UNDO_TOAST_MS, type UndoToast } from '../lib/groceryUndo';
+import UndoToastStack from './skjerm/UndoToastStack';
 import { consecutiveDays, formatIngredientAmount, mealRangeLabel } from '../lib/dagensMiddag';
 import { dateLabel } from '../lib/dayLabel';
 import { fireworkRain } from '../confetti';
@@ -620,23 +621,21 @@ export default function PageSkjerm({ onBack }: Props) {
   };
   const { items: wishItems } = useWish();
   const { mealPlan, recipes, groceryItems, stapleItems, toggleGroceryItem, restoreGroceryItems } = useMatplan();
-  // Avhakinger som fortsatt kan angres (meldingen vises). Ref, ikke state: meldingen eier
-  // synligheten, og flere raske avhakinger må slås sammen synkront.
-  const pendingBought = useRef<UndoEntry[]>([]);
+  // Én angre-melding per avhaket vare (nyest nederst, maks MAX_UNDO_TOASTS). Se UndoToastStack.
+  const [undoToasts, setUndoToasts] = useState<UndoToast[]>([]);
+  const undoSeq = useRef(0);
   const checkOffGrocery = async (label: string, ids: string[]) => {
     const snapshots = snapshotGroceryRows(ids, groceryItems, stapleItems);
     if (snapshots.length === 0) return;
-    pendingBought.current = addUndoEntry(pendingBought.current, { label, snapshots });
     await Promise.all(ids.map(id => toggleGroceryItem(id)));
-    notify(boughtMessage(pendingBought.current), {
-      actionLabel: 'Angre', duration: 6000, soft: true,
-      onAction: () => {
-        const toRestore = flattenSnapshots(pendingBought.current);
-        pendingBought.current = [];
-        void restoreGroceryItems(toRestore);
-      },
-      onClose: () => { pendingBought.current = []; },
-    });
+    const toast: UndoToast = { id: `u${++undoSeq.current}`, label, snapshots, expiresAt: Date.now() + UNDO_TOAST_MS };
+    setUndoToasts(st => pushToast(st, toast));
+  };
+  const expireUndoToast = useCallback((id: string) => setUndoToasts(st => startLeaving(st, id)), []);
+  const dropUndoToast = useCallback((id: string) => setUndoToasts(st => removeToast(st, id)), []);
+  const undoGrocery = (toast: UndoToast) => {
+    setUndoToasts(st => startLeaving(st, toast.id));
+    void restoreGroceryItems(toast.snapshots);
   };
   const [now, setNow]  = useState(new Date());
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
@@ -1526,6 +1525,13 @@ export default function PageSkjerm({ onBack }: Props) {
       {todoQuickAddOpen && (
         <TodoQuickAddModal isMobile={isMobile} onClose={() => setTodoQuickAddOpen(false)} />
       )}
+
+      <UndoToastStack
+        toasts={undoToasts}
+        onExpire={expireUndoToast}
+        onRemoved={dropUndoToast}
+        onUndo={undoGrocery}
+      />
 
       {/* ── Legg til vare (rask, fra Handleliste-boksen) ── */}
       {groceryQuickAddOpen && (
