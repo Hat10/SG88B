@@ -370,8 +370,11 @@ function parseIcal(
 export default async function handler(_req: any, res: any) {
   const now = new Date();
   const horizon = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
-  const todayStr   = now.toISOString().slice(0, 10);
-  const horizonStr = horizon.toISOString().slice(0, 10);
+  // Oslo-dato (som resten av appen), ikke UTC — ellers peker «i dag» på
+  // gårsdagen mellom lokal midnatt og UTC-midnatt (01/02 om natten).
+  const osloDate = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
+  const todayStr   = osloDate(now);
+  const horizonStr = osloDate(horizon);
 
   const results = await Promise.allSettled(
     FEEDS.map(async ({ env, source, color }) => {

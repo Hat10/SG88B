@@ -12,8 +12,9 @@ import { kpLevel, type KpLevel } from '../lib/kpLevel';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
 import { useScrollLock } from '../lib/useScrollLock';
+import { useIdleReset } from '../lib/useIdleReset';
 import { KalenderCard } from './skjerm/KalenderCard';
-import { m, type AnyEvent } from './skjerm/shared';
+import { m } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
@@ -752,6 +753,13 @@ export default function PageSkjerm({ onBack }: Props) {
   const cd = countdowns[0] ?? null;
   const [cdEditing, setCdEditing] = useState(false);
   const [cdDraft, setCdDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
+  // 10 s uten berøring/scroll noe sted på siden → alle sveipbare kort (useSwipePager)
+  // glir tilbake til i dag. Står stille mens en popup/modal/inline-redigering er åpen,
+  // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
+  const idleTick = useIdleReset({
+    paused: weatherOpen || auroraOpen || recipeModalOpen || treningRegisterOpen
+      || todoQuickAddOpen || groceryQuickAddOpen || editingTodo !== null || cdEditing,
+  });
   const [winW, setWinW] = useState(() => window.innerWidth);
   // iOS Safari's window.innerHeight/100vh includes space hidden behind the
   // address bar. visualViewport.height tracks what's actually visible right
@@ -869,12 +877,6 @@ export default function PageSkjerm({ onBack }: Props) {
 
   const today = todayStr();
   const WHO: Record<string, string> = { f: 'Felles', M: 'Andreas', L: 'Taran' };
-
-  // Gangskjerm viser nå kun i dag for kalenderhendelser — ikke kommende dager.
-  const todayCalEvents: AnyEvent[] = calEvents
-    .map(e => ({ ...e, source: e.source as string, overdueSince: undefined as string | undefined }))
-    .filter(e => e.start.slice(0, 10) === today)
-    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
   // Gjøremål-boksen viser derimot ALLE aktive gjøremål, ikke bare dagens —
   // fjernet datofilteret fra forrige økt. Inkluderer også gjøremål uten
@@ -1377,9 +1379,9 @@ export default function PageSkjerm({ onBack }: Props) {
       {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) + Handleliste — grows to fill ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
-        {/* Kalender — kun i dag, ikke kommende dager */}
+        {/* Kalender — i dag som standard, sveipbar fremover (useSwipePager) */}
         <KalenderCard
-          events={todayCalEvents} isMobile={isMobile} isTablet={isTablet} screenSize={screenSize}
+          calEvents={calEvents} today={today} resetSignal={idleTick} isMobile={isMobile} isTablet={isTablet} screenSize={screenSize}
           cell={cell} eyebrow={eyebrow}
         />
 

@@ -1,5 +1,13 @@
+import { useMemo } from 'react';
 import type React from 'react';
+import type { CalEvent } from '../../../api/kalender';
 import { m, type AnyEvent, type ScreenSize } from './shared';
+import { addDaysLocal } from '../../lib/dagensMiddag';
+import { dayLabel } from '../../lib/dayLabel';
+import { useSwipePager } from '../../lib/useSwipePager';
+
+// I dag t.o.m. i dag + 13 dager (14 dager). Ingen bakover i tid.
+const MAX_DAYS_AHEAD = 13;
 
 const SOURCE_LABEL: Record<string, string> = {
   andreas: 'Andreas', taran: 'Taran', felles: 'Felles', todo: 'Gjøremål',
@@ -10,7 +18,11 @@ function fmtTime(iso: string): string {
 }
 
 interface Props {
-  events: AnyEvent[];
+  calEvents: CalEvent[];
+  /** yyyy-mm-dd, samme «i dag» som resten av Gangskjerm. */
+  today: string;
+  /** Fra useIdleReset: endres → kortet glir tilbake til i dag. */
+  resetSignal: number;
   isMobile: boolean;
   isTablet: boolean;
   screenSize: ScreenSize;
@@ -18,22 +30,60 @@ interface Props {
   eyebrow: React.CSSProperties;
 }
 
-// Kalender — kun i dag, ikke kommende dager
-export function KalenderCard({ events, isMobile, isTablet, screenSize, cell, eyebrow }: Props) {
-  return (
-    <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : screenSize === 'tablet' ? 6 : 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={eyebrow}>Kalender · i dag</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● LIVE</div>
-      </div>
+// Kalender — i dag som standard; sveip (eller ‹ ›) blar fremover t.o.m. +13 dager.
+export function KalenderCard({ calEvents, today, resetSignal, isMobile, isTablet, screenSize, cell, eyebrow }: Props) {
+  const pager = useSwipePager({ max: MAX_DAYS_AHEAD, resetSignal });
+  const { offset } = pager;
+  const date = addDaysLocal(today, offset);
+  const isToday = offset === 0;
 
-      {events.length === 0 ? (
-        <div style={{ padding: isMobile ? '16px 0' : '20px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, color: 'var(--ink-4)' }}>
-          Ingen hendelser i dag
+  const events: AnyEvent[] = useMemo(() => calEvents
+    .map(e => ({ ...e, source: e.source as string, overdueSince: undefined as string | undefined }))
+    .filter(e => e.start.slice(0, 10) === date)
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+  [calEvents, date]);
+
+  const gap = isMobile ? 10 : screenSize === 'tablet' ? 6 : 14;
+  // Små piler i etikettlinjen. Negativ vertikal marg så de aldri gjør linjen høyere.
+  const arrow = (enabled: boolean): React.CSSProperties => ({
+    background: 'transparent', border: 0, padding: '0 6px', height: 24, marginBlock: -8,
+    lineHeight: '24px', fontSize: isMobile ? m.title : 20, color: 'var(--ink-4)',
+    cursor: enabled ? 'pointer' : 'default', opacity: enabled ? 1 : 0.25,
+  });
+
+  return (
+    <div
+      {...pager.containerProps}
+      style={{
+        ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}),
+        padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px',
+        display: 'flex', flexDirection: 'column',
+        // Svak aksent på rammen når en annen dag enn i dag vises (ignoreres av eldre nettlesere uten color-mix).
+        ...(isToday ? {} : { border: '1px solid color-mix(in srgb, var(--accent) 55%, var(--line))' }),
+        ...pager.containerProps.style,
+      }}
+    >
+      {/* Det som glir. Ellers nøytral: fyller kortet og bærer gap'en kortet tidligere hadde selv. */}
+      <div ref={pager.contentRef} style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={eyebrow}>Kalender · {dayLabel(offset, date)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 2 : 4 }}>
+            <button data-no-swipe aria-label="Forrige dag" disabled={!pager.canPrev} onClick={pager.prev} style={arrow(pager.canPrev)}>‹</button>
+            <button data-no-swipe aria-label="Neste dag" disabled={!pager.canNext} onClick={pager.next} style={arrow(pager.canNext)}>›</button>
+            {/* «LIVE» gir bare mening for i dag — og gir plass til dato-etiketten i smale kort. */}
+            {isToday && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em', marginLeft: isMobile ? 4 : 6 }}>● LIVE</div>
+            )}
+          </div>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', ...(isTablet ? { flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : {}) }}>
-          {events.map((e, i) => (
+
+        {events.length === 0 ? (
+          <div key={date} style={{ padding: isMobile ? '16px 0' : '20px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, color: 'var(--ink-4)' }}>
+            {isToday ? 'Ingen hendelser i dag' : 'Ingenting i kalenderen'}
+          </div>
+        ) : (
+          <div key={date} style={{ display: 'flex', flexDirection: 'column', ...(isTablet ? { flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', ...pager.scrollAreaStyle } : {}) }}>
+        {events.map((e, i) => (
             <div key={e.id} style={{
               display: 'flex', alignItems: 'center', gap: isMobile ? m.rowGap : 14,
               padding: isMobile ? m.rowPad : '11px 10px',
@@ -57,6 +107,7 @@ export function KalenderCard({ events, isMobile, isTablet, screenSize, cell, eye
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
