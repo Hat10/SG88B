@@ -3,6 +3,25 @@ import type { AuroraChance, AuroraHourlyEntry, AuroraNight } from '../../../api/
 
 export const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 
+// ─── Vær ───────────────────────────────────────────────────────────────────
+
+export interface HourlyEntry { hour: number; temp: number; precip: number; category: string; }
+
+export interface WeatherData {
+  temp: number;
+  feelsLike: number;
+  wind: number;
+  category: 'clear' | 'fair' | 'cloudy' | 'rain' | 'snow' | 'thunder' | 'fog';
+  description: string;
+  todayMin: number;
+  todayMax: number;
+  todayPrecip: number;
+  todayCategory: string;
+  sunrise: string;
+  sunset: string;
+  hourly?: HourlyEntry[];
+}
+
 // ─── Nordlys ───────────────────────────────────────────────────────────────
 
 export interface AuroraData {
