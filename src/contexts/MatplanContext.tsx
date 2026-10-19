@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { handleukeStart } from '../hooks/useWeeklyBucket';
 import { guessCategory } from '../lib/groceryCategories';
 import { useSnackbar } from './SnackbarContext';
+import type { GroceryUndoSnapshot } from '../lib/groceryUndo';
 
 // Faste enhetsvalg — delt mellom oppskrift-editoren (Ingredient.unit) og
 // «Legg til kjøpsfrekvens» i StapleManager (StapleItem.unit), én kilde til
@@ -111,6 +112,8 @@ interface MatplanCtx {
   /** Overstyrer kategorien for ALLE rader med samme varenavn (case-insensitivt), OG husker valget (grocery_category_overrides) for varenavnet fremover — se Handlemodus. */
   setGroceryCategory: (id: string, category: string) => Promise<void>;
   toggleGroceryItem: (id: string) => Promise<void>;
+  /** Setter radene (og tilhørende basisvarer) tilbake til tilstanden i opptakene — brukes av Angre på Gangskjerm. Rører ikke navn/mengde/enhet/created_at. */
+  restoreGroceryItems: (snapshots: GroceryUndoSnapshot[]) => Promise<void>;
   removeGroceryItem: (id: string) => Promise<void>;
 }
 
@@ -122,7 +125,7 @@ const MatplanContext = createContext<MatplanCtx>({
   setMealPlan: noop, clearMealPlan: noop,
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
   syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: async () => false, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
-  toggleGroceryItem: noop, removeGroceryItem: noop,
+  toggleGroceryItem: noop, restoreGroceryItems: noop, removeGroceryItem: noop,
 });
 
 const recipeFromRow = (r: Record<string, unknown>): Recipe => ({
@@ -573,6 +576,22 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     await load();
   };
 
+  const restoreGroceryItems = async (snapshots: GroceryUndoSnapshot[]) => {
+    for (const snap of snapshots) {
+      const { error } = await supabase.from('grocery_items')
+        .update({ done: snap.done, done_at: snap.doneAt })
+        .eq('id', snap.id);
+      if (reportDbError('Angring', error)) continue;
+      if (snap.stapleItemId && snap.stapleBefore) {
+        const { error: stapleError } = await supabase.from('staple_items')
+          .update({ last_bought_at: snap.stapleBefore.lastBoughtAt, postponed_until: snap.stapleBefore.postponedUntil })
+          .eq('id', snap.stapleItemId);
+        reportDbError('Oppdatering av basisvare', stapleError);
+      }
+    }
+    await load();
+  };
+
   const removeGroceryItem = async (id: string) => {
     const { error } = await supabase.from('grocery_items').delete().eq('id', id);
     if (reportDbError('Sletting', error)) return;
@@ -585,7 +604,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
       setMealPlan, clearMealPlan,
       addStaple, updateStaple, removeStaple, restoreStaple,
-      syncGroceryList, addMealToGroceryListNow, addStapleToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, removeGroceryItem,
+      syncGroceryList, addMealToGroceryListNow, addStapleToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, restoreGroceryItems, removeGroceryItem,
     }}>
       {children}
     </MatplanContext.Provider>

@@ -898,6 +898,21 @@ details[open] > summary::before { content: "−"; }
   from { transform: translate(-50%, 16px); opacity: 0; }
   to   { transform: translate(-50%, 0);    opacity: 1; }
 }
+@keyframes snack-soft-in {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+@keyframes snack-soft-out {
+  from { transform: translate(-50%, 0);    opacity: 1; }
+  to   { transform: translate(-50%, 16px); opacity: 0; }
+}
+.snack-soft { animation: snack-soft-in 0.25s ease-out both; }
+.snack-soft.snack-soft-leaving { animation: snack-soft-out 0.2s ease-in both; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .snack-soft { animation: none; }
+  .snack-soft.snack-soft-leaving { animation: none; opacity: 0; }
+  .snack-soft-bar { animation: none !important; }
+}
 @keyframes quick-sheet-up {
   from { transform: translateY(100%); opacity: 0.6; }
   to   { transform: translateY(0);    opacity: 1; }
