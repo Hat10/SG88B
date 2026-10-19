@@ -3,6 +3,7 @@ import { useFinance } from '../contexts/FinanceContext';
 import { useHusGoal } from '../hooks/useHusGoal';
 import { useTodo } from '../contexts/TodoContext';
 import { useCountdowns, type Countdown } from '../hooks/useCountdown';
+import { osloToday, upcomingCountdowns } from '../lib/countdowns';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWeeklyBucket } from '../hooks/useWeeklyBucket';
 import { Btn, fmtKr, Ico } from '../components';
@@ -284,12 +285,12 @@ function SavingsPanel({
 
 const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 
-// Viser den nærmeste nedtellingen (items[0], listen er sortert på dato) — det
-// eneste Gangskjerm også viser foreløpig. Full liste administreres i
+// Viser den nærmeste kommende nedtellingen (se upcomingCountdowns). Full liste administreres i
 // CountdownAdminSection under, ikke her.
 function CountdownPanel({ dark = false }: { dark?: boolean }) {
   const { items, loading, add, update, remove, restore } = useCountdowns();
-  const cd = items[0] ?? null;
+  // Nærmeste KOMMENDE nedtelling (dagens vises ut dagen); passerte hoppes over.
+  const cd = upcomingCountdowns(items, osloToday())[0] ?? null;
   const { notify } = useSnackbar();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
@@ -831,7 +832,7 @@ export default function PageDashboard() {
   const { goal: houseGoalFromDB } = useHusGoal();
   const { items: todos, toggleItem } = useTodo();
   const { items: countdowns } = useCountdowns();
-  const cd = countdowns[0] ?? null;
+  const cd = upcomingCountdowns(countdowns, osloToday())[0] ?? null;
   const { params: bpParams } = useBuyingPowerParams();
   const { categories: trCategories } = useTrening();
   const { groceryItems } = useMatplan();
