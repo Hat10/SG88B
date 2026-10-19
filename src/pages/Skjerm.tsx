@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTodo, type Priority } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
-import { useCountdowns } from '../hooks/useCountdown';
+import { useCountdowns, type Countdown } from '../hooks/useCountdown';
+import { osloToday, upcomingCountdowns } from '../lib/countdowns';
 import { useMatplan } from '../contexts/MatplanContext';
 import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
@@ -752,9 +753,16 @@ export default function PageSkjerm({ onBack }: Props) {
   const [auroraOpen, setAuroraOpen]   = useState(false);
   const [auroraView, setAuroraView]   = useState<AuroraView>('sannsynlighet');
   const { items: countdowns, add: addCd, update: updateCd, remove: removeCd, restore: restoreCd, loading: cdLoading } = useCountdowns();
-  const cd = countdowns[0] ?? null;
+  // Kun kommende nedtellinger (dato >= dagens Oslo-dato), nærmest først. useCountdowns() filtrerer
+  // ikke (Dashboard bruker den til CRUD), så det gjøres her.
+  const todayOslo = osloToday(now);
+  const upcomingCds = useMemo(() => upcomingCountdowns(countdowns, todayOslo), [countdowns, todayOslo]);
   const [cdEditing, setCdEditing] = useState(false);
-  const [cdDraft, setCdDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
+  // Nedtellingen som redigeres (null = ny). Redigering gjelder alltid den som VISES, ikke den første.
+  const [cdEditTarget, setCdEditTarget] = useState<Countdown | null>(null);
+  const [cdDraft, setCdDraft]     = useState(EMPTY_COUNTDOWN_DRAFT);
+  // Etter lagring: kortet følger nedtellingen til dens nye plass i lista.
+  const [cdFollow, setCdFollow]   = useState<{ id: string; date: string } | null>(null);
   // 10 s uten berøring/scroll noe sted på siden → alle sveipbare kort (useSwipePager)
   // glir tilbake til i dag. Står stille mens en popup/modal/inline-redigering er åpen,
   // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
@@ -774,8 +782,6 @@ export default function PageSkjerm({ onBack }: Props) {
     if (w < 1400) return 'tablet';  // iPad Pro 12.9" (portrait 1024 / landscape 1366) → tablet mode
     return 'desktop';  // Only true desktops at 1400px+
   });
-
-  useEffect(() => { if (!cdEditing) setCdDraft(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT); }, [cd, cdEditing]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -863,18 +869,32 @@ export default function PageSkjerm({ onBack }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  const handleToggleEditCd = (target: Countdown) => {
+    if (cdEditing) { setCdEditing(false); return; }
+    setCdDraft({ label: target.label, date: target.date });
+    setCdEditTarget(target);
+    setCdEditing(true);
+  };
+
+  const handleAddCd = () => {
+    setCdDraft(EMPTY_COUNTDOWN_DRAFT);
+    setCdEditTarget(null);
+    setCdEditing(true);
+  };
+
   const handleSaveCd = () => {
     if (!cdDraft.label.trim() || !cdDraft.date) return;
-    if (cd) void updateCd(cd.id, { label: cdDraft.label.trim(), date: cdDraft.date });
-    else void addCd({ label: cdDraft.label.trim(), date: cdDraft.date });
+    const patch = { label: cdDraft.label.trim(), date: cdDraft.date };
+    if (cdEditTarget) {
+      void updateCd(cdEditTarget.id, patch);
+      setCdFollow({ id: cdEditTarget.id, date: patch.date });
+    } else void addCd(patch);
     setCdEditing(false);
   };
 
-  const handleRemoveCd = () => {
-    if (!cd) return;
-    const prev = cd;
-    void removeCd(cd.id);
-    notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(prev) });
+  const handleRemoveCd = (target: Countdown) => {
+    void removeCd(target.id);
+    notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(target) });
   };
 
   const today = todayStr();
@@ -960,8 +980,6 @@ export default function PageSkjerm({ onBack }: Props) {
   const daysElapsed = Math.floor((now.getTime() - yearStart) / 86400000) + 1;
   const daysInYear  = Math.round((yearEnd - yearStart) / 86400000);
   const daysLeft    = daysInYear - daysElapsed;
-
-  const cdDays = cd ? daysUntil(cd.date) : 0;
 
   // The weekly "ting vi vil gjøre" reminder is shared across all devices and
   // rolls over the night into Monday — see useWeeklyBucket / api/cron/rollover.
@@ -1260,8 +1278,11 @@ export default function PageSkjerm({ onBack }: Props) {
 
         {/* Countdown */}
         <NedtellingCard
-          cd={cd} cdDays={cdDays} cdLoading={cdLoading} cdEditing={cdEditing} cdDraft={cdDraft}
-          setCdDraft={setCdDraft} setCdEditing={setCdEditing} onSave={handleSaveCd} onRemove={handleRemoveCd}
+          countdowns={upcomingCds} today={todayOslo} resetSignal={idleTick} loading={cdLoading}
+          editing={cdEditing} draft={cdDraft} setDraft={setCdDraft}
+          onToggleEdit={handleToggleEditCd} onAdd={handleAddCd} onSave={handleSaveCd}
+          onCancel={() => setCdEditing(false)} onRemove={handleRemoveCd}
+          follow={cdFollow} onFollowed={() => setCdFollow(null)}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
 
