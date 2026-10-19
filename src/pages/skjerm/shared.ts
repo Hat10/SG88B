@@ -1,6 +1,18 @@
 import type React from 'react';
+import type { AuroraChance, AuroraHourlyEntry } from '../../../api/nordlys';
 
 export const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
+
+// ─── Nordlys ───────────────────────────────────────────────────────────────
+
+export interface AuroraData {
+  kp: number; kpTime: string; cloudCover: number; probability: AuroraChance;
+  hourly?: AuroraHourlyEntry[];
+  updatedAt: string;
+}
+
+export const AURORA_COLOR: Record<AuroraChance, string> = { lav: 'var(--ink-4)', middels: 'var(--warn)', høy: 'var(--good)' };
+export const AURORA_LABEL: Record<AuroraChance, string> = { lav: 'Lav sjanse', middels: 'Middels sjanse', høy: 'Høy sjanse' };
 
 export type ScreenSize = 'mobile' | 'tablet' | 'desktop';
 

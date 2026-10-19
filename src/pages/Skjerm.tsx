@@ -18,7 +18,8 @@ import { useIdleReset } from '../lib/useIdleReset';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
 import { NedtellingCard } from './skjerm/NedtellingCard';
-import { m, EMPTY_COUNTDOWN_DRAFT } from './skjerm/shared';
+import { NordlysCard } from './skjerm/NordlysCard';
+import { m, EMPTY_COUNTDOWN_DRAFT, AURORA_COLOR, AURORA_LABEL, type AuroraData } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
@@ -29,15 +30,6 @@ interface HourlyEntry { hour: number; temp: number; precip: number; category: st
 interface WasteType { name: string; category: 'plast' | 'mat' | 'papir' | 'rest' | 'glass' | 'hage' | 'annet'; }
 interface Pickup { date: string; weekday: string; dateLabel: string; types: WasteType[]; }
 interface TommeplanData { address: string; pickups: Pickup[]; updatedAt: string; }
-
-interface AuroraData {
-  kp: number; kpTime: string; cloudCover: number; probability: AuroraChance;
-  hourly?: AuroraHourlyEntry[];
-  updatedAt: string;
-}
-
-const AURORA_COLOR: Record<AuroraChance, string> = { lav: 'var(--ink-4)', middels: 'var(--warn)', høy: 'var(--good)' };
-const AURORA_LABEL: Record<AuroraChance, string> = { lav: 'Lav sjanse', middels: 'Middels sjanse', høy: 'Høy sjanse' };
 
 interface WeatherData {
   temp: number;
@@ -1290,33 +1282,11 @@ export default function PageSkjerm({ onBack }: Props) {
             kombinert med skydekke fra Yr/met.no for Bodø. Ren heuristikk, ikke
             et offisielt varsel — se api/nordlys.ts for poengmodellen. Klikk
             åpner en 20-timers prognosegraf, samme mønster som Vær-boksen. */}
-        <div
-          onClick={() => (aurora?.hourly?.length ?? 0) >= 2 && setAuroraOpen(v => !v)}
-          style={{
-            ...cell, padding: isMobile ? m.pad : screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
-            display: 'flex', flexDirection: 'column', gap: isMobile ? 6 : screenSize === 'tablet' ? 6 : 12, cursor: 'default',
-            // Eneste kort i tredje rad på mobil — full bredde i stedet for et tomt hull ved siden av.
-            ...(isMobile ? { gridColumn: '1 / -1', minWidth: 0 } : {}),
-          }}>
-          <div style={eyebrow}>🌌 Nordlys · Bodø</div>
-
-          {auroraError && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 13, color: 'var(--ink-4)' }}>Utilgjengelig akkurat nå</div>
-          )}
-          {!auroraError && !aurora && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, color: 'var(--ink-4)' }}>…</div>
-          )}
-          {!auroraError && aurora && (
-            <>
-              <div style={{ fontSize: isMobile ? m.title : screenSize === 'desktop' ? 22 : screenSize === 'tablet' ? 14 : 18, fontWeight: 600, letterSpacing: '-0.01em', color: AURORA_COLOR[aurora.probability] }}>
-                {AURORA_LABEL[aurora.probability]}
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 12, color: 'var(--ink-4)' }}>
-                Kp {aurora.kp} · {aurora.cloudCover}% skydekke
-              </div>
-            </>
-          )}
-        </div>
+        <NordlysCard
+          aurora={aurora} auroraError={auroraError}
+          onToggle={() => (aurora?.hourly?.length ?? 0) >= 2 && setAuroraOpen(v => !v)}
+          isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
+        />
       </div>
 
       {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) + Handleliste — grows to fill ── */}
