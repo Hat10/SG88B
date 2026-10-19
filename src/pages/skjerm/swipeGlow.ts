@@ -47,7 +47,8 @@ export function glowBleed(size: ScreenSize): number {
 }
 
 // Egen variabel (styles.css), tidsstyrt lys/mørk: --swipe-glow (#BC6342 lys, #F0B49A mørk) — rolig fersken, ikke varselrødt.
-const GLOW_COLOR = 'color-mix(in srgb, var(--swipe-glow) 85%, transparent)';
+// Styrken (dekningen) ligger i --swipe-glow-strength (også i styles.css), så den er lett å justere.
+const GLOW_COLOR = 'color-mix(in srgb, var(--swipe-glow) var(--swipe-glow-strength), transparent)';
 const GLOW_OFF = '0 0 0 0 transparent';
 
 /** Stilen et sveipbart kort spres inn: `...swipeGlow(offset > 0, screenSize)`. */

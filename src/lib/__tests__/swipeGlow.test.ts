@@ -38,7 +38,7 @@ describe('glowBleed', () => {
 describe('swipeGlow', () => {
   it('aktiv: én box-shadow i --swipe-glow med spread og blur; ingen layout-egenskaper', () => {
     const s = swipeGlow(true, 'tablet', false);
-    expect(s.boxShadow).toBe('0 0 1.6px 1.6px color-mix(in srgb, var(--swipe-glow) 85%, transparent)');
+    expect(s.boxShadow).toBe('0 0 1.6px 1.6px color-mix(in srgb, var(--swipe-glow) var(--swipe-glow-strength), transparent)');
     expect(Object.keys(s).sort()).toEqual(['boxShadow', 'transition']);
   });
   it('inaktiv: ingen synlig skygge, men samme egenskap så overgangen kan animeres', () => {
