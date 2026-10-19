@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dayLabel } from '../dayLabel';
+import { dayLabel, dateLabel, dateLabelShort } from '../dayLabel';
 
 describe('dayLabel', () => {
   it('i dag / i morgen', () => {
@@ -9,5 +9,12 @@ describe('dayLabel', () => {
   it('ellers ukedag, dato og måned uten punktum etter ukedag/måned', () => {
     expect(dayLabel(2, '2026-10-21')).toBe('ons 21. okt');
     expect(dayLabel(13, '2026-11-01')).toBe('søn 1. nov');
+  });
+});
+
+describe('dateLabel / dateLabelShort', () => {
+  it('med og uten måned', () => {
+    expect(dateLabel('2026-10-21')).toBe('ons 21. okt');
+    expect(dateLabelShort('2026-10-21')).toBe('ons 21.');
   });
 });

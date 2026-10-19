@@ -6,7 +6,8 @@ import { useCountdowns } from '../hooks/useCountdown';
 import { useMatplan } from '../contexts/MatplanContext';
 import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
-import { addDaysLocal, consecutiveDays, formatIngredientAmount } from '../lib/dagensMiddag';
+import { consecutiveDays, formatIngredientAmount, mealRangeLabel } from '../lib/dagensMiddag';
+import { dateLabel } from '../lib/dayLabel';
 import { fireworkRain } from '../confetti';
 import { kpLevel, type KpLevel } from '../lib/kpLevel';
 import { TreningQuickRegister } from '../TreningQuickRegister';
@@ -14,6 +15,7 @@ import { QuickTodoForm } from '../QuickAdd';
 import { useScrollLock } from '../lib/useScrollLock';
 import { useIdleReset } from '../lib/useIdleReset';
 import { KalenderCard } from './skjerm/KalenderCard';
+import { MiddagCard } from './skjerm/MiddagCard';
 import { m } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
@@ -738,7 +740,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [weather, setWeather]    = useState<WeatherData | null>(null);
   const [weatherOpen, setWeatherOpen] = useState(false);
-  const [recipeModalOpen, setRecipeModalOpen] = useState(false);
+  // Datoen oppskrift-modalen er åpnet for (kortet kan vise en annen dag enn i dag); null = lukket.
+  const [recipeModalDate, setRecipeModalDate] = useState<string | null>(null);
   const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
   const [todoQuickAddOpen, setTodoQuickAddOpen] = useState(false);
   const [groceryQuickAddOpen, setGroceryQuickAddOpen] = useState(false);
@@ -757,7 +760,7 @@ export default function PageSkjerm({ onBack }: Props) {
   // glir tilbake til i dag. Står stille mens en popup/modal/inline-redigering er åpen,
   // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
   const idleTick = useIdleReset({
-    paused: weatherOpen || auroraOpen || recipeModalOpen || treningRegisterOpen
+    paused: weatherOpen || auroraOpen || recipeModalDate !== null || treningRegisterOpen
       || todoQuickAddOpen || groceryQuickAddOpen || editingTodo !== null || cdEditing,
   });
   const [winW, setWinW] = useState(() => window.innerWidth);
@@ -924,14 +927,14 @@ export default function PageSkjerm({ onBack }: Props) {
       return a.title.localeCompare(b.title);
     });
 
-  // Dagens middag — fra Middagsplanleggerens ukeplan (MatplanContext).
-  const todayMealPlan = mealPlan.find(mp => mp.date === today);
-  const todayRecipe   = todayMealPlan ? recipes.find(r => r.id === todayMealPlan.recipeId) : undefined;
-  // Samme oppskrift flere dager på rad fra i dag → ingredienser vises for hele serien.
-  const mealDays = todayRecipe ? consecutiveDays(mealPlan, today) : 0;
-  const mealLastDay = mealDays > 1
-    ? new Date(addDaysLocal(today, mealDays - 1) + 'T12:00:00').toLocaleDateString('nb-NO', { weekday: 'long' })
-    : '';
+  // Oppskrift-modalen: for datoen kortet viste da det ble trykket på (Dagens middag / MiddagCard).
+  const modalPlan   = recipeModalDate ? mealPlan.find(mp => mp.date === recipeModalDate) : undefined;
+  const modalRecipe = modalPlan ? recipes.find(r => r.id === modalPlan.recipeId) : undefined;
+  // Samme oppskrift flere dager på rad fra den viste datoen → ingredienser vises for hele serien.
+  const modalDays   = modalRecipe && recipeModalDate ? consecutiveDays(mealPlan, recipeModalDate) : 0;
+  const modalRange  = recipeModalDate ? mealRangeLabel(recipeModalDate, modalDays, recipeModalDate === today) : '';
+  // Oppskriften forsvant mens modalen var åpen (realtime-oppdatering) → lukk, så inaktivitetstelleren ikke blir stående på pause.
+  useEffect(() => { if (recipeModalDate && !modalRecipe) setRecipeModalDate(null); }, [recipeModalDate, modalRecipe]);
 
   // Handleliste-forhåndsvisning — samme grupperingslogikk som HandlelisteCard
   // (src/pages/middag/HandlelisteCard.tsx) bruker, gjenbrukt her via
@@ -1250,29 +1253,11 @@ export default function PageSkjerm({ onBack }: Props) {
 
         {/* Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn —
             trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
-        <button
-          onClick={() => { if (todayRecipe) setRecipeModalOpen(true); }}
-          style={{
-            ...cell, width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
-            cursor: todayRecipe ? 'pointer' : 'default',
-            padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
-            display: 'flex', flexDirection: 'column', gap: isMobile ? 6 : screenSize === 'tablet' ? 3 : 4, ...(isMobile ? { minWidth: 0 } : {}),
-          }}
-        >
-          <div style={eyebrow}>🍽️ Dagens middag</div>
-          {todayRecipe ? (
-            <div style={{ fontSize: isMobile ? m.title : screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 13 : 17, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', ...(isMobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>
-              {todayRecipe.name}
-              {mealDays > 1 && (
-                <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 400, color: 'var(--ink-4)', letterSpacing: 0 }}>
-                  ×{mealDays} dager
-                </span>
-              )}
-            </div>
-          ) : (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 13, color: 'var(--ink-4)' }}>Ingen middag planlagt i dag</div>
-          )}
-        </button>
+        <MiddagCard
+          mealPlan={mealPlan} recipes={recipes} today={today} resetSignal={idleTick}
+          onOpenRecipe={setRecipeModalDate}
+          isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
+        />
 
         {/* Countdown */}
         <div style={{ ...cell, ...(isMobile ? { minWidth: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : screenSize === 'tablet' ? 6 : 12 }}>
@@ -1708,9 +1693,9 @@ export default function PageSkjerm({ onBack }: Props) {
       )}
 
       {/* ── Dagens middag: full oppskrift ── */}
-      {recipeModalOpen && todayRecipe && (
+      {recipeModalDate && modalRecipe && (
         <div
-          onClick={() => setRecipeModalOpen(false)}
+          onClick={() => setRecipeModalDate(null)}
           style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? 12 : 20 }}
         >
           <div
@@ -1719,29 +1704,29 @@ export default function PageSkjerm({ onBack }: Props) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Dagens middag</div>
-                <div style={{ fontSize: 26, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>{todayRecipe.name}</div>
-                {todayRecipe.cookTimeMinutes != null && (
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', marginTop: 6 }}>⏱ {todayRecipe.cookTimeMinutes} min</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{recipeModalDate === today ? 'Dagens middag' : `Middag · ${dateLabel(recipeModalDate)}`}</div>
+                <div style={{ fontSize: 26, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>{modalRecipe.name}</div>
+                {modalRecipe.cookTimeMinutes != null && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', marginTop: 6 }}>⏱ {modalRecipe.cookTimeMinutes} min</div>
                 )}
               </div>
               <button
-                onClick={() => setRecipeModalOpen(false)}
+                onClick={() => setRecipeModalDate(null)}
                 style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
               >✕</button>
             </div>
 
-            {todayRecipe.ingredients.length > 0 && (
+            {modalRecipe.ingredients.length > 0 && (
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Ingredienser</div>
-                {mealDays > 1 && (
+                {modalDays > 1 && (
                   <div style={{ fontSize: 13, color: '#C9963A', marginBottom: 10 }}>
-                    Mengder for {mealDays} dager (i dag–{mealLastDay})
+                    Mengder for {modalDays} dager ({modalRange})
                   </div>
                 )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {todayRecipe.ingredients.map((ing, i) => {
-                    const qty = formatIngredientAmount(ing, mealDays);
+                  {modalRecipe.ingredients.map((ing, i) => {
+                    const qty = formatIngredientAmount(ing, modalDays);
                     return (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, ...(isMobile ? { flexWrap: 'wrap' } : {}), fontSize: 15, color: '#E8EFF7', paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                         <span>{ing.name}</span>
@@ -1757,14 +1742,14 @@ export default function PageSkjerm({ onBack }: Props) {
               </div>
             )}
 
-            {todayRecipe.instructions && (
+            {modalRecipe.instructions && (
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Fremgangsmåte</div>
-                <div style={{ fontSize: 15, lineHeight: 1.6, color: 'rgba(207,224,239,0.85)', whiteSpace: 'pre-wrap' }}>{todayRecipe.instructions}</div>
+                <div style={{ fontSize: 15, lineHeight: 1.6, color: 'rgba(207,224,239,0.85)', whiteSpace: 'pre-wrap' }}>{modalRecipe.instructions}</div>
               </div>
             )}
 
-            {todayRecipe.ingredients.length === 0 && !todayRecipe.instructions && (
+            {modalRecipe.ingredients.length === 0 && !modalRecipe.instructions && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.4)' }}>Ingen detaljer lagt til for denne oppskriften ennå.</div>
             )}
           </div>

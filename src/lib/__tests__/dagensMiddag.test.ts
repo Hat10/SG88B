@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addDaysLocal, consecutiveDays, formatIngredientAmount } from '../dagensMiddag';
+import { addDaysLocal, consecutiveDays, formatIngredientAmount, mealRangeLabel } from '../dagensMiddag';
 
 const mp = (date: string, recipeId: string) => ({ id: date, date, recipeId });
 
@@ -40,5 +40,19 @@ describe('formatIngredientAmount', () => {
   it('kun enhet og ingenting', () => {
     expect(formatIngredientAmount({ amount: null, unit: 'klype', amountRange: null }, 3)).toBe('klype');
     expect(formatIngredientAmount({ amount: null, unit: null, amountRange: null }, 3)).toBe('');
+  });
+});
+
+describe('mealRangeLabel', () => {
+  it('tom for én dag', () => {
+    expect(mealRangeLabel('2026-10-21', 1, false)).toBe('');
+    expect(mealRangeLabel('2026-10-21', 0, true)).toBe('');
+  });
+  it('i dag: «i dag–<ukedag>» som før', () => {
+    expect(mealRangeLabel('2026-10-21', 3, true)).toBe('i dag–fredag');
+  });
+  it('andre dager: kort ukedag og dato for første og siste dag', () => {
+    expect(mealRangeLabel('2026-10-21', 3, false)).toBe('ons 21.–fre 23.');
+    expect(mealRangeLabel('2026-10-30', 3, false)).toBe('fre 30.–søn 1.');
   });
 });
