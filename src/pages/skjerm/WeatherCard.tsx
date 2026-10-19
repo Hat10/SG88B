@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type React from 'react';
 import { m, type ScreenSize, type WeatherData } from './shared';
+import { swipeGlow } from './swipeGlow';
 import { WeatherIcon } from './WeatherIcon';
 import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
@@ -94,8 +95,8 @@ export function WeatherCard({ weather, resetSignal, onToggle, isMobile, screenSi
         display: 'flex', flexDirection: 'column', cursor: 'default',
         // Prikkene ligger absolutt nederst i kortets padding og gjør det ikke høyere.
         ...(multi ? { position: 'relative' } : {}),
-        // Svak aksent på rammen når en annen dag enn i dag vises (som de andre sveipbare kortene).
-        ...(day ? { border: '1px solid color-mix(in srgb, var(--accent) 55%, var(--line))' } : {}),
+        // Rød glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
+        ...(multi ? swipeGlow(!!day, screenSize) : {}),
         ...lockStyle,
         ...(multi ? pager.containerProps.style : {}),
       }}

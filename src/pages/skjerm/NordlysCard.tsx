@@ -1,5 +1,6 @@
 import type React from 'react';
 import { m, AURORA_COLOR, AURORA_LABEL, type AuroraData, type ScreenSize } from './shared';
+import { swipeGlow } from './swipeGlow';
 import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
 import { dateLabel } from '../../lib/dayLabel';
@@ -66,8 +67,8 @@ export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, isMobi
         ...(isMobile ? { gridColumn: '1 / -1', minWidth: 0 } : {}),
         // Prikkene ligger absolutt nederst i kortets padding og gjør det ikke høyere.
         ...(multi ? { position: 'relative' } : {}),
-        // Svak aksent på rammen når en annen natt enn «nå» vises (som Kalender/Middag/Nedtelling).
-        ...(multi && offset > 0 ? { border: '1px solid color-mix(in srgb, var(--accent) 55%, var(--line))' } : {}),
+        // Rød glød når en annen natt enn «nå» vises (felles stil, se swipeGlow.ts).
+        ...(multi ? swipeGlow(offset > 0, screenSize) : {}),
         ...(multi ? pager.containerProps.style : {}),
       }}>
       {/* Det som glir. Ellers nøytral: bærer gap'en kortet tidligere hadde selv. */}

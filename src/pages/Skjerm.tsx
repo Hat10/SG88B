@@ -15,6 +15,7 @@ import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
 import { useIdleReset } from '../lib/useIdleReset';
 import { useSkjermViewport } from './skjerm/useSkjermViewport';
+import { layoutGap, glowBleed } from './skjerm/swipeGlow';
 import { ScreenPopup } from './skjerm/ScreenPopup';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
@@ -862,7 +863,7 @@ export default function PageSkjerm({ onBack }: Props) {
   // Narrow tablet reflows to fewer columns so nothing is cut off horizontally.
   const isNarrowTablet = isTablet && winW < 1200;
   const tabletPadding = screenSize === 'tablet' ? '8px 14px' : screenSize === 'desktop' ? '28px 36px' : '16px 20px';
-  const tabletGap = isMobile ? m.gap : screenSize === 'tablet' ? 8 : 24;
+  const tabletGap = layoutGap(screenSize);
 
   // ─── Wishlist deals: items the cron flagged as "cheapest in 30 days" ───
   // ?dealdemo in the URL injects a sample deal so the notice can be previewed
@@ -1087,7 +1088,13 @@ export default function PageSkjerm({ onBack }: Props) {
       </div>
 
       {/* ── Row 3: Kalender (i dag) + Gjøremål (i dag) + Handleliste — grows to fill ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? {
+        flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden',
+        // overflow:hidden her ville klippe gløden rundt Kalender-kortet (swipeGlow). Padding = glødens
+        // utstrekning og lik negativ margin gir nøyaktig samme størrelse og plassering på alle kortene,
+        // men flytter klippekanten utenfor gløden.
+        padding: glowBleed(screenSize), margin: -glowBleed(screenSize),
+      } : {}) }}>
 
         {/* Kalender — i dag som standard, sveipbar fremover (useSwipePager) */}
         <KalenderCard

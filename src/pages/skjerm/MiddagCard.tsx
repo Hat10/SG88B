@@ -1,6 +1,7 @@
 import type React from 'react';
 import type { MealPlanEntry, Recipe } from '../../contexts/MatplanContext';
 import { m, type ScreenSize } from './shared';
+import { swipeGlow } from './swipeGlow';
 import { PagerArrows } from './PagerArrows';
 import { addDaysLocal, consecutiveDays } from '../../lib/dagensMiddag';
 import { dateLabel, dateLabelShort } from '../../lib/dayLabel';
@@ -59,8 +60,8 @@ export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe
         cursor: recipe ? 'pointer' : 'default',
         padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
         display: 'flex', flexDirection: 'column', ...(isMobile ? { minWidth: 0 } : {}),
-        // Svak aksent på rammen når en annen dag enn i dag vises (som Kalender).
-        ...(isToday ? {} : { border: '1px solid color-mix(in srgb, var(--accent) 55%, var(--line))' }),
+        // Rød glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
+        ...swipeGlow(!isToday, screenSize),
         ...pager.containerProps.style,
       }}
     >
