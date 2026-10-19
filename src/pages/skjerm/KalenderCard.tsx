@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type React from 'react';
 import type { CalEvent } from '../../../api/kalender';
 import { m, type AnyEvent, type ScreenSize } from './shared';
+import { PagerArrows } from './PagerArrows';
 import { addDaysLocal } from '../../lib/dagensMiddag';
 import { dayLabel } from '../../lib/dayLabel';
 import { useSwipePager } from '../../lib/useSwipePager';
@@ -44,13 +45,6 @@ export function KalenderCard({ calEvents, today, resetSignal, isMobile, isTablet
   [calEvents, date]);
 
   const gap = isMobile ? 10 : screenSize === 'tablet' ? 6 : 14;
-  // Små piler i etikettlinjen. Negativ vertikal marg så de aldri gjør linjen høyere.
-  const arrow = (enabled: boolean): React.CSSProperties => ({
-    background: 'transparent', border: 0, padding: '0 6px', height: 24, marginBlock: -8,
-    lineHeight: '24px', fontSize: isMobile ? m.title : 20, color: 'var(--ink-4)',
-    cursor: enabled ? 'pointer' : 'default', opacity: enabled ? 1 : 0.25,
-  });
-
   return (
     <div
       {...pager.containerProps}
@@ -68,8 +62,7 @@ export function KalenderCard({ calEvents, today, resetSignal, isMobile, isTablet
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={eyebrow}>Kalender · {dayLabel(offset, date)}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 2 : 4 }}>
-            <button data-no-swipe aria-label="Forrige dag" disabled={!pager.canPrev} onClick={pager.prev} style={arrow(pager.canPrev)}>‹</button>
-            <button data-no-swipe aria-label="Neste dag" disabled={!pager.canNext} onClick={pager.next} style={arrow(pager.canNext)}>›</button>
+            <PagerArrows canPrev={pager.canPrev} canNext={pager.canNext} onPrev={pager.prev} onNext={pager.next} isMobile={isMobile} />
             {/* «LIVE» gir bare mening for i dag — og gir plass til dato-etiketten i smale kort. */}
             {isToday && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em', marginLeft: isMobile ? 4 : 6 }}>● LIVE</div>
