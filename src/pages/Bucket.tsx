@@ -299,13 +299,19 @@ export default function PageBucket() {
   const handleDelete = async (item: BucketEntry) => {
     if (!await confirm({ title: 'Slett aktivitet?', message: `«${item.title}»`, confirmLabel: 'Slett' })) return;
     if (editId === item.id) cancelEdit();
+    const pin = getPin('bucket', item.id);
     void removeItem(item.id);
+    if (pin) void removePin('bucket', item.id);
     notify('Aktivitet slettet', {
       actionLabel: 'Angre',
-      onAction: () => void addItem({
-        title: item.title, description: item.description, category: item.category,
-        who: item.who, done: item.done, doneYear: item.doneYear,
-      }),
+      // Angre oppretter aktiviteten på nytt med ny id, så pinnen flyttes til den nye id-en.
+      onAction: () => void (async () => {
+        const newId = await addItem({
+          title: item.title, description: item.description, category: item.category,
+          who: item.who, done: item.done, doneYear: item.doneYear,
+        });
+        if (newId && pin) await setPin('bucket', newId, pin.lat, pin.lng);
+      })(),
     });
   };
 

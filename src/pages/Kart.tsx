@@ -5,6 +5,8 @@ import 'leaflet/dist/leaflet.css';
 import { useBucket } from '../contexts/BucketContext';
 import { useMapPins } from '../contexts/MapContext';
 import type { BucketEntry } from '../contexts/BucketContext';
+import { supabase } from '../lib/supabase';
+import { orphanedBucketPinIds, splitPinnedBuckets } from '../lib/mapPins';
 import { useGeoSearch, TYPE_LABELS, type GeoResult } from '../lib/geoSearch';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -60,8 +62,10 @@ const HOME_COLOR = '#85b673';
 const homeIcon = makeIcon(HOME_COLOR, '🏠', true, 32);
 
 
+const VISITED_COLOR = '#9AA0A8';
+
 function bucketIcon(done = false, pulse = false) {
-  return makeIcon(done ? '#4A7C3F' : '#3B6FBC', done ? '✓' : '★', pulse);
+  return makeIcon(done ? VISITED_COLOR : '#3B6FBC', done ? '✓' : '★', pulse, done ? 28 : 34);
 }
 
 // ─── Geocoder ────────────────────────────────────────────────────────────────
@@ -155,13 +159,14 @@ function BucketRow({
       display: 'flex', alignItems: 'center', gap: 10,
       padding: '9px 12px', borderRadius: 8,
       background: 'var(--bg)', border: '1px solid var(--line)',
+      opacity: b.done ? 0.7 : 1,
     }}>
       <div style={{
         width: 28, height: 28, borderRadius: '50%',
-        background: '#3B6FBC', color: '#fff',
+        background: b.done ? VISITED_COLOR : '#3B6FBC', color: '#fff',
         fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexShrink: 0, border: '2px solid rgba(255,255,255,0.5)',
-      }}>★</div>
+      }}>{b.done ? '✓' : '★'}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {b.title}
@@ -202,11 +207,11 @@ function pillStyle(color: string, filled = false): React.CSSProperties {
 
 // ─── Popup content ───────────────────────────────────────────────────────────
 
-function BucketPopup({ b, onRemove }: { b: BucketEntry; onRemove: () => void }) {
+function BucketPopup({ b, onRemove, onToggleDone }: { b: BucketEntry; onRemove: () => void; onToggleDone: () => void }) {
   return (
     <div style={{ minWidth: 180, maxWidth: 240 }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
-        {b.done ? 'Gjort!' : 'Vil gjøre'}
+        {b.done ? '✓ Besøkt' : 'Vil gjøre'}
       </div>
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{b.title}</div>
       {b.description && (
@@ -216,8 +221,14 @@ function BucketPopup({ b, onRemove }: { b: BucketEntry; onRemove: () => void }) 
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', marginBottom: 6 }}>{b.category}</div>
       )}
       <button
+        onClick={onToggleDone}
+        style={{ fontSize: 11, fontWeight: 700, color: b.done ? 'var(--ink-3)' : 'var(--good)', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', marginTop: 2, display: 'block' }}
+      >
+        {b.done ? 'Marker som ikke gjort' : 'Marker som gjort'}
+      </button>
+      <button
         onClick={onRemove}
-        style={{ fontSize: 11, color: 'var(--muted)', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', marginTop: 2 }}
+        style={{ fontSize: 11, color: 'var(--muted)', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', marginTop: 6, display: 'block' }}
       >
         Fjern fra kart
       </button>
@@ -244,6 +255,7 @@ function Legend() {
       </div>
       <LegendRow color={HOME_COLOR} label="Hjem" marker="🏠" />
       <LegendRow color="#3B6FBC" label="Vil besøke" marker="★" />
+      <LegendRow color={VISITED_COLOR} label="Besøkt" marker="✓" />
     </div>
   );
 }
@@ -300,7 +312,7 @@ function LayerToggle({ active, color, label, count, marker, onClick }: {
 type TabKey = 'vil-besøke' | 'ikke-plassert';
 
 export default function Kart() {
-  const { items: bucketItems, loading: bucketsLoading } = useBucket();
+  const { items: bucketItems, loading: bucketsLoading, toggleItem } = useBucket();
   const { pins, loading: pinsLoading, setPin, removePin, getPin, dismissedBuckets, dismissBucket, restoreBucket } = useMapPins();
 
   const [tab, setTab] = useState<TabKey>('ikke-plassert');
@@ -311,6 +323,7 @@ export default function Kart() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [showWantToVisit, setShowWantToVisit] = useState(true);
+  const [showVisited, setShowVisited] = useState(true);
   const mapRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
@@ -320,19 +333,26 @@ export default function Kart() {
   }, []);
 
   // Auto-clean orphaned pins — only after all data sources have finished loading.
-  // Removes pins for bucket items that have been checked off (done = true) or deleted.
+  // Removes pins for bucket items that no longer exist. Checked-off items keep their
+  // pin (shown as visited). Candidates are re-checked against the database first so a
+  // stale local item list (e.g. an item added on another device) never deletes a pin.
   useEffect(() => {
     if (pinsLoading || bucketsLoading) return;
-    for (const pin of pins) {
-      if (pin.sourceType === 'bucket') {
-        const bucket = bucketItems.find(b => b.id === pin.sourceId);
-        if (!bucket || bucket.done) void removePin('bucket', pin.sourceId);
-      }
-    }
+    const candidates = orphanedBucketPinIds(pins, bucketItems);
+    if (candidates.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase.from('bucket_items').select('id').in('id', candidates);
+      if (cancelled || error) return;
+      const existing = new Set((data ?? []).map(r => r.id as string));
+      for (const id of candidates) if (!existing.has(id)) void removePin('bucket', id);
+    })();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pins, bucketItems, pinsLoading, bucketsLoading]);
 
-  const pinnedActiveBuckets = bucketItems.filter(b => !b.done && getPin('bucket', b.id));
+  const { active: pinnedActiveBuckets, visited: pinnedVisitedBuckets } =
+    splitPinnedBuckets(bucketItems, id => !!getPin('bucket', id));
   const unpinnedBuckets     = bucketItems.filter(b => !b.done && !getPin('bucket', b.id) && !dismissedBuckets.has(b.id));
   const hiddenBuckets       = bucketItems.filter(b => !b.done && !getPin('bucket', b.id) && dismissedBuckets.has(b.id));
 
@@ -405,12 +425,22 @@ export default function Kart() {
       {/* List */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 20px' }}>
         {tab === 'vil-besøke' && (
-          pinnedActiveBuckets.length === 0
+          pinnedActiveBuckets.length === 0 && !(showVisited && pinnedVisitedBuckets.length > 0)
             ? <Empty text="Ingen steder markert ennå." sub="Plasser bucket list-punkter på kartet fra «Ikke plassert»." />
             : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {pinnedActiveBuckets.map(b => (
                   <BucketRow key={b.id} b={b} pinned onPlace={() => {}} onSelect={() => handleSelectBucket(b)} />
                 ))}
+                {showVisited && pinnedVisitedBuckets.length > 0 && (
+                  <>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 8 }}>
+                      Besøkt
+                    </div>
+                    {pinnedVisitedBuckets.map(b => (
+                      <BucketRow key={b.id} b={b} pinned onPlace={() => {}} onSelect={() => handleSelectBucket(b)} />
+                    ))}
+                  </>
+                )}
               </div>
         )}
 
@@ -537,7 +567,24 @@ export default function Kart() {
               return (
                 <Marker key={b.id} position={[pin.lat, pin.lng]} icon={bucketIcon(false, isActive)}>
                   <Popup eventHandlers={{ remove: () => setActiveItem(null) }}>
-                    <BucketPopup b={b} onRemove={async () => { await removePin('bucket', b.id); setActiveItem(null); }} />
+                    <BucketPopup b={b}
+                      onRemove={async () => { await removePin('bucket', b.id); setActiveItem(null); }}
+                      onToggleDone={() => { setActiveItem(null); void toggleItem(b.id, b.done); }} />
+                  </Popup>
+                </Marker>
+              );
+            })}
+
+            {/* Bucket markers — visited (checked off, pin kept) */}
+            {showVisited && pinnedVisitedBuckets.map(b => {
+              const pin = getPin('bucket', b.id)!;
+              const isActive = activeItem?.id === b.id;
+              return (
+                <Marker key={b.id} position={[pin.lat, pin.lng]} icon={bucketIcon(true, isActive)}>
+                  <Popup eventHandlers={{ remove: () => setActiveItem(null) }}>
+                    <BucketPopup b={b}
+                      onRemove={async () => { await removePin('bucket', b.id); setActiveItem(null); }}
+                      onToggleDone={() => { setActiveItem(null); void toggleItem(b.id, b.done); }} />
                   </Popup>
                 </Marker>
               );
@@ -552,6 +599,10 @@ export default function Kart() {
             <LayerToggle
               active={showWantToVisit} color="#3B6FBC" label="Vil besøke" marker="★"
               count={pinnedActiveBuckets.length} onClick={() => setShowWantToVisit(v => !v)}
+            />
+            <LayerToggle
+              active={showVisited} color={VISITED_COLOR} label="Vis besøkte" marker="✓"
+              count={pinnedVisitedBuckets.length} onClick={() => setShowVisited(v => !v)}
             />
           </div>
 
