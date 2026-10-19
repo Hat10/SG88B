@@ -290,6 +290,7 @@ export default function PageBucket() {
     setDesc(it.description ?? '');
     setCat(it.category);
     setWho(it.who);
+    setPlace(null);
     if (!isMobile) window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -382,7 +383,7 @@ export default function PageBucket() {
 
       <div>
         <div className="card-eyebrow" style={{ marginBottom: 4 }}>Sted <span style={{ opacity: 0.5 }}>(valgfri – vises på kartet)</span></div>
-        <PlacePicker value={place} hasExisting={!!editId && !!getPin('bucket', editId)}
+        <PlacePicker key={editId ?? 'ny'} value={place} hasExisting={!!editId && !!getPin('bucket', editId)}
           onChange={setPlace} onClearExisting={() => editId && void removePin('bucket', editId)} />
       </div>
 
