@@ -53,6 +53,149 @@ function chanceFromScore(score: number): AuroraChance {
   return 'lav';
 }
 
+// ─── Natt-for-natt-oppsummering (`daily`) ──────────────────────────────────
+//
+// En «dag» for nordlys er NATTEN som starter den kvelden: fra mørket faller på
+// (Oslo-kveld) til det blir lyst neste morgen — altså over midnatt. En time
+// hører til natten med dato D hvis den er kl. 12:00 eller senere på Oslo-dato D,
+// eller før kl. 12:00 på Oslo-dato D+1. Vinduet er dermed de MØRKE timene
+// (samme isDaylight-definisjon som `hourly`) innenfor dette døgnskillet.
+// Per natt velges den beste mørke timen: høyest score i poengmodellen over.
+
+export const NIGHTS_AHEAD = 3;
+/** Kveld/morgen-skillet i Oslo-tid som avgjør hvilken natt en time hører til. */
+export const NIGHT_SPLIT_HOUR = 12;
+/** Andel av nattens mørke timer som må ha Kp OG skydekke for at natten regnes som komplett. */
+export const NIGHT_MIN_COVERAGE = 0.75;
+
+export interface AuroraBestHour {
+  time: string;        // ISO, UTC
+  kp: number;
+  cloudCover: number;  // 0-100
+  score: number;       // 0-4
+  chance: AuroraChance;
+}
+
+/** ok = nok data; incomplete = for lite Kp/skydekke-data til å love noe; tooLight = ingen mørke timer (lys sommernatt). */
+export type AuroraNightStatus = 'ok' | 'incomplete' | 'tooLight';
+
+export interface AuroraNight {
+  /** Oslo-dato (yyyy-mm-dd) for KVELDEN natten starter. daily[0] = i kveld. */
+  date: string;
+  status: AuroraNightStatus;
+  /** Beste mørke time (høyest score), blant timer med data. null ved tooLight eller uten noen timer med data. */
+  best: AuroraBestHour | null;
+  /** Mørke timer i natten fra og med inneværende time. */
+  darkHours: number;
+  /** Av dem: timer med både Kp og skydekke. */
+  usableHours: number;
+  /** Første/siste mørke time (ISO UTC); null ved tooLight. */
+  windowStart: string | null;
+  windowEnd: string | null;
+  /** De brukbare mørke timene, til timegrafen for akkurat denne natten (samme form som `hourly`). */
+  hours: AuroraHourlyEntry[];
+}
+
+export interface NightHourInput {
+  ms: number;
+  kp: number | null;      // null = utenfor Kp-varselets dekning
+  cloud: number | null;
+  dark: boolean;
+}
+
+export function addDaysIso(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/** Oslo-dato (yyyy-mm-dd) og -klokketime for et tidspunkt. */
+export function osloParts(ms: number): { date: string; hour: number } {
+  const s = new Date(ms).toLocaleString('sv-SE', { timeZone: 'Europe/Oslo', hour12: false }); // «2026-10-19 22:00:00»
+  return { date: s.slice(0, 10), hour: parseInt(s.slice(11, 13), 10) };
+}
+
+/** Datoen (kvelden) til natten en time hører til. */
+export function nightDateOf(ms: number): string {
+  const { date, hour } = osloParts(ms);
+  return hour >= NIGHT_SPLIT_HOUR ? date : addDaysIso(date, -1);
+}
+
+/**
+ * Som kpAt, men returnerer null for tidspunkt utenfor varselets dekning: en
+ * bolk dekker kun sine egne 3 timer, så timer etter siste bolk har INGEN
+ * Kp-verdi (kpAt ville gjenbrukt siste bolk for alltid).
+ */
+export function kpAtStrict(rows: { ms: number; kp: number }[], t: number): number | null {
+  let hit: { ms: number; kp: number } | null = null;
+  for (const r of rows) { if (r.ms <= t) hit = r; else break; }
+  if (!hit || t >= hit.ms + 3 * 3600_000) return null;
+  return hit.kp;
+}
+
+function hourScore(kp: number, cloud: number): number {
+  return kpScore(kp) + cloudScore(cloud);
+}
+
+/**
+ * Beste time: høyest score. Lik score → høyere Kp, deretter mindre skydekke,
+ * deretter tidligst. Kun timer med både Kp og skydekke vurderes.
+ */
+export function pickBestHour(hours: NightHourInput[]): AuroraBestHour | null {
+  let best: { h: NightHourInput & { kp: number; cloud: number }; score: number } | null = null;
+  for (const h of hours) {
+    if (h.kp === null || h.cloud === null) continue;
+    const cand = { h: h as NightHourInput & { kp: number; cloud: number }, score: hourScore(h.kp, h.cloud) };
+    if (!best
+      || cand.score > best.score
+      || (cand.score === best.score && (cand.h.kp > best.h.kp
+        || (cand.h.kp === best.h.kp && (cand.h.cloud < best.h.cloud
+          || (cand.h.cloud === best.h.cloud && cand.h.ms < best.h.ms)))))) best = cand;
+  }
+  if (!best) return null;
+  return {
+    time: new Date(best.h.ms).toISOString(),
+    kp: Math.round(best.h.kp * 100) / 100,
+    cloudCover: Math.round(best.h.cloud),
+    score: best.score,
+    chance: chanceFromScore(best.score),
+  };
+}
+
+/** `inputs`: ALLE timer (lyse og mørke) som hører til natten `date` (se nightDateOf). */
+export function evaluateNight(date: string, inputs: NightHourInput[]): AuroraNight {
+  const sorted = [...inputs].sort((a, b) => a.ms - b.ms);
+  const dark = sorted.filter(h => h.dark);
+  const usable = dark.filter(h => h.kp !== null && h.cloud !== null);
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  // Ingen timer i det hele tatt (utenfor værvarselets rekkevidde) er IKKE «for lyst».
+  if (sorted.length > 0 && dark.length === 0) {
+    return { date, status: 'tooLight', best: null, darkHours: 0, usableHours: 0, windowStart: null, windowEnd: null, hours: [] };
+  }
+  const enough = dark.length > 0 && usable.length / dark.length >= NIGHT_MIN_COVERAGE;
+  return {
+    date,
+    status: enough ? 'ok' : 'incomplete',
+    best: pickBestHour(usable),
+    darkHours: dark.length,
+    usableHours: usable.length,
+    windowStart: dark.length ? iso(dark[0].ms) : null,
+    windowEnd: dark.length ? iso(dark[dark.length - 1].ms) : null,
+    hours: usable.map(h => {
+      const sc = hourScore(h.kp as number, h.cloud as number);
+      return { time: iso(h.ms), kp: Math.round((h.kp as number) * 100) / 100, cloudCover: Math.round(h.cloud as number), dark: true, score: sc, chance: chanceFromScore(sc) };
+    }),
+  };
+}
+
+/** De neste `NIGHTS_AHEAD` nettene fra Oslo-dato `todayIso` (i kveld, i morgen kveld, …). */
+export function buildNights(todayIso: string, inputs: NightHourInput[]): AuroraNight[] {
+  return Array.from({ length: NIGHTS_AHEAD }, (_, i) => {
+    const date = addDaysIso(todayIso, i);
+    return evaluateNight(date, inputs.filter(h => nightDateOf(h.ms) === date));
+  });
+}
+
 /**
  * Kp-verdien for et gitt tidspunkt, hentet fra 3-timersbolken som dekker det —
  * ALDRI interpolert mellom bolker. Kp er per definisjon en 3-timers måling,
@@ -117,7 +260,11 @@ export default async function handler(_req: any, res: any) {
     const todayStr = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
     const tomorrowStr = new Date(now.getTime() + 24 * 3600_000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
 
-    const [kpResp, kpForecastResp, wxResp, sunToday, sunTomorrow] = await Promise.all([
+    // Netter fra i kveld t.o.m. overmorgen kveld slutter neste morgen, så solen trengs for 4 datoer.
+    const day2Str = addDaysIso(todayStr, 2);
+    const day3Str = addDaysIso(todayStr, 3);
+
+    const [kpResp, kpForecastResp, wxResp, sunToday, sunTomorrow, sunDay2, sunDay3] = await Promise.all([
       fetch(NOAA_KP_URL, { signal: AbortSignal.timeout(9000) }),
       fetch(NOAA_KP_FORECAST_URL, { signal: AbortSignal.timeout(9000) }),
       fetch(
@@ -126,10 +273,12 @@ export default async function handler(_req: any, res: any) {
       ),
       fetchSun(todayStr),
       fetchSun(tomorrowStr),
+      fetchSun(day2Str),
+      fetchSun(day3Str),
     ]);
     if (!kpResp.ok) throw new Error(`NOAA svarte ${kpResp.status}`);
     if (!wxResp.ok) throw new Error(`Yr svarte ${wxResp.status}`);
-    const sunByDate: Record<string, SunWindow> = { [todayStr]: sunToday, [tomorrowStr]: sunTomorrow };
+    const sunByDate: Record<string, SunWindow> = { [todayStr]: sunToday, [tomorrowStr]: sunTomorrow, [day2Str]: sunDay2, [day3Str]: sunDay3 };
 
     const kpRows: Array<{ time_tag: string; Kp: number }> = await kpResp.json();
     const latest = kpRows[kpRows.length - 1];
@@ -150,10 +299,11 @@ export default async function handler(_req: any, res: any) {
     // «nå»-tallet over i stedet for å felle hele svaret — grafen er et pluss,
     // ikke selve poenget med boksen.
     let hourly: AuroraHourlyEntry[] = [];
+    let kpForecastRows: { ms: number; kp: number }[] = [];
     if (kpForecastResp.ok) {
       try {
         const kpForecastRaw: Array<{ time_tag: string; kp: number }> = await kpForecastResp.json();
-        const kpForecastRows = kpForecastRaw
+        kpForecastRows = kpForecastRaw
           .map(r => ({ ms: new Date(r.time_tag + 'Z').getTime(), kp: r.kp }))
           .filter(r => Number.isFinite(r.ms) && Number.isFinite(r.kp))
           .sort((a, b) => a.ms - b.ms);
@@ -190,6 +340,30 @@ export default async function handler(_req: any, res: any) {
       }
     }
 
+    // ── Natt-for-natt (`daily`): i kveld, i morgen kveld, overmorgen kveld ──
+    // Samme degradering som `hourly`: feiler noe her, mangler bare feltet.
+    let daily: AuroraNight[] = [];
+    try {
+      const fromMs = Math.floor(now.getTime() / 3600_000) * 3600_000; // inneværende time
+      const inputs: NightHourInput[] = series
+        .map((t: any) => {
+          const ms = new Date(t.time).getTime();
+          const sun = sunByDate[osloParts(ms).date];
+          const cloud = t.data?.instant?.details?.cloud_area_fraction;
+          return {
+            ms,
+            kp: kpAtStrict(kpForecastRows, ms),
+            cloud: Number.isFinite(cloud) ? (cloud as number) : null,
+            // Ukjent sol (fetch feilet) faller til «mørk», som for `hourly`.
+            dark: sun ? !isDaylight(ms, sun) : true,
+          };
+        })
+        .filter((h: NightHourInput) => h.ms >= fromMs);
+      daily = buildNights(todayStr, inputs);
+    } catch {
+      daily = [];
+    }
+
     res.setHeader('Cache-Control', 's-maxage=900');
     res.status(200).json({
       kp: Math.round(latest.Kp * 100) / 100,
@@ -197,6 +371,7 @@ export default async function handler(_req: any, res: any) {
       cloudCover: Math.round(cloudCover),
       probability: chanceFromScore(score) as AuroraChance,
       hourly,
+      daily,
       updatedAt: new Date().toISOString(),
     });
   } catch (err: any) {
