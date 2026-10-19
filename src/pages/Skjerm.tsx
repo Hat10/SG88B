@@ -13,8 +13,9 @@ import { fireworkRain } from '../confetti';
 import { kpLevel, type KpLevel } from '../lib/kpLevel';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
-import { useScrollLock } from '../lib/useScrollLock';
 import { useIdleReset } from '../lib/useIdleReset';
+import { useSkjermViewport } from './skjerm/useSkjermViewport';
+import { ScreenPopup } from './skjerm/ScreenPopup';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
 import { NedtellingCard } from './skjerm/NedtellingCard';
@@ -492,52 +493,10 @@ function fmtOverdue(iso: string): string {
 }
 
 
-// ─── Quick-add popups (Gjøremål / Handleliste) ─────────────────────────────
-// Samme mønster som Registrer trening (TreningQuickRegister): fast mørk
-// «.card.dark»-kort på svart bakdrop, ikke det vanlige lys/mørk-temaet —
-// Gangskjermen skal alltid se slik ut, uavhengig av appens theme-valg.
 
-function ScreenPopup({ eyebrowText, title, onClose, viewportH, width, isMobile = false, children }: {
-  eyebrowText: string; title: string; onClose: () => void; viewportH: number; width: number; isMobile?: boolean;
-  children: React.ReactNode;
-}) {
-  useScrollLock();
+function TodoQuickAddModal({ isMobile, onClose }: { isMobile: boolean; onClose: () => void }) {
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', top: 0, left: 0, right: 0, height: viewportH, zIndex: 200,
-        background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: isMobile ? 12 : 20, overflowY: 'auto',
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        className="card dark"
-        style={{
-          padding: isMobile ? '18px 16px' : '28px 32px', width, maxWidth: isMobile ? '100%' : 'calc(100vw - 48px)',
-          maxHeight: viewportH - 40, overflowY: 'auto',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="card-eyebrow">{eyebrowText}</div>
-            <div className="card-title" style={{ fontSize: 22, fontWeight: 300, marginTop: 6, letterSpacing: '-0.01em' }}>{title}</div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'pointer', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
-          >✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function TodoQuickAddModal({ isMobile, onClose, viewportH }: { isMobile: boolean; onClose: () => void; viewportH: number }) {
-  return (
-    <ScreenPopup eyebrowText="Gjøremål" title="Nytt gjøremål" onClose={onClose} viewportH={viewportH} width={460} isMobile={isMobile}>
+    <ScreenPopup eyebrowText="Gjøremål" title="Nytt gjøremål" onClose={onClose} width={460} isMobile={isMobile}>
       <QuickTodoForm isMobile={isMobile} onClose={onClose} onDirtyChange={() => {}} />
     </ScreenPopup>
   );
@@ -545,7 +504,7 @@ function TodoQuickAddModal({ isMobile, onClose, viewportH }: { isMobile: boolean
 
 // Kun navn, bevisst — ingen antall/enhet i denne raske varianten (kan legges
 // til på Handleliste-siden etterpå om det trengs).
-function GroceryQuickAddModal({ isMobile = false, onClose, viewportH }: { isMobile?: boolean; onClose: () => void; viewportH: number }) {
+function GroceryQuickAddModal({ isMobile = false, onClose }: { isMobile?: boolean; onClose: () => void }) {
   const { addGroceryItem } = useMatplan();
   const { notify } = useSnackbar();
   const [name, setName] = useState('');
@@ -566,7 +525,7 @@ function GroceryQuickAddModal({ isMobile = false, onClose, viewportH }: { isMobi
   };
 
   return (
-    <ScreenPopup eyebrowText="Handleliste" title="Legg til vare" onClose={onClose} viewportH={viewportH} width={420} isMobile={isMobile}>
+    <ScreenPopup eyebrowText="Handleliste" title="Legg til vare" onClose={onClose} width={420} isMobile={isMobile}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 20 }}>
         <input className="input" placeholder="Navn på vare…" value={name} autoFocus
           onChange={e => setName(e.target.value)}
@@ -697,37 +656,9 @@ export default function PageSkjerm({ onBack }: Props) {
     paused: weatherOpen || auroraOpen || recipeModalDate !== null || treningRegisterOpen
       || todoQuickAddOpen || groceryQuickAddOpen || editingTodo !== null || cdEditing,
   });
-  const [winW, setWinW] = useState(() => window.innerWidth);
-  // iOS Safari's window.innerHeight/100vh includes space hidden behind the
-  // address bar. visualViewport.height tracks what's actually visible right
-  // now, so it survives the toolbar showing/hiding without a layout jump —
-  // more reliable across iPadOS versions than the 100dvh unit alone.
-  const [viewportH, setViewportH] = useState(() => window.visualViewport?.height ?? window.innerHeight);
-  const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'desktop'>(() => {
-    const w = window.innerWidth;
-    if (w < 700) return 'mobile';
-    if (w < 1400) return 'tablet';  // iPad Pro 12.9" (portrait 1024 / landscape 1366) → tablet mode
-    return 'desktop';  // Only true desktops at 1400px+
-  });
-
-  useEffect(() => {
-    const handleResize = () => {
-      const w = window.innerWidth;
-      setWinW(w);
-      setViewportH(window.visualViewport?.height ?? window.innerHeight);
-      if (w < 700) setScreenSize('mobile');
-      else if (w < 1400) setScreenSize('tablet');  // iPad Pro 12.9" stays tablet
-      else setScreenSize('desktop');  // True desktops only
-    };
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-    window.visualViewport?.addEventListener('resize', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
-      window.visualViewport?.removeEventListener('resize', handleResize);
-    };
-  }, []);
+  // Bredde/høyde/skjermstørrelse. Høyden fryses mens en hurtig-popup er åpen (tastaturet kommer opp),
+  // men rotasjon tas fortsatt imot — se useSkjermViewport.
+  const { winW, viewportH, screenSize } = useSkjermViewport(todoQuickAddOpen || groceryQuickAddOpen);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -1567,12 +1498,12 @@ export default function PageSkjerm({ onBack }: Props) {
 
       {/* ── Nytt gjøremål (rask, fra Gjøremål-boksen) ── */}
       {todoQuickAddOpen && (
-        <TodoQuickAddModal isMobile={isMobile} onClose={() => setTodoQuickAddOpen(false)} viewportH={viewportH} />
+        <TodoQuickAddModal isMobile={isMobile} onClose={() => setTodoQuickAddOpen(false)} />
       )}
 
       {/* ── Legg til vare (rask, fra Handleliste-boksen) ── */}
       {groceryQuickAddOpen && (
-        <GroceryQuickAddModal isMobile={isMobile} onClose={() => setGroceryQuickAddOpen(false)} viewportH={viewportH} />
+        <GroceryQuickAddModal isMobile={isMobile} onClose={() => setGroceryQuickAddOpen(false)} />
       )}
     </div>
   );
