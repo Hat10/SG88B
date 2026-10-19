@@ -78,6 +78,10 @@ function useSidebarSwipe(open: boolean, setOpen: (v: boolean) => void, enabled: 
     const onStart = (e: TouchEvent) => {
       const x = e.touches[0].clientX;
       const y = e.touches[0].clientY;
+      // Et kort med eget sveip (useSwipePager, data-swipe-pager) eier berøringen
+      // sin: ellers kunne et kort-sveip som starter innenfor kantsonen åpne
+      // sidemenyen. Gjelder bare mens menyen er lukket — åpen meny kan alltid lukkes.
+      if (!open && (e.target as Element | null)?.closest?.('[data-swipe-pager]')) return;
       if (!open && x > EDGE) return;
       if (open && x > SIDEBAR_HIDDEN + 20) return;
       st.current = { armed: true, dragging: false, startX: x, startY: y, startOpen: open };
