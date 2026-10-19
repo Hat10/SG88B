@@ -12,6 +12,8 @@ import { kpLevel, type KpLevel } from '../lib/kpLevel';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
 import { useScrollLock } from '../lib/useScrollLock';
+import { KalenderCard } from './skjerm/KalenderCard';
+import { m, type AnyEvent } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
@@ -543,9 +545,6 @@ const WHO_TEXT_COLOR: Record<string, string> = {
   f: 'var(--ink-4)', M: SOURCE_COLOR.andreas, L: SOURCE_COLOR.taran,
 };
 const PRIORITY_ORDER: Record<Priority, number> = { høy: 0, middels: 1, lav: 2 };
-const SOURCE_LABEL: Record<string, string> = {
-  andreas: 'Andreas', taran: 'Taran', felles: 'Felles', todo: 'Gjøremål',
-};
 
 function localIso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -566,19 +565,6 @@ function fmtOverdue(iso: string): string {
   return `${days} dag${days === 1 ? '' : 'er'} siden`;
 }
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' });
-}
-
-
-// ─── Combined event type ───────────────────────────────────────────────────
-
-interface AnyEvent {
-  id: string; title: string; start: string; end?: string;
-  allDay: boolean; source: string; color: string; who?: string;
-  overdueSince?: string;
-  todoId?: string; // present only for todo events — lets us check them off in place
-}
 
 // ─── Quick-add popups (Gjøremål / Handleliste) ─────────────────────────────
 // Samme mønster som Registrer trening (TreningQuickRegister): fast mørk
@@ -778,32 +764,6 @@ export default function PageSkjerm({ onBack }: Props) {
     if (w < 1400) return 'tablet';  // iPad Pro 12.9" (portrait 1024 / landscape 1366) → tablet mode
     return 'desktop';  // Only true desktops at 1400px+
   });
-
-  // Mobilverdier hentet fra Hjem-sidens mobilvisning (Dashboard.tsx). Brukes
-  // kun bak screenSize === 'mobile' — tablet/desktop har egne verdier under.
-  const m = {
-    gap: 10,                       // Dashboard: grid gap 10
-    pad: '16px',                   // Dashboard: kort-padding 16
-    radius: 8,                     // Dashboard: border-radius 8
-    cardBg: 'var(--surface)',      // Dashboard: kort-bakgrunn
-    cardBorder: '1px solid var(--line)',
-    eyebrow: {                     // Dashboard: små etiketter (f.eks. NEDTELLING)
-      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em',
-      textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 400,
-    } as React.CSSProperties,
-    eyebrowDarkColor: 'rgba(207,224,239,0.4)',
-    title: 14,                     // Dashboard: dagens/viktigste rad (14, 600)
-    body: 13,                      // Dashboard: brødtekst (13)
-    mono: 11,                      // Dashboard: mono-sekundærtekst (11)
-    micro: 10,                     // Dashboard: mono-små (10)
-    tiny: 9,                       // Dashboard: mono-minst (9)
-    bigNum: 64,                    // Dashboard: nedtellingstall (64, vekt 400)
-    clockNum: 40,                  // Dashboard-hero bruker 32 på mobil; klokka er hovedelementet her
-    clockSec: 16,
-    statNum: 18,                   // Dashboard: MobileSavingsMini-tall (14–22)
-    rowGap: 8,                     // Dashboard: rad-gap i lister (8)
-    rowPad: '9px 8px',             // Dashboard: dagens rad
-  };
 
   useEffect(() => { if (!cdEditing) setCdDraft(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT); }, [cd, cdEditing]);
 
@@ -1418,43 +1378,10 @@ export default function PageSkjerm({ onBack }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: tabletGap, ...(isTablet ? { flex: 1, minHeight: 0, gridTemplateRows: 'minmax(0, 1fr)', overflow: 'hidden' } : {}) }}>
 
         {/* Kalender — kun i dag, ikke kommende dager */}
-        <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : screenSize === 'tablet' ? 6 : 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={eyebrow}>Kalender · i dag</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 13, fontWeight: 700, color: 'var(--good)', letterSpacing: '0.06em' }}>● LIVE</div>
-          </div>
-
-          {todayCalEvents.length === 0 ? (
-            <div style={{ padding: isMobile ? '16px 0' : '20px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, color: 'var(--ink-4)' }}>
-              Ingen hendelser i dag
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', ...(isTablet ? { flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : {}) }}>
-              {todayCalEvents.map((e, i) => (
-                <div key={e.id} style={{
-                  display: 'flex', alignItems: 'center', gap: isMobile ? m.rowGap : 14,
-                  padding: isMobile ? m.rowPad : '11px 10px',
-                  borderBottom: i < todayCalEvents.length - 1 ? '1px solid var(--line)' : '0',
-                  borderLeft: `3px solid ${e.color}`,
-                  background: 'rgba(120,120,120,0.08)',
-                  borderRadius: 4, marginBottom: 1,
-                }}>
-                  {!e.allDay && (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, fontWeight: 600, flexShrink: 0, color: 'var(--ink-3)' }}>
-                      {fmtTime(e.start)}
-                    </span>
-                  )}
-                  <span style={{ flex: 1, minWidth: 0, fontSize: isMobile ? m.title : 18, fontWeight: 600, ...(isMobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>
-                    {e.title}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 13, fontWeight: 600, color: e.color, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {e.who ?? SOURCE_LABEL[e.source] ?? e.source}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <KalenderCard
+          events={todayCalEvents} isMobile={isMobile} isTablet={isTablet} screenSize={screenSize}
+          cell={cell} eyebrow={eyebrow}
+        />
 
         {/* Gjøremål — alle aktive (ikke bare dagens), med avkrysning + skjermbredt konfetti */}
         <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : screenSize === 'tablet' ? 6 : 14 }}>
