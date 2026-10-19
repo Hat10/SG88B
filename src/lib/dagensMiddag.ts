@@ -24,6 +24,20 @@ export function consecutiveDays(mealPlan: MealPlanEntry[], startDate: string): n
   return n;
 }
 
+// Teksten i parentes etter «Mengder for N dager» i oppskrift-modalen. I dag:
+// «i dag–fredag» (som før). Andre dager: «ons 21.–fre 23.». '' hvis én dag.
+export function mealRangeLabel(startDate: string, days: number, isToday: boolean): string {
+  if (days <= 1) return '';
+  const lastIso = addDaysLocal(startDate, days - 1);
+  const last = new Date(lastIso + 'T12:00:00');
+  if (isToday) return `i dag–${last.toLocaleDateString('nb-NO', { weekday: 'long' })}`;
+  const short = (iso: string) => {
+    const d = new Date(iso + 'T12:00:00');
+    return `${d.toLocaleDateString('nb-NO', { weekday: 'short' }).replace('.', '')} ${d.getDate()}.`;
+  };
+  return `${short(startDate)}–${short(lastIso)}`;
+}
+
 const fmtNumber = (n: number) =>
   n.toLocaleString('nb-NO', { maximumFractionDigits: 2 });
 
