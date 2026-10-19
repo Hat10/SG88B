@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Fragment, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTodo, type Priority } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
@@ -25,6 +25,7 @@ import { NedtellingCard } from './skjerm/NedtellingCard';
 import { NordlysCard } from './skjerm/NordlysCard';
 import { WeatherCard } from './skjerm/WeatherCard';
 import { WeatherIcon } from './skjerm/WeatherIcon';
+import { todoTiming, BUCKET_ORDER, BUCKET_LABEL, BUCKET_COLOR, type TodoBucket, type TodoTiming } from './skjerm/todoTiming';
 import { m, EMPTY_COUNTDOWN_DRAFT, AURORA_COLOR, AURORA_LABEL, type AuroraData, type HourlyEntry, type WeatherData } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
@@ -481,22 +482,6 @@ function localIso(d: Date): string {
 }
 function todayStr()    { return localIso(new Date()); }
 
-function daysUntil(iso: string): number {
-  const t = new Date(); t.setHours(0,0,0,0);
-  const d = new Date(iso); d.setHours(0,0,0,0);
-  return Math.ceil((d.getTime()-t.getTime())/86400000);
-}
-
-// Relative "forfalt" wording for overdue todos (overdueSince is today or in the past)
-function fmtOverdue(iso: string): string {
-  const n = daysUntil(iso);
-  if (n === 0) return 'i dag';
-  const days = Math.abs(n);
-  return `${days} dag${days === 1 ? '' : 'er'} siden`;
-}
-
-
-
 function TodoQuickAddModal({ isMobile, onClose }: { isMobile: boolean; onClose: () => void }) {
   return (
     <ScreenPopup eyebrowText="Gjøremål" title="Nytt gjøremål" onClose={onClose} width={460} isMobile={isMobile}>
@@ -568,6 +553,47 @@ function ScreenCheck({ checked, onClick, label }: {
         </svg>
       )}
     </button>
+  );
+}
+
+// Gruppeoverskrift i Gjøremål-boksen: «FORFALT · 1» i gruppens farge, med en
+// tynn linje ut mot høyre (samme fargekode som pillene under).
+function TodoGroupHeader({ bucket, count, first, isMobile }: {
+  bucket: TodoBucket; count: number; first: boolean; isMobile: boolean;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: first ? '0 2px 5px' : '10px 2px 5px',
+      fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 11, fontWeight: 600,
+      letterSpacing: '0.12em', textTransform: 'uppercase', color: BUCKET_COLOR[bucket],
+    }}>
+      <span style={{ whiteSpace: 'nowrap' }}>{BUCKET_LABEL[bucket]} · {count}</span>
+      <span style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+    </div>
+  );
+}
+
+// Fargekodet frist-pille («I morgen», «Om 3 dager») med faktisk dato under.
+function DuePill({ timing, isMobile }: { timing: TodoTiming; isMobile: boolean }) {
+  const color = BUCKET_COLOR[timing.bucket];
+  const none = timing.bucket === 'ingen';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, fontWeight: none ? 400 : 600,
+        padding: isMobile ? '3px 8px' : '4px 10px', borderRadius: 999, whiteSpace: 'nowrap', color,
+        background: none ? 'transparent' : `color-mix(in oklab, ${color} 20%, transparent)`,
+        border: none ? '1px dashed var(--line-2)' : '1px solid transparent',
+      }}>
+        {timing.label}
+      </span>
+      {timing.sub && (
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 11, color: 'var(--ink-4)', paddingRight: 4, whiteSpace: 'nowrap' }}>
+          {timing.sub}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -782,8 +808,8 @@ export default function PageSkjerm({ onBack }: Props) {
   // deadline (todoEvents/AnyEvent var kalender-hendelse-formet og krevde en
   // dato, så dette er en egen, enklere liste bygget direkte fra todos).
   interface TodoRow {
-    todoId: string; title: string; color: string; whoColor: string; who?: string;
-    time?: string; overdueSince?: string; priority: Priority; deadline?: string;
+    todoId: string; title: string; color: string; whoColor: string; who: string;
+    priority: Priority; deadline?: string; time?: string; timing: TodoTiming;
   }
   const activeTodoRows: TodoRow[] = todos
     .filter(t => !t.done)
@@ -794,6 +820,8 @@ export default function PageSkjerm({ onBack }: Props) {
         || t.deadline < today
         || (!!t.time && new Date(`${t.deadline}T${t.time}:00`) < now)
       );
+      // Rollover flytter deadline til i dag og teller opp overdue_days, så den
+      // opprinnelige fristen er deadline − overdue_days.
       const overdueSince = !overdue ? undefined : (() => {
         const d = new Date(t.deadline! + 'T00:00:00');
         d.setDate(d.getDate() - t.overdue_days);
@@ -803,25 +831,30 @@ export default function PageSkjerm({ onBack }: Props) {
         todoId: t.id, title: t.title,
         color: PRIORITY_COLOR[t.priority] ?? SOURCE_COLOR.todo,
         whoColor: WHO_TEXT_COLOR[t.who] ?? WHO_TEXT_COLOR.f,
-        who: t.who !== 'f' ? WHO[t.who] : undefined,
-        time: (!overdue && t.time) ? t.time : undefined,
-        overdueSince, priority: t.priority, deadline: t.deadline,
+        who: WHO[t.who] ?? WHO.f,
+        priority: t.priority, deadline: t.deadline, time: t.time,
+        timing: todoTiming({ deadline: t.deadline, time: t.time, overdueSince }, now),
       };
     })
+    // Gruppert etter frist (Forfalt → I dag → Denne uken → Senere → Uten frist).
+    // Innenfor gruppen: tidligste frist først (for Forfalt = lengst forfalt),
+    // så prioritet, så navn. Prioritet vises fortsatt i fargestripen.
     .sort((a, b) => {
-      const aOvd = a.overdueSince ? 1 : 0;
-      const bOvd = b.overdueSince ? 1 : 0;
-      if (aOvd !== bOvd) return bOvd - aOvd;
-      // Among overdue todos: longest overdue (earliest original deadline) first
-      if (aOvd && bOvd) return a.overdueSince!.localeCompare(b.overdueSince!);
-      // Otherwise: priority first, then soonest deadline, undated last
-      const pOrder = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-      if (pOrder !== 0) return pOrder;
-      if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline) || (a.time ?? '').localeCompare(b.time ?? '');
-      if (a.deadline) return -1;
-      if (b.deadline) return 1;
-      return a.title.localeCompare(b.title);
+      const g = BUCKET_ORDER.indexOf(a.timing.bucket) - BUCKET_ORDER.indexOf(b.timing.bucket);
+      if (g !== 0) return g;
+      if (a.timing.bucket === 'forfalt') {
+        const d = (a.timing.sortKey ?? '').localeCompare(b.timing.sortKey ?? '');
+        if (d !== 0) return d;
+      } else if (a.deadline && b.deadline) {
+        const d = a.deadline.localeCompare(b.deadline) || (a.time ?? '99:99').localeCompare(b.time ?? '99:99');
+        if (d !== 0) return d;
+      }
+      return (PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]) || a.title.localeCompare(b.title, 'nb');
     });
+  const bucketCounts = activeTodoRows.reduce<Record<TodoBucket, number>>(
+    (acc, r) => { acc[r.timing.bucket] += 1; return acc; },
+    { forfalt: 0, idag: 0, uke: 0, senere: 0, ingen: 0 },
+  );
 
   // Oppskrift-modalen: for datoen kortet viste da det ble trykket på (Dagens middag / MiddagCard).
   const modalPlan   = recipeModalDate ? mealPlan.find(mp => mp.date === recipeModalDate) : undefined;
@@ -1120,7 +1153,7 @@ export default function PageSkjerm({ onBack }: Props) {
           cell={cell} eyebrow={eyebrow}
         />
 
-        {/* Gjøremål — alle aktive (ikke bare dagens), med avkrysning + skjermbredt konfetti */}
+        {/* Gjøremål — alle aktive, gruppert etter frist (Forfalt / I dag / Denne uken / Senere / Uten frist), med avkrysning + skjermbredt konfetti */}
         <div style={{ ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : screenSize === 'tablet' ? 6 : 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1145,70 +1178,62 @@ export default function PageSkjerm({ onBack }: Props) {
                 : isMobile ? {} : { maxHeight: screenSize === 'desktop' ? 320 : 260 }),
             }}>
               {activeTodoRows.map((row, i) => {
-                if (editingTodo === row.todoId) {
-                  return (
-                    <div key={row.todoId} style={{
-                      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                      padding: '9px 10px', marginBottom: 1, borderRadius: 4,
-                      borderLeft: `3px solid ${row.color}`,
-                      background: 'var(--surface-2)',
-                    }}>
-                      <input className="input" value={todoDraft.title} autoFocus
-                        placeholder="Navn på gjøremål"
-                        onChange={ev => setTodoDraft(d => ({ ...d, title: ev.target.value }))}
-                        onKeyDown={ev => { if (ev.key === 'Enter') saveEditTodo(); if (ev.key === 'Escape') setEditingTodo(null); }}
-                        style={{ flex: '1 1 160px', minWidth: 0 }} />
-                      <input className="input" type="date" value={todoDraft.deadline}
-                        onChange={ev => setTodoDraft(d => ({ ...d, deadline: ev.target.value }))}
-                        onKeyDown={ev => { if (ev.key === 'Enter') saveEditTodo(); if (ev.key === 'Escape') setEditingTodo(null); }}
-                        style={{ flex: '0 0 auto', width: 'auto' }} />
-                      <button className="btn primary sm" onClick={saveEditTodo}>Lagre</button>
-                      <button className="btn ghost sm" onClick={() => setEditingTodo(null)}>Avbryt</button>
-                    </div>
-                  );
-                }
-
+                const firstInGroup = i === 0 || activeTodoRows[i - 1].timing.bucket !== row.timing.bucket;
+                const overdue = row.timing.bucket === 'forfalt';
                 return (
-                  <div key={row.todoId} style={{
-                    display: 'flex', alignItems: 'center', gap: isMobile ? m.rowGap : 14,
-                    padding: isMobile ? m.rowPad : '11px 10px',
-                    borderBottom: i < activeTodoRows.length - 1 ? '1px solid var(--line)' : '0',
-                    borderLeft: `3px solid ${row.color}`,
-                    background: row.overdueSince ? 'rgba(192,57,43,0.45)' : 'rgba(120,120,120,0.08)',
-                    borderRadius: 4, marginBottom: 1,
-                  }}>
-                    <ScreenCheck
-                      checked={completingTodos.has(row.todoId)}
-                      onClick={(ev) => completeTodo(row.todoId, row.title, ev.currentTarget)}
-                      label={`Fullfør «${row.title}»`}
-                    />
-                    <span
-                      onClick={() => startEditTodo(row.todoId)}
-                      title="Trykk for å endre navn/frist"
-                      style={{
-                        flex: 1, minWidth: 0, fontSize: isMobile ? m.title : 18, fontWeight: 600, cursor: 'pointer',
-                        ...(isMobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                  <Fragment key={row.todoId}>
+                    {firstInGroup && (
+                      <TodoGroupHeader bucket={row.timing.bucket} count={bucketCounts[row.timing.bucket]} first={i === 0} isMobile={isMobile} />
+                    )}
+                    {editingTodo === row.todoId ? (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                        padding: '9px 10px', marginBottom: 2, borderRadius: 4,
+                        borderLeft: `3px solid ${row.color}`,
+                        background: 'var(--surface-2)',
                       }}>
-                      {row.title}
-                    </span>
-                    {(row.time || row.deadline) && (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
-                        {row.time && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, fontWeight: 600, color: 'var(--ink-3)' }}>
-                            {row.time}
+                        <input className="input" value={todoDraft.title} autoFocus
+                          placeholder="Navn på gjøremål"
+                          onChange={ev => setTodoDraft(d => ({ ...d, title: ev.target.value }))}
+                          onKeyDown={ev => { if (ev.key === 'Enter') saveEditTodo(); if (ev.key === 'Escape') setEditingTodo(null); }}
+                          style={{ flex: '1 1 160px', minWidth: 0 }} />
+                        <input className="input" type="date" value={todoDraft.deadline}
+                          onChange={ev => setTodoDraft(d => ({ ...d, deadline: ev.target.value }))}
+                          onKeyDown={ev => { if (ev.key === 'Enter') saveEditTodo(); if (ev.key === 'Escape') setEditingTodo(null); }}
+                          style={{ flex: '0 0 auto', width: 'auto' }} />
+                        <button className="btn primary sm" onClick={saveEditTodo}>Lagre</button>
+                        <button className="btn ghost sm" onClick={() => setEditingTodo(null)}>Avbryt</button>
+                      </div>
+                    ) : (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: isMobile ? m.rowGap : 14,
+                        padding: isMobile ? m.rowPad : '9px 10px', marginBottom: 2, borderRadius: 4,
+                        borderLeft: `3px solid ${row.color}`,
+                        background: overdue ? 'color-mix(in oklab, var(--due-over) 14%, transparent)' : 'rgba(120,120,120,0.08)',
+                      }}>
+                        <ScreenCheck
+                          checked={completingTodos.has(row.todoId)}
+                          onClick={(ev) => completeTodo(row.todoId, row.title, ev.currentTarget)}
+                          label={`Fullfør «${row.title}»`}
+                        />
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <span
+                            onClick={() => startEditTodo(row.todoId)}
+                            title="Trykk for å endre navn/frist"
+                            style={{
+                              fontSize: isMobile ? m.title : 18, fontWeight: 600, cursor: 'pointer',
+                              ...(isMobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+                            }}>
+                            {row.title}
                           </span>
-                        )}
-                        {row.deadline && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 11, color: 'var(--ink-4)' }}>
-                            {new Date(row.deadline + 'T00:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' })}
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 12, fontWeight: 600, color: row.whoColor }}>
+                            {row.who}
                           </span>
-                        )}
+                        </div>
+                        <DuePill timing={row.timing} isMobile={isMobile} />
                       </div>
                     )}
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 13, fontWeight: 600, color: row.whoColor, flexShrink: 1, minWidth: 0, maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {row.overdueSince ? `${row.who ?? 'Felles'} · forfalt ${fmtOverdue(row.overdueSince)}` : (row.who ?? 'Felles')}
-                    </span>
-                  </div>
+                  </Fragment>
                 );
               })}
             </div>
