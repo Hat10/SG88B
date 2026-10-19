@@ -21,6 +21,11 @@
   --good: #4A8A6E;
   --danger: #C0392B;
   --danger-soft: #F7E4E0;
+  /* Frist-farger for Gjøremål-boksen på Gangskjermen (todoTiming.ts): forfalt → i dag → denne uken → senere. */
+  --due-over: #B3261E;
+  --due-today: #B4570F;
+  --due-soon: #8A6500;
+  --due-later: var(--ink-3);
   /* Glød rundt sveipbare kort på Gangskjermen (swipeGlow.ts): rolig fersken i stedet for varselrødt.
      Lyst tema: terrakotta som holder ≥ 3:1 mot --bg selv ved 85 % dekning. */
   --swipe-glow: #BC6342;
@@ -68,6 +73,10 @@
   --good: #7AB394;
   --danger: #E07070;
   --danger-soft: #36211F;
+  --due-over: #FF9A92;
+  --due-today: #FFB27A;
+  --due-soon: #E8C766;
+  --due-later: #A7B3C6;
   --swipe-glow: #F0B49A;
   --swipe-glow-strength: 55%;
   /* Slightly lifted navy so dark cards still read as raised over the near-black bg */
