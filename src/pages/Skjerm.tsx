@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTodo, type Priority } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useWish } from '../contexts/WishContext';
-import { useCountdowns } from '../hooks/useCountdown';
+import { useCountdowns, type Countdown } from '../hooks/useCountdown';
+import { osloToday, upcomingCountdowns } from '../lib/countdowns';
 import { useMatplan } from '../contexts/MatplanContext';
 import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
@@ -16,13 +17,12 @@ import { useScrollLock } from '../lib/useScrollLock';
 import { useIdleReset } from '../lib/useIdleReset';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
-import { m } from './skjerm/shared';
+import { NedtellingCard } from './skjerm/NedtellingCard';
+import { m, EMPTY_COUNTDOWN_DRAFT } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-
-const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 
 interface HourlyEntry { hour: number; temp: number; precip: number; category: string; }
 
@@ -753,9 +753,16 @@ export default function PageSkjerm({ onBack }: Props) {
   const [auroraOpen, setAuroraOpen]   = useState(false);
   const [auroraView, setAuroraView]   = useState<AuroraView>('sannsynlighet');
   const { items: countdowns, add: addCd, update: updateCd, remove: removeCd, restore: restoreCd, loading: cdLoading } = useCountdowns();
-  const cd = countdowns[0] ?? null;
+  // Kun kommende nedtellinger (dato >= dagens Oslo-dato), nærmest først. useCountdowns() filtrerer
+  // ikke (Dashboard bruker den til CRUD), så det gjøres her.
+  const todayOslo = osloToday(now);
+  const upcomingCds = useMemo(() => upcomingCountdowns(countdowns, todayOslo), [countdowns, todayOslo]);
   const [cdEditing, setCdEditing] = useState(false);
-  const [cdDraft, setCdDraft]     = useState(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT);
+  // Nedtellingen som redigeres (null = ny). Redigering gjelder alltid den som VISES, ikke den første.
+  const [cdEditTarget, setCdEditTarget] = useState<Countdown | null>(null);
+  const [cdDraft, setCdDraft]     = useState(EMPTY_COUNTDOWN_DRAFT);
+  // Etter lagring: kortet følger nedtellingen til dens nye plass i lista.
+  const [cdFollow, setCdFollow]   = useState<{ id: string; date: string } | null>(null);
   // 10 s uten berøring/scroll noe sted på siden → alle sveipbare kort (useSwipePager)
   // glir tilbake til i dag. Står stille mens en popup/modal/inline-redigering er åpen,
   // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
@@ -775,8 +782,6 @@ export default function PageSkjerm({ onBack }: Props) {
     if (w < 1400) return 'tablet';  // iPad Pro 12.9" (portrait 1024 / landscape 1366) → tablet mode
     return 'desktop';  // Only true desktops at 1400px+
   });
-
-  useEffect(() => { if (!cdEditing) setCdDraft(cd ? { label: cd.label, date: cd.date } : EMPTY_COUNTDOWN_DRAFT); }, [cd, cdEditing]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -864,18 +869,32 @@ export default function PageSkjerm({ onBack }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  const handleToggleEditCd = (target: Countdown) => {
+    if (cdEditing) { setCdEditing(false); return; }
+    setCdDraft({ label: target.label, date: target.date });
+    setCdEditTarget(target);
+    setCdEditing(true);
+  };
+
+  const handleAddCd = () => {
+    setCdDraft(EMPTY_COUNTDOWN_DRAFT);
+    setCdEditTarget(null);
+    setCdEditing(true);
+  };
+
   const handleSaveCd = () => {
     if (!cdDraft.label.trim() || !cdDraft.date) return;
-    if (cd) void updateCd(cd.id, { label: cdDraft.label.trim(), date: cdDraft.date });
-    else void addCd({ label: cdDraft.label.trim(), date: cdDraft.date });
+    const patch = { label: cdDraft.label.trim(), date: cdDraft.date };
+    if (cdEditTarget) {
+      void updateCd(cdEditTarget.id, patch);
+      setCdFollow({ id: cdEditTarget.id, date: patch.date });
+    } else void addCd(patch);
     setCdEditing(false);
   };
 
-  const handleRemoveCd = () => {
-    if (!cd) return;
-    const prev = cd;
-    void removeCd(cd.id);
-    notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(prev) });
+  const handleRemoveCd = (target: Countdown) => {
+    void removeCd(target.id);
+    notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(target) });
   };
 
   const today = todayStr();
@@ -961,8 +980,6 @@ export default function PageSkjerm({ onBack }: Props) {
   const daysElapsed = Math.floor((now.getTime() - yearStart) / 86400000) + 1;
   const daysInYear  = Math.round((yearEnd - yearStart) / 86400000);
   const daysLeft    = daysInYear - daysElapsed;
-
-  const cdDays = cd ? daysUntil(cd.date) : 0;
 
   // The weekly "ting vi vil gjøre" reminder is shared across all devices and
   // rolls over the night into Monday — see useWeeklyBucket / api/cron/rollover.
@@ -1260,73 +1277,14 @@ export default function PageSkjerm({ onBack }: Props) {
         />
 
         {/* Countdown */}
-        <div style={{ ...cell, ...(isMobile ? { minWidth: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : screenSize === 'tablet' ? 6 : 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={eyebrow}>Nedtelling</div>
-            {cd && (
-              <div style={{ display: 'flex', gap: 2 }}>
-                <button onClick={() => { setCdDraft({ label: cd.label, date: cd.date }); setCdEditing(e => !e); }}
-                  aria-label="Rediger nedtelling"
-                  style={{ background:'transparent', border:0, cursor:'pointer', color:'var(--ink-4)', fontSize: isMobile ? m.body : 16, padding:'2px 4px', lineHeight:1 }}>✎</button>
-                <button onClick={handleRemoveCd}
-                  aria-label="Fjern nedtelling"
-                  style={{ background:'transparent', border:0, cursor:'pointer', color:'var(--ink-4)', fontSize: isMobile ? m.body : 16, padding:'2px 4px', lineHeight:1 }}>×</button>
-              </div>
-            )}
-          </div>
-
-          {cdLoading ? (
-            <div style={{ height: isMobile ? 64 : screenSize === 'tablet' ? 60 : 80 }} />
-          ) : !cdEditing ? (
-            cd && isMobile ? (
-              <>
-                <div style={{ fontSize: m.body, fontWeight: 400, color: 'var(--ink-2)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>{cd.label}</div>
-                <div style={{ fontSize: m.bigNum, fontWeight: 400, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
-                  {Math.max(0, cdDays)}
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: m.mono, color: 'var(--ink-4)' }}>
-                  {cdDays <= 0 ? 'i dag!' : cdDays === 1 ? 'dag · i morgen' : 'dager'} · {new Date(cd.date + 'T12:00:00').toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
-                </div>
-              </>
-            ) : cd ? (
-              <>
-                <div style={{ fontSize: screenSize === 'tablet' ? 16 : 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink-2)' }}>{cd.label}</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: screenSize === 'tablet' ? 6 : 8 }}>
-                  <span style={{ fontSize: screenSize === 'desktop' ? 80 : screenSize === 'tablet' ? 28 : 56, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>
-                    {Math.max(0, cdDays)}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: 'var(--ink-3)' }}>
-                    {cdDays <= 0 ? '🎉' : 'dager'}
-                  </span>
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--ink-3)' }}>
-                  {new Date(cd.date).toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}
-                </div>
-              </>
-            ) : (
-              <button
-                onClick={() => { setCdDraft(EMPTY_COUNTDOWN_DRAFT); setCdEditing(true); }}
-                style={{
-                  background: 'transparent', cursor: 'pointer', textAlign: 'left',
-                  border: '1px dashed var(--ink-4)', borderRadius: 6, padding: '10px 12px',
-                  color: 'var(--ink-4)', fontSize: isMobile ? 12 : 13,
-                }}
-              >+ Legg til nedtelling</button>
-            )
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <input className="input" placeholder="Hva teller vi ned til?" value={cdDraft.label}
-                onChange={e => setCdDraft(d => ({ ...d, label: e.target.value }))}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveCd(); }} autoFocus />
-              <input className="input" type="date" value={cdDraft.date}
-                onChange={e => setCdDraft(d => ({ ...d, date: e.target.value }))} />
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={handleSaveCd} className="btn primary" style={{ flex: 1 }}>Lagre</button>
-                <button onClick={() => setCdEditing(false)} className="btn ghost" style={{ flex: 1 }}>Avbryt</button>
-              </div>
-            </div>
-          )}
-        </div>
+        <NedtellingCard
+          countdowns={upcomingCds} today={todayOslo} resetSignal={idleTick} loading={cdLoading}
+          editing={cdEditing} draft={cdDraft} setDraft={setCdDraft}
+          onToggleEdit={handleToggleEditCd} onAdd={handleAddCd} onSave={handleSaveCd}
+          onCancel={() => setCdEditing(false)} onRemove={handleRemoveCd}
+          follow={cdFollow} onFollowed={() => setCdFollow(null)}
+          isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
+        />
 
         {/* Nordlys — Kp-indeks fra NOAA (observert, ikke flerdags-prognose)
             kombinert med skydekke fra Yr/met.no for Bodø. Ren heuristikk, ikke

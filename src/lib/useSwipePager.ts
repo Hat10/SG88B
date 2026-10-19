@@ -18,6 +18,8 @@ export interface SwipePagerOptions {
   max: number;
   /** Økes av useIdleReset; når verdien endres glir kortet tilbake til `min`. */
   resetSignal?: number;
+  /** true → ingen sveip (f.eks. under redigering, eller når det bare finnes én side). */
+  disabled?: boolean;
   /** Berøring som starter på treff mot denne selektoren starter ikke et sveip. */
   ignoreSelector?: string;
 }
@@ -42,7 +44,7 @@ export interface SwipePagerOptions {
  *   utløser aldri klikk. prefers-reduced-motion: bytter side uten animasjon.
  * - Logikken (terskler, retningsvalg, klemming) ligger i swipePager.ts.
  */
-export function useSwipePager({ min = 0, max, resetSignal, ignoreSelector = 'input,select,textarea,[data-no-swipe]' }: SwipePagerOptions) {
+export function useSwipePager({ min = 0, max, resetSignal, disabled = false, ignoreSelector = 'input,select,textarea,[data-no-swipe]' }: SwipePagerOptions) {
   const [offset, setOffset] = useState(min);
   const offsetRef = useRef(offset);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -110,7 +112,7 @@ export function useSwipePager({ min = 0, max, resetSignal, ignoreSelector = 'inp
   }, [resetSignal, goTo, min]);
 
   const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
-    if (drag.current) return;
+    if (disabled || drag.current) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (ignoreSelector && (e.target as Element).closest?.(ignoreSelector)) return;
     const el = contentRef.current;

@@ -1,5 +1,7 @@
 import type React from 'react';
 
+export const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
+
 export type ScreenSize = 'mobile' | 'tablet' | 'desktop';
 
 // ─── Combined event type ───────────────────────────────────────────────────
