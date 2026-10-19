@@ -398,7 +398,7 @@ const PROB_TICKS = [0, 1, 2, 3, 4];
  * ren time-of-day-akse ville krøllet seg ved midnatt når vinduet strekker
  * seg over et døgnskifte.
  */
-function AuroraHourlyChart({ hourly, view }: { hourly: AuroraHourlyEntry[]; view: AuroraView }) {
+function AuroraHourlyChart({ hourly, view, nowLabel = true }: { hourly: AuroraHourlyEntry[]; view: AuroraView; nowLabel?: boolean }) {
   const [selected, setSelected] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -518,7 +518,7 @@ function AuroraHourlyChart({ hourly, view }: { hourly: AuroraHourlyEntry[]; view
         return (
           <text key={i} x={xc(i)} y={H - 4} textAnchor="middle"
             fontSize="10" fontFamily="var(--font-mono)" fill={i === 0 ? 'rgba(255,255,255,0.55)' : 'rgba(207,224,239,0.4)'}>
-            {i === 0 ? 'nå' : `${String(osloHour(h.time)).padStart(2, '0')}`}
+            {i === 0 && nowLabel ? 'nå' : `${String(osloHour(h.time)).padStart(2, '0')}`}
           </text>
         );
       })}
@@ -743,6 +743,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [aurora, setAurora]           = useState<AuroraData | null>(null);
   const [auroraError, setAuroraError] = useState(false);
   const [auroraOpen, setAuroraOpen]   = useState(false);
+  // Hvilken natt popupen viser: 0 = «nå» (hourly, neste 20 timer), 1–2 = daily[n].hours.
+  const [auroraNight, setAuroraNight] = useState(0);
   const [auroraView, setAuroraView]   = useState<AuroraView>('sannsynlighet');
   const { items: countdowns, add: addCd, update: updateCd, remove: removeCd, restore: restoreCd, loading: cdLoading } = useCountdowns();
   // Kun kommende nedtellinger (dato >= dagens Oslo-dato), nærmest først. useCountdowns() filtrerer
@@ -1053,6 +1055,12 @@ export default function PageSkjerm({ onBack }: Props) {
     return { urgent: !done, label: isPickupDay ? 'Plast hentes i dag ⚠️' : 'Plast hentes i morgen ⚠️' };
   })();
 
+  // Nordlys-popupen: «nå» (hourly, neste 20 timer) eller en bestemt natt (daily[n].hours).
+  const popupNight = auroraNight > 0 ? aurora?.daily?.[auroraNight] ?? null : null;
+  const popupHours = popupNight ? popupNight.hours : aurora?.hourly;
+  const popupBest  = popupNight?.best ?? null;
+  const popupUncertain = !!popupNight && (popupNight.status !== 'ok' || !popupBest);
+
   return (
     <div style={{
       boxSizing: 'border-box', background: 'var(--bg)',
@@ -1283,8 +1291,17 @@ export default function PageSkjerm({ onBack }: Props) {
             et offisielt varsel — se api/nordlys.ts for poengmodellen. Klikk
             åpner en 20-timers prognosegraf, samme mønster som Vær-boksen. */}
         <NordlysCard
-          aurora={aurora} auroraError={auroraError}
-          onToggle={() => (aurora?.hourly?.length ?? 0) >= 2 && setAuroraOpen(v => !v)}
+          aurora={aurora} auroraError={auroraError} resetSignal={idleTick}
+          onToggle={off => {
+            if (off === 0) {
+              setAuroraNight(0);
+              if ((aurora?.hourly?.length ?? 0) >= 2) setAuroraOpen(v => !v);
+            } else if ((aurora?.daily?.[off]?.hours.length ?? 0) >= 2) {
+              // Offset 1–2: timegrafen for den natten (daily[off].hours); ingen graf uten nok timer.
+              setAuroraNight(off);
+              setAuroraOpen(true);
+            }
+          }}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
       </div>
@@ -1532,7 +1549,7 @@ export default function PageSkjerm({ onBack }: Props) {
       )}
 
       {/* ── 20-timers nordlysprognose ── */}
-      {auroraOpen && aurora?.hourly && aurora.hourly.length >= 2 && (
+      {auroraOpen && aurora && popupHours && popupHours.length >= 2 && (
         <div
           onClick={() => setAuroraOpen(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...(isMobile ? { padding: 12, overflowY: 'auto' } : {}) }}
@@ -1544,10 +1561,18 @@ export default function PageSkjerm({ onBack }: Props) {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', ...(isMobile ? { flexWrap: 'wrap', gap: 10 } : {}) }}>
               <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Nordlys · Bodø · Neste 20 timer</div>
-                <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: AURORA_COLOR[aurora.probability], letterSpacing: '-0.01em' }}>
-                  {AURORA_LABEL[aurora.probability]} akkurat nå
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  {popupNight ? `Nordlys · Bodø · Natt fra ${dateLabel(popupNight.date)}` : 'Nordlys · Bodø · Neste 20 timer'}
                 </div>
+                {popupNight ? (
+                  <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: popupUncertain || !popupBest ? 'var(--ink-4)' : AURORA_COLOR[popupBest.chance], letterSpacing: '-0.01em' }}>
+                    {popupUncertain || !popupBest ? 'Usikkert varsel' : `${AURORA_LABEL[popupBest.chance]} · best ca. ${new Date(popupBest.time).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' })}`}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: AURORA_COLOR[aurora.probability], letterSpacing: '-0.01em' }}>
+                    {AURORA_LABEL[aurora.probability]} akkurat nå
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div role="tablist" style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, overflow: 'hidden' }}>
@@ -1570,8 +1595,8 @@ export default function PageSkjerm({ onBack }: Props) {
             {/* Summary */}
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 16 : 28, paddingBottom: isMobile ? 14 : 20, borderBottom: '1px solid rgba(255,255,255,0.08)', ...(isMobile ? { flexWrap: 'wrap' } : {}) }}>
               {[
-                { label: 'Kp', val: String(aurora.kp), color: '#E8EFF7' },
-                { label: 'Skydekke', val: `${aurora.cloudCover}%`, color: '#E8EFF7' },
+                { label: 'Kp', val: popupNight ? (popupBest ? String(Math.round(popupBest.kp * 10) / 10) : '–') : String(aurora.kp), color: '#E8EFF7' },
+                { label: 'Skydekke', val: popupNight ? (popupBest ? `${popupBest.cloudCover}%` : '–') : `${aurora.cloudCover}%`, color: '#E8EFF7' },
               ].map(r => (
                 <div key={r.label} style={{ textAlign: 'center' }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{r.label}</div>
@@ -1589,11 +1614,11 @@ export default function PageSkjerm({ onBack }: Props) {
             {isMobile ? (
               <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                 <div style={{ minWidth: 560 }}>
-                  <AuroraHourlyChart hourly={aurora.hourly} view={auroraView} />
+                  <AuroraHourlyChart hourly={popupHours} view={auroraView} nowLabel={!popupNight} />
                 </div>
               </div>
             ) : (
-              <AuroraHourlyChart hourly={aurora.hourly} view={auroraView} />
+              <AuroraHourlyChart hourly={popupHours} view={auroraView} nowLabel={!popupNight} />
             )}
 
             {/* Legend */}

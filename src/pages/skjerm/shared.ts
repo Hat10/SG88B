@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AuroraChance, AuroraHourlyEntry } from '../../../api/nordlys';
+import type { AuroraChance, AuroraHourlyEntry, AuroraNight } from '../../../api/nordlys';
 
 export const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 
@@ -8,6 +8,8 @@ export const EMPTY_COUNTDOWN_DRAFT = { label: '', date: '' };
 export interface AuroraData {
   kp: number; kpTime: string; cloudCover: number; probability: AuroraChance;
   hourly?: AuroraHourlyEntry[];
+  /** Natt-for-natt (i kveld, i morgen kveld, overmorgen kveld). Mangler hos eldre/degradert svar. */
+  daily?: AuroraNight[];
   updatedAt: string;
 }
 

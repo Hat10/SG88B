@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type React from 'react';
 import { m, type ScreenSize } from './shared';
 import { PagerArrows } from './PagerArrows';
+import { PagerDots } from './PagerDots';
 import type { Countdown } from '../../hooks/useCountdown';
 import { clampIndex, daysBetween } from '../../lib/countdowns';
 import { useSwipePager } from '../../lib/useSwipePager';
@@ -171,17 +172,7 @@ export function NedtellingCard({
       </div>
 
       {multi && !editing && !loading && (
-        n <= MAX_DOTS ? (
-          <div aria-hidden style={{ position: 'absolute', left: 0, right: 0, bottom: 2, display: 'flex', justifyContent: 'center', gap: 5, pointerEvents: 'none' }}>
-            {countdowns.map((c, i) => (
-              <span key={c.id} style={{ width: 5, height: 5, borderRadius: '50%', background: i === offset ? 'var(--ink-3)' : 'var(--ink-4)', opacity: i === offset ? 1 : 0.35 }} />
-            ))}
-          </div>
-        ) : (
-          <div aria-hidden style={{ position: 'absolute', right: 10, bottom: 2, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', pointerEvents: 'none' }}>
-            {offset + 1}/{n}
-          </div>
-        )
+        <PagerDots count={n} index={offset} maxDots={MAX_DOTS} keys={countdowns.map(c => c.id)} />
       )}
     </div>
   );
