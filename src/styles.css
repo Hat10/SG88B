@@ -21,6 +21,11 @@
   --good: #4A8A6E;
   --danger: #C0392B;
   --danger-soft: #F7E4E0;
+  /* Glød rundt sveipbare kort på Gangskjermen (swipeGlow.ts): rolig fersken i stedet for varselrødt.
+     Lyst tema: terrakotta som holder ≥ 3:1 mot --bg selv ved 85 % dekning. */
+  --swipe-glow: #BC6342;
+  /* Glødens styrke (dekning, color-mix-prosent). Lyst tema litt høyere: samme prosent gir mindre synlig glød på lys bakgrunn. */
+  --swipe-glow-strength: 65%;
 
   /* Non-flipping navy for dark display surfaces (hero, clock, banners, "today" chips).
      --ink flips to light in dark mode; these must stay dark in both themes. */
@@ -63,6 +68,8 @@
   --good: #7AB394;
   --danger: #E07070;
   --danger-soft: #36211F;
+  --swipe-glow: #F0B49A;
+  --swipe-glow-strength: 55%;
   /* Slightly lifted navy so dark cards still read as raised over the near-black bg */
   --ink-fixed: #102744;
   /* A soft, clearly visible cloud on the dark surface card (the default white-on-white

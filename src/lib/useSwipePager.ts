@@ -8,7 +8,7 @@ const SLIDE_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 /** Rett etter et sveip svelges klikk så de ikke treffer elementer under fingeren. */
 const CLICK_SUPPRESS_MS = 350;
 
-const prefersReducedMotion = () =>
+export const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
 export interface SwipePagerOptions {

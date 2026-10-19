@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type React from 'react';
 import { m, type ScreenSize } from './shared';
+import { swipeGlow } from './swipeGlow';
 import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
 import type { Countdown } from '../../hooks/useCountdown';
@@ -90,8 +91,8 @@ export function NedtellingCard({
         display: 'flex', flexDirection: 'column',
         // Prikkene/telleren ligger absolutt nederst i kortets padding og gjør det ikke høyere.
         ...(multi ? { position: 'relative' } : {}),
-        // Svak aksent på rammen når en annen enn den nærmeste vises (som Kalender/Middag).
-        ...(multi && !isFirst ? { border: '1px solid color-mix(in srgb, var(--accent) 55%, var(--line))' } : {}),
+        // Glød når en annen enn den nærmeste vises (felles stil, se swipeGlow.ts).
+        ...(multi ? swipeGlow(!isFirst, screenSize) : {}),
         ...(multi ? pager.containerProps.style : {}),
       }}
     >
