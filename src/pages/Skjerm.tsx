@@ -14,6 +14,7 @@ import { QuickTodoForm } from '../QuickAdd';
 import { useScrollLock } from '../lib/useScrollLock';
 import { useIdleReset } from '../lib/useIdleReset';
 import { KalenderCard } from './skjerm/KalenderCard';
+import { MiddagCard } from './skjerm/MiddagCard';
 import { m } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
@@ -1250,29 +1251,11 @@ export default function PageSkjerm({ onBack }: Props) {
 
         {/* Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn —
             trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
-        <button
-          onClick={() => { if (todayRecipe) setRecipeModalOpen(true); }}
-          style={{
-            ...cell, width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
-            cursor: todayRecipe ? 'pointer' : 'default',
-            padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
-            display: 'flex', flexDirection: 'column', gap: isMobile ? 6 : screenSize === 'tablet' ? 3 : 4, ...(isMobile ? { minWidth: 0 } : {}),
-          }}
-        >
-          <div style={eyebrow}>🍽️ Dagens middag</div>
-          {todayRecipe ? (
-            <div style={{ fontSize: isMobile ? m.title : screenSize === 'desktop' ? 20 : screenSize === 'tablet' ? 13 : 17, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '-0.01em', ...(isMobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>
-              {todayRecipe.name}
-              {mealDays > 1 && (
-                <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 400, color: 'var(--ink-4)', letterSpacing: 0 }}>
-                  ×{mealDays} dager
-                </span>
-              )}
-            </div>
-          ) : (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 13, color: 'var(--ink-4)' }}>Ingen middag planlagt i dag</div>
-          )}
-        </button>
+        <MiddagCard
+          recipeName={todayRecipe?.name} mealDays={mealDays}
+          onOpen={() => { if (todayRecipe) setRecipeModalOpen(true); }}
+          isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
+        />
 
         {/* Countdown */}
         <div style={{ ...cell, ...(isMobile ? { minWidth: 0 } : {}), padding: isMobile ? m.pad : screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px', display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : screenSize === 'tablet' ? 6 : 12 }}>
