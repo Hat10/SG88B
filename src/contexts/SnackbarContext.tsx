@@ -4,6 +4,10 @@ interface SnackOpts {
   actionLabel?: string;
   onAction?: () => void;
   duration?: number;        // ms; defaults: 5000 with action, 3000 without
+  /** Stor trykkflate på handlingsknappen + myk inn/ut-animasjon (respekterer prefers-reduced-motion). Brukes av Gangskjerm. */
+  soft?: boolean;
+  /** Kalles når meldingen forsvinner av seg selv eller lukkes med ×. Ikke ved Angre-trykk eller når en ny melding erstatter den. */
+  onClose?: () => void;
 }
 interface SnackState {
   id: number;
@@ -11,6 +15,9 @@ interface SnackState {
   actionLabel?: string;
   onAction?: () => void;
   duration: number;
+  soft: boolean;
+  leaving: boolean;
+  onClose?: () => void;
 }
 
 interface SnackbarCtx {
@@ -28,23 +35,51 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
 
   const clearTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
 
-  const dismiss = useCallback(() => { clearTimer(); setSnack(null); }, []);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snackRef = useRef<SnackState | null>(null);
+  snackRef.current = snack;
+
+  const clearLeave = () => { if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; } };
+
+  // Fjerner meldingen; «soft» får en kort utgangsanimasjon først.
+  const hide = useCallback((id: number) => {
+    clearTimer();
+    const cur = snackRef.current;
+    if (!cur || cur.id !== id) return;
+    if (!cur.soft) { setSnack(null); return; }
+    setSnack({ ...cur, leaving: true });
+    clearLeave();
+    leaveTimer.current = setTimeout(() => {
+      setSnack(s => (s && s.id === id ? null : s));
+      leaveTimer.current = null;
+    }, 220);
+  }, []);
+
+  const dismiss = useCallback(() => {
+    const cur = snackRef.current;
+    if (!cur) return;
+    cur.onClose?.();
+    hide(cur.id);
+  }, [hide]);
 
   const notify = useCallback((message: string, opts: SnackOpts = {}) => {
     clearTimer();
+    clearLeave();
     const id = ++idRef.current;
     const duration = opts.duration ?? (opts.onAction ? 5000 : 3000);
-    setSnack({ id, message, actionLabel: opts.actionLabel, onAction: opts.onAction, duration });
+    setSnack({ id, message, actionLabel: opts.actionLabel, onAction: opts.onAction, duration, soft: !!opts.soft, leaving: false, onClose: opts.onClose });
     timer.current = setTimeout(() => {
-      setSnack(s => (s && s.id === id ? null : s));
       timer.current = null;
+      const cur = snackRef.current;
+      if (cur && cur.id === id) { cur.onClose?.(); hide(id); }
     }, duration);
-  }, []);
+  }, [hide]);
 
   const runAction = () => {
-    const fn = snack?.onAction;
-    dismiss();
-    fn?.();
+    const cur = snack;
+    if (!cur) return;
+    hide(cur.id);
+    cur.onAction?.();
   };
 
   return (
@@ -55,6 +90,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
           role="status"
           aria-live="polite"
           key={snack.id}
+          className={snack.soft ? `snack-soft${snack.leaving ? ' snack-soft-leaving' : ''}` : undefined}
           style={{
             position: 'fixed',
             left: '50%',
@@ -73,7 +109,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
             fontSize: 14,
             fontWeight: 500,
             overflow: 'hidden',
-            animation: 'snack-in 0.22s cubic-bezier(0.18,0.9,0.32,1.1) both',
+            ...(snack.soft ? {} : { animation: 'snack-in 0.22s cubic-bezier(0.18,0.9,0.32,1.1) both' }),
           }}
         >
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{snack.message}</span>
@@ -89,7 +125,8 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
                 fontSize: 13,
                 fontWeight: 700,
                 letterSpacing: '0.03em',
-                padding: '4px 6px',
+                padding: snack.soft ? '12px 14px' : '4px 6px',
+                ...(snack.soft ? { minHeight: 44, minWidth: 44, fontSize: 15 } : {}),
               }}
             >
               {snack.actionLabel}
@@ -106,6 +143,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
           {/* countdown bar */}
           <span
             aria-hidden
+            className={snack.soft ? 'snack-soft-bar' : undefined}
             style={{
               position: 'absolute', left: 0, bottom: 0, height: 2,
               background: 'var(--accent-soft)', opacity: 0.6,

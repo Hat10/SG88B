@@ -7,6 +7,7 @@ import { osloToday, upcomingCountdowns } from '../lib/countdowns';
 import { useMatplan } from '../contexts/MatplanContext';
 import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
+import { snapshotGroceryRows, addUndoEntry, flattenSnapshots, boughtMessage, type UndoEntry } from '../lib/groceryUndo';
 import { consecutiveDays, formatIngredientAmount, mealRangeLabel } from '../lib/dagensMiddag';
 import { dateLabel } from '../lib/dayLabel';
 import { fireworkRain } from '../confetti';
@@ -618,7 +619,25 @@ export default function PageSkjerm({ onBack }: Props) {
     setEditingTodo(null);
   };
   const { items: wishItems } = useWish();
-  const { mealPlan, recipes, groceryItems, toggleGroceryItem } = useMatplan();
+  const { mealPlan, recipes, groceryItems, stapleItems, toggleGroceryItem, restoreGroceryItems } = useMatplan();
+  // Avhakinger som fortsatt kan angres (meldingen vises). Ref, ikke state: meldingen eier
+  // synligheten, og flere raske avhakinger må slås sammen synkront.
+  const pendingBought = useRef<UndoEntry[]>([]);
+  const checkOffGrocery = async (label: string, ids: string[]) => {
+    const snapshots = snapshotGroceryRows(ids, groceryItems, stapleItems);
+    if (snapshots.length === 0) return;
+    pendingBought.current = addUndoEntry(pendingBought.current, { label, snapshots });
+    await Promise.all(ids.map(id => toggleGroceryItem(id)));
+    notify(boughtMessage(pendingBought.current), {
+      actionLabel: 'Angre', duration: 6000, soft: true,
+      onAction: () => {
+        const toRestore = flattenSnapshots(pendingBought.current);
+        pendingBought.current = [];
+        void restoreGroceryItems(toRestore);
+      },
+      onClose: () => { pendingBought.current = []; },
+    });
+  };
   const [now, setNow]  = useState(new Date());
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [weather, setWeather]    = useState<WeatherData | null>(null);
@@ -823,9 +842,9 @@ export default function PageSkjerm({ onBack }: Props) {
   const previewMeals    = groupByNameUnit(groceryItems.filter(g => g.mealPlanId && !g.done));
   const previewStaples  = groceryItems.filter(g => g.stapleItemId && !g.done);
   const previewRows: { key: string; name: string; amount: number | null; unit: string | null; approx?: boolean; toggle: () => void }[] = [
-    ...previewFreeform.map(g => ({ key: g.id, name: g.name, amount: g.amount, unit: g.unit, toggle: () => void toggleGroceryItem(g.id) })),
-    ...previewMeals.map(group => ({ key: group.key, name: group.name, amount: group.amount, unit: group.unit, approx: group.approx, toggle: () => group.ids.forEach(id => void toggleGroceryItem(id)) })),
-    ...previewStaples.map(g => ({ key: g.id, name: g.name, amount: g.amount, unit: g.unit, toggle: () => void toggleGroceryItem(g.id) })),
+    ...previewFreeform.map(g => ({ key: g.id, name: g.name, amount: g.amount, unit: g.unit, toggle: () => void checkOffGrocery(g.name, [g.id]) })),
+    ...previewMeals.map(group => ({ key: group.key, name: group.name, amount: group.amount, unit: group.unit, approx: group.approx, toggle: () => void checkOffGrocery(group.name, group.ids) })),
+    ...previewStaples.map(g => ({ key: g.id, name: g.name, amount: g.amount, unit: g.unit, toggle: () => void checkOffGrocery(g.name, [g.id]) })),
   ];
 
   const timeStr = now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
