@@ -18,7 +18,7 @@ interface BucketCtx {
   items: BucketEntry[];
   categories: string[];
   loading: boolean;
-  addItem: (item: Omit<BucketEntry, 'id'>) => Promise<void>;
+  addItem: (item: Omit<BucketEntry, 'id'>) => Promise<string | undefined>;
   updateItem: (id: string, patch: BucketPatch) => Promise<void>;
   toggleItem: (id: string, done: boolean) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
@@ -29,7 +29,7 @@ interface BucketCtx {
 
 const BucketContext = createContext<BucketCtx>({
   items: [], categories: [], loading: true,
-  addItem: async () => {}, updateItem: async () => {}, toggleItem: async () => {},
+  addItem: async () => undefined, updateItem: async () => {}, toggleItem: async () => {},
   removeItem: async () => {}, addCategory: async () => {}, renameCategory: async () => {}, removeCategory: async () => {},
 });
 
@@ -61,15 +61,16 @@ export function BucketProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { load(); }, []);
 
   const addItem = async (item: Omit<BucketEntry, 'id'>) => {
-    await supabase.from('bucket_items').insert({
+    const { data } = await supabase.from('bucket_items').insert({
       title: item.title,
       description: item.description ?? null,
       category: item.category || null,
       who: item.who,
       done: item.done,
       done_year: item.doneYear ?? null,
-    });
+    }).select('id').single();
     await load();
+    return data?.id as string | undefined;
   };
 
   const updateItem = async (id: string, patch: BucketPatch) => {

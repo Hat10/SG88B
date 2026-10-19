@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from '../lib/useScrollLock';
 import { useBucket, type BucketEntry } from '../contexts/BucketContext';
+import { useMapPins } from '../contexts/MapContext';
+import { useGeoSearch, TYPE_LABELS } from '../lib/geoSearch';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Check, Fab, SkeletonList } from '../components';
@@ -196,11 +198,65 @@ function BucketCard({ item, catColor, onToggle, onEdit, onRemove }: {
   );
 }
 
+// ─── Place picker (address → map pin) ──────────────────────────────────────
+
+interface PlaceValue { label: string; lat: number; lng: number }
+
+function PlacePicker({ value, hasExisting, onChange, onClearExisting }: {
+  value: PlaceValue | null; hasExisting: boolean;
+  onChange: (v: PlaceValue | null) => void; onClearExisting: () => void;
+}) {
+  const { query, setQuery, results, loading } = useGeoSearch('');
+  const [open, setOpen] = useState(false);
+
+  if (value) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--line-2)', borderRadius: 6 }}>
+        <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 {value.label}</span>
+        <button onClick={() => { onChange(null); setQuery(''); }} aria-label="Fjern sted" style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--ink-4)', fontSize: 16 }}>×</button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {hasExisting && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
+          <span>📍 Har sted på kartet</span>
+          <button onClick={onClearExisting} style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--warn)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>Fjern</button>
+        </div>
+      )}
+      <input className="input" placeholder={hasExisting ? 'Bytt sted: søk adresse…' : 'Søk adresse eller sted…'} value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        style={{ width: '100%' }} />
+      {open && query.trim().length >= 2 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
+          {loading && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>Søker…</div>}
+          {results.map((r, i) => (
+            <button key={i} onClick={() => { onChange({ label: r.label, lat: r.lat, lng: r.lon }); setOpen(false); }}
+              style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', textAlign: 'left', cursor: 'pointer', color: 'var(--ink)', fontSize: 13 }}>
+              <div style={{ fontWeight: 600, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>{r.label}</span>
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--ink-4)', flexShrink: 0 }}>{TYPE_LABELS[r.type] || r.type}</span>
+              </div>
+              {r.sublabel && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{r.sublabel}</div>}
+            </button>
+          ))}
+          {!loading && results.length === 0 && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>Ingen treff — prøv et annet søkeord</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function PageBucket() {
   const { items, categories, loading, addItem, updateItem, toggleItem, removeItem, addCategory, renameCategory, removeCategory } = useBucket();
   const { notify } = useSnackbar();
+  const { setPin, removePin, getPin } = useMapPins();
   const { confirm } = useConfirm();
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -222,8 +278,9 @@ export default function PageBucket() {
   const [desc,     setDesc]     = useState('');
   const [cat,      setCat]      = useState('');
   const [who,      setWho]      = useState<Who>('f');
+  const [place,    setPlace]    = useState<PlaceValue | null>(null);
 
-  const resetForm = () => { setTitle(''); setDesc(''); setCat(''); setWho('f'); };
+  const resetForm = () => { setTitle(''); setDesc(''); setCat(''); setWho('f'); setPlace(null); };
 
   const startEdit = (id: string) => {
     const it = items.find(i => i.id === id);
@@ -257,9 +314,11 @@ export default function PageBucket() {
     try {
       if (editId) {
         await updateItem(editId, { title: title.trim(), description: desc.trim() || undefined, category: cat, who });
+        if (place) await setPin('bucket', editId, place.lat, place.lng);
         cancelEdit();
       } else {
-        await addItem({ title: title.trim(), description: desc.trim() || undefined, category: cat, who, done: false });
+        const id = await addItem({ title: title.trim(), description: desc.trim() || undefined, category: cat, who, done: false });
+        if (id && place) await setPin('bucket', id, place.lat, place.lng);
         resetForm();
       }
     } finally { setSaving(false); }
@@ -319,6 +378,12 @@ export default function PageBucket() {
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         )}
+      </div>
+
+      <div>
+        <div className="card-eyebrow" style={{ marginBottom: 4 }}>Sted <span style={{ opacity: 0.5 }}>(valgfri – vises på kartet)</span></div>
+        <PlacePicker value={place} hasExisting={!!editId && !!getPin('bucket', editId)}
+          onChange={setPlace} onClearExisting={() => editId && void removePin('bucket', editId)} />
       </div>
 
       <div>
