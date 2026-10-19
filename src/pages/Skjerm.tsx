@@ -95,8 +95,10 @@ function MiniIcon({ category, cx, cy }: { category: string; cx: number; cy: numb
   );
 }
 
-function HourlyChart({ hourly, now, sunrise, sunset }: {
+function HourlyChart({ hourly, now, sunrise, sunset, showNow = true }: {
   hourly: HourlyEntry[]; now: Date; sunrise?: string; sunset?: string;
+  /** false for andre dager enn i dag: ingen «nå»-markør. */
+  showNow?: boolean;
 }) {
   const n = hourly.length;
   if (n < 2) return null;
@@ -127,10 +129,13 @@ function HourlyChart({ hourly, now, sunrise, sunset }: {
   let curIdx = 0;
   const curHour = now.getHours();
   for (let k = 0; k < n; k++) { if (hourly[k].hour <= curHour) curIdx = k; }
+  if (!showNow) curIdx = -1;
 
   // Adaptive label interval: every 1h if there's room, 2h or 3h when crowded
   const spacing = n > 1 ? pW / (n - 1) : pW;
   const labelEvery = spacing >= 50 ? 1 : spacing >= 25 ? 2 : 3;
+  // Grove 6-timers punkter (andre dager enn i dag, der Yr ikke gir timesdata) merkes alltid.
+  const labeled = (h: HourlyEntry) => h.hour % labelEvery === 0 || h.step === 6;
 
   // Y-axis ticks
   const tickSpan = maxT - minT;
@@ -226,11 +231,13 @@ function HourlyChart({ hourly, now, sunrise, sunset }: {
       <path d={lineD} fill="none" stroke={COLD} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" clipPath="url(#hwg-clip-cold)" />
 
       {/* ── Current time marker ── */}
-      <line x1={xi(curIdx)} y1={padT - 6} x2={xi(curIdx)} y2={iconCy + iconH / 2} stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeDasharray="4,3" />
+      {showNow && (
+        <line x1={xi(curIdx)} y1={padT - 6} x2={xi(curIdx)} y2={iconCy + iconH / 2} stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeDasharray="4,3" />
+      )}
 
       {/* ── Dots + labels every labelEvery h + current ── */}
       {hourly.map((h, i) => {
-        if (h.hour % labelEvery !== 0 && i !== curIdx) return null;
+        if (!labeled(h) && i !== curIdx) return null;
         const isCur    = i === curIdx;
         const isWarm   = h.temp > 0;
         const dotColor = isCur ? '#fff' : (isWarm ? WARM : COLD);
@@ -268,14 +275,14 @@ function HourlyChart({ hourly, now, sunrise, sunset }: {
       })}
 
       {/* ── Weather icons every labelEvery h ── */}
-      {hourly.filter(h => h.hour % labelEvery === 0).map(h => {
+      {hourly.filter(labeled).map(h => {
         const i = hourly.findIndex(hh => hh.hour === h.hour);
         if (i < 0) return null;
         return <MiniIcon key={h.hour} category={h.category} cx={xi(i)} cy={iconCy} />;
       })}
 
       {/* ── X-axis: hour labels ── */}
-      {hourly.filter(h => h.hour % labelEvery === 0).map(h => {
+      {hourly.filter(labeled).map(h => {
         const i = hourly.findIndex(hh => hh.hour === h.hour);
         if (i < 0) return null;
         return (
@@ -656,6 +663,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [weather, setWeather]    = useState<WeatherData | null>(null);
   const [weatherOpen, setWeatherOpen] = useState(false);
+  // Hvilken dag vær-popupen viser: 0 = i dag (hourly fra nå), 1–2 = daily[n].
+  const [weatherDay, setWeatherDay] = useState(0);
   // Datoen oppskrift-modalen er åpnet for (kortet kan vise en annen dag enn i dag); null = lukket.
   const [recipeModalDate, setRecipeModalDate] = useState<string | null>(null);
   const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
@@ -979,6 +988,12 @@ export default function PageSkjerm({ onBack }: Props) {
     return { urgent: !done, label: isPickupDay ? 'Plast hentes i dag ⚠️' : 'Plast hentes i morgen ⚠️' };
   })();
 
+  // Vær-popupen: i dag (weather.hourly) eller en bestemt dag (weather.daily[n]).
+  const wDay = weatherDay > 0 ? weather?.daily?.[weatherDay] ?? null : null;
+  const wHours = wDay ? wDay.hours : weather?.hourly;
+  const wSunrise = wDay ? wDay.sunrise : weather?.sunrise;
+  const wSunset  = wDay ? wDay.sunset  : weather?.sunset;
+
   // Nordlys-popupen: «nå» (hourly, neste 20 timer) eller en bestemt natt (daily[n].hours).
   const popupNight = auroraNight > 0 ? aurora?.daily?.[auroraNight] ?? null : null;
   const popupHours = popupNight ? popupNight.hours : aurora?.hourly;
@@ -1084,7 +1099,17 @@ export default function PageSkjerm({ onBack }: Props) {
 
         {/* Weather */}
         <WeatherCard
-          weather={weather} onToggle={() => weather && setWeatherOpen(v => !v)}
+          weather={weather} resetSignal={idleTick}
+          onToggle={off => {
+            if (off === 0) {
+              setWeatherDay(0);
+              if (weather) setWeatherOpen(v => !v);
+            } else if ((weather?.daily?.[off]?.hours.length ?? 0) >= 2) {
+              // Offset 1–2: timegrafen for den dagen (daily[off].hours, 6-timers steg der Yr mangler timesdata).
+              setWeatherDay(off);
+              setWeatherOpen(true);
+            }
+          }}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
       </div>
@@ -1298,7 +1323,7 @@ export default function PageSkjerm({ onBack }: Props) {
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Vær · Bodø · Time for time</div>
                 <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>
-                  {now.toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  {(wDay ? new Date(wDay.date + 'T12:00:00') : now).toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </div>
               </div>
               <button
@@ -1309,22 +1334,22 @@ export default function PageSkjerm({ onBack }: Props) {
 
             {/* Summary */}
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 12 : 20, paddingBottom: isMobile ? 14 : 20, borderBottom: '1px solid rgba(255,255,255,0.08)', ...(isMobile ? { flexWrap: 'wrap' } : {}) }}>
-              <WeatherIcon category={weather.category} size={44} cloud="rgba(207,224,239,0.92)" cloudLine="rgba(207,224,239,0.5)" />
+              <WeatherIcon category={wDay ? wDay.category : weather.category} size={44} cloud="rgba(207,224,239,0.92)" cloudLine="rgba(207,224,239,0.5)" />
               <div>
                 <div style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.03em', color: '#E8EFF7', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                  {weather.temp}<span style={{ fontSize: 20, opacity: 0.4 }}>°</span>
-                  <span style={{ fontSize: 18, color: 'rgba(207,224,239,0.4)', marginLeft: 14 }}>føles {weather.feelsLike}°</span>
+                  {wDay ? wDay.max : weather.temp}<span style={{ fontSize: 20, opacity: 0.4 }}>°</span>
+                  {!wDay && <span style={{ fontSize: 18, color: 'rgba(207,224,239,0.4)', marginLeft: 14 }}>føles {weather.feelsLike}°</span>}
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', marginTop: 6 }}>
-                  {weather.description} · vind {weather.wind} m/s
+                  {wDay ? `${wDay.description} · vind ${wDay.windMax} m/s` : `${weather.description} · vind ${weather.wind} m/s`}
                 </div>
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: isMobile ? 16 : 28, ...(isMobile ? { flexWrap: 'wrap', marginLeft: 0 } : {}) }}>
                 {[
-                  { label: 'Min / Maks', val: `${weather.todayMin}° / ${weather.todayMax}°`, color: '#E8EFF7' },
-                  ...(weather.todayPrecip > 0 ? [{ label: 'Nedbør', val: `${weather.todayPrecip} mm`, color: 'var(--accent)' }] : []),
-                  ...(weather.sunrise ? [{ label: '↑ Sol', val: weather.sunrise, color: '#E8EFF7' }] : []),
-                  ...(weather.sunset  ? [{ label: '↓ Sol', val: weather.sunset,  color: '#E8EFF7' }] : []),
+                  { label: 'Min / Maks', val: wDay ? `${wDay.min}° / ${wDay.max}°` : `${weather.todayMin}° / ${weather.todayMax}°`, color: '#E8EFF7' },
+                  ...((wDay ? wDay.precip : weather.todayPrecip) > 0 ? [{ label: 'Nedbør', val: `${wDay ? wDay.precip : weather.todayPrecip} mm`, color: 'var(--accent)' }] : []),
+                  ...(wSunrise ? [{ label: '↑ Sol', val: wSunrise, color: '#E8EFF7' }] : []),
+                  ...(wSunset  ? [{ label: '↓ Sol', val: wSunset,  color: '#E8EFF7' }] : []),
                 ].map(r => (
                   <div key={r.label} style={{ textAlign: 'center' }}>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{r.label}</div>
@@ -1335,15 +1360,15 @@ export default function PageSkjerm({ onBack }: Props) {
             </div>
 
             {/* Chart */}
-            {weather.hourly && weather.hourly.length >= 2 && (
+            {wHours && wHours.length >= 2 && (
               isMobile ? (
                 <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <div style={{ minWidth: 560 }}>
-                    <HourlyChart hourly={weather.hourly} now={now} sunrise={weather.sunrise} sunset={weather.sunset} />
+                    <HourlyChart hourly={wHours} now={now} sunrise={wSunrise} sunset={wSunset} showNow={!wDay} />
                   </div>
                 </div>
               ) : (
-                <HourlyChart hourly={weather.hourly} now={now} sunrise={weather.sunrise} sunset={weather.sunset} />
+                <HourlyChart hourly={wHours} now={now} sunrise={wSunrise} sunset={wSunset} showNow={!wDay} />
               )
             )}
 
@@ -1357,11 +1382,13 @@ export default function PageSkjerm({ onBack }: Props) {
                 <span style={{ display: 'inline-block', width: 10, height: 10, background: '#6BA9D6', borderRadius: 2, opacity: 0.65 }} />
                 Nedbør
               </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ display: 'inline-block', width: 0, height: 14, borderLeft: '1.5px dashed rgba(255,255,255,0.4)' }} />
-                Nå
-              </span>
-              {(weather.sunrise || weather.sunset) && (
+              {!wDay && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ display: 'inline-block', width: 0, height: 14, borderLeft: '1.5px dashed rgba(255,255,255,0.4)' }} />
+                  Nå
+                </span>
+              )}
+              {(wSunrise || wSunset) && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ display: 'inline-block', width: 0, height: 14, borderLeft: '1px dashed rgba(251,191,36,0.5)' }} />
                   Soloppgang / nedgang
