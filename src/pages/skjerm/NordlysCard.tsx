@@ -67,7 +67,7 @@ export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, isMobi
         ...(isMobile ? { gridColumn: '1 / -1', minWidth: 0 } : {}),
         // Prikkene ligger absolutt nederst i kortets padding og gjør det ikke høyere.
         ...(multi ? { position: 'relative' } : {}),
-        // Rød glød når en annen natt enn «nå» vises (felles stil, se swipeGlow.ts).
+        // Glød når en annen natt enn «nå» vises (felles stil, se swipeGlow.ts).
         ...(multi ? swipeGlow(offset > 0, screenSize) : {}),
         ...(multi ? pager.containerProps.style : {}),
       }}>

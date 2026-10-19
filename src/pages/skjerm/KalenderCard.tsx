@@ -53,7 +53,7 @@ export function KalenderCard({ calEvents, today, resetSignal, isMobile, isTablet
         ...cell, minWidth: 0, ...(isTablet ? { minHeight: 0 } : {}),
         padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 10px' : screenSize === 'desktop' ? '20px 24px' : '16px 18px',
         display: 'flex', flexDirection: 'column',
-        // Rød glød (box-shadow) når en annen dag enn i dag vises — felles stil i swipeGlow.ts.
+        // Glød (box-shadow) når en annen dag enn i dag vises — felles stil i swipeGlow.ts.
         ...swipeGlow(!isToday, screenSize),
         ...pager.containerProps.style,
       }}

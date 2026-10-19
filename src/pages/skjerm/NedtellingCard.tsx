@@ -91,7 +91,7 @@ export function NedtellingCard({
         display: 'flex', flexDirection: 'column',
         // Prikkene/telleren ligger absolutt nederst i kortets padding og gjør det ikke høyere.
         ...(multi ? { position: 'relative' } : {}),
-        // Rød glød når en annen enn den nærmeste vises (felles stil, se swipeGlow.ts).
+        // Glød når en annen enn den nærmeste vises (felles stil, se swipeGlow.ts).
         ...(multi ? swipeGlow(!isFirst, screenSize) : {}),
         ...(multi ? pager.containerProps.style : {}),
       }}

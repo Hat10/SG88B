@@ -95,7 +95,7 @@ export function WeatherCard({ weather, resetSignal, onToggle, isMobile, screenSi
         display: 'flex', flexDirection: 'column', cursor: 'default',
         // Prikkene ligger absolutt nederst i kortets padding og gjør det ikke høyere.
         ...(multi ? { position: 'relative' } : {}),
-        // Rød glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
+        // Glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
         ...(multi ? swipeGlow(!!day, screenSize) : {}),
         ...lockStyle,
         ...(multi ? pager.containerProps.style : {}),

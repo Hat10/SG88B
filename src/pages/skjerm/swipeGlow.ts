@@ -2,7 +2,7 @@ import type React from 'react';
 import { m, type ScreenSize } from './shared';
 import { prefersReducedMotion } from '../../lib/useSwipePager';
 
-// Rød glød rundt sveipbare kort som IKKE viser dagens visning (offset > 0; for nedtelling: ikke den
+// Ferskenfarget glød rundt sveipbare kort som IKKE viser dagens visning (offset > 0; for nedtelling: ikke den
 // nærmeste). Én felles definisjon som alle sveipbare kort bruker.
 //
 // Gløden er en ren box-shadow (ingen border/outline/padding/margin på kortet), så kortets størrelse
@@ -46,8 +46,8 @@ export function glowBleed(size: ScreenSize): number {
   return glowParams(layoutGap(size)).extent;
 }
 
-// Eksisterende varselfarge, tidsstyrt lys/mørk: --danger (#C0392B lys, #E07070 mørk).
-const GLOW_COLOR = 'color-mix(in srgb, var(--danger) 85%, transparent)';
+// Egen variabel (styles.css), tidsstyrt lys/mørk: --swipe-glow (#BC6342 lys, #F0B49A mørk) — rolig fersken, ikke varselrødt.
+const GLOW_COLOR = 'color-mix(in srgb, var(--swipe-glow) 85%, transparent)';
 const GLOW_OFF = '0 0 0 0 transparent';
 
 /** Stilen et sveipbart kort spres inn: `...swipeGlow(offset > 0, screenSize)`. */

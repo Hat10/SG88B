@@ -60,7 +60,7 @@ export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe
         cursor: recipe ? 'pointer' : 'default',
         padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
         display: 'flex', flexDirection: 'column', ...(isMobile ? { minWidth: 0 } : {}),
-        // Rød glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
+        // Glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
         ...swipeGlow(!isToday, screenSize),
         ...pager.containerProps.style,
       }}
