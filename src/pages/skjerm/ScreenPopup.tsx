@@ -60,7 +60,7 @@ export function ScreenPopup({ eyebrowText, title, onClose, width, isMobile = fal
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="card dark"
+        className="card dark skjerm-popup"
         style={{
           padding: isMobile ? '18px 16px' : '28px 32px', width, maxWidth: isMobile ? '100%' : 'calc(100vw - 48px)',
           maxHeight: layout.modalMaxHeight, overflowY: 'auto',

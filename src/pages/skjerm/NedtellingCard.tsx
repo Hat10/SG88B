@@ -159,10 +159,10 @@ export function NedtellingCard({
           )
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input className="input" placeholder="Hva teller vi ned til?" value={draft.label}
+            <input className="input skjerm-input" placeholder="Hva teller vi ned til?" value={draft.label}
               onChange={e => setDraft(d => ({ ...d, label: e.target.value }))}
               onKeyDown={e => { if (e.key === 'Enter') onSave(); }} autoFocus />
-            <input className="input" type="date" value={draft.date}
+            <input className="input skjerm-input" type="date" value={draft.date}
               onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} />
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={onSave} className="btn primary" style={{ flex: 1 }}>Lagre</button>
