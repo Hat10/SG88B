@@ -564,8 +564,8 @@ function TodoGroupHeader({ bucket, count, first, isMobile }: {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
-      padding: first ? '0 2px 5px' : '10px 2px 5px',
-      fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 11, fontWeight: 600,
+      padding: first ? '0 2px 4px' : '8px 2px 4px',
+      fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 10, fontWeight: 600,
       letterSpacing: '0.12em', textTransform: 'uppercase', color: BUCKET_COLOR[bucket],
     }}>
       <span style={{ whiteSpace: 'nowrap' }}>{BUCKET_LABEL[bucket]} · {count}</span>
@@ -579,17 +579,17 @@ function DuePill({ timing, isMobile }: { timing: TodoTiming; isMobile: boolean }
   const color = BUCKET_COLOR[timing.bucket];
   const none = timing.bucket === 'ingen';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
       <span style={{
-        fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 15, fontWeight: none ? 400 : 600,
-        padding: isMobile ? '3px 8px' : '4px 10px', borderRadius: 999, whiteSpace: 'nowrap', color,
+        fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 13, fontWeight: none ? 400 : 600,
+        padding: isMobile ? '3px 8px' : '3px 9px', borderRadius: 999, whiteSpace: 'nowrap', color,
         background: none ? 'transparent' : `color-mix(in oklab, ${color} 20%, transparent)`,
         border: none ? '1px dashed var(--line-2)' : '1px solid transparent',
       }}>
         {timing.label}
       </span>
       {timing.sub && (
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 11, color: 'var(--ink-4)', paddingRight: 4, whiteSpace: 'nowrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 10, color: 'var(--ink-4)', paddingRight: 4, whiteSpace: 'nowrap' }}>
           {timing.sub}
         </span>
       )}
@@ -1206,8 +1206,8 @@ export default function PageSkjerm({ onBack }: Props) {
                       </div>
                     ) : (
                       <div style={{
-                        display: 'flex', alignItems: 'center', gap: isMobile ? m.rowGap : 14,
-                        padding: isMobile ? m.rowPad : '9px 10px', marginBottom: 2, borderRadius: 4,
+                        display: 'flex', alignItems: 'center', gap: isMobile ? m.rowGap : 12,
+                        padding: isMobile ? m.rowPad : '6px 10px', marginBottom: 2, borderRadius: 4,
                         borderLeft: `3px solid ${row.color}`,
                         background: overdue ? 'color-mix(in oklab, var(--due-over) 14%, transparent)' : 'rgba(120,120,120,0.08)',
                       }}>
@@ -1221,12 +1221,12 @@ export default function PageSkjerm({ onBack }: Props) {
                             onClick={() => startEditTodo(row.todoId)}
                             title="Trykk for å endre navn/frist"
                             style={{
-                              fontSize: isMobile ? m.title : 18, fontWeight: 600, cursor: 'pointer',
+                              fontSize: isMobile ? m.title : 16, fontWeight: 600, cursor: 'pointer',
                               ...(isMobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
                             }}>
                             {row.title}
                           </span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 12, fontWeight: 600, color: row.whoColor }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.tiny : 11, fontWeight: 600, color: row.whoColor }}>
                             {row.who}
                           </span>
                         </div>
