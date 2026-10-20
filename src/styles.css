@@ -682,6 +682,28 @@ input, textarea, select { color-scheme: light; }
 .input:focus { border-color: var(--ink); }
 .input.sm { padding: 5px 8px; font-size: 12px; }
 
+/* Gangskjerm-felt (kun Gangskjerm). Hurtig-popupene er et fast mørkt .card.dark med lys
+   tekst (--on-ink), og .input arver `color`, men har bakgrunn var(--surface) som er HVIT i
+   lyst tema → lys tekst på hvit bunn. Fargen settes derfor eksplisitt fra samme tema-variabler
+   som bakgrunnen (--ink på --surface flipper sammen). -webkit-text-fill-color hindrer iOS
+   Safari i å overstyre; plassholderen holdes grå, og markøren følger teksten. */
+.skjerm-popup .input,
+.input.skjerm-input {
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
+}
+.skjerm-popup .input::placeholder,
+.input.skjerm-input::placeholder {
+  color: var(--ink-4);
+  -webkit-text-fill-color: var(--ink-4);
+  opacity: 1;
+}
+.skjerm-popup .input:disabled,
+.input.skjerm-input:disabled {
+  -webkit-text-fill-color: var(--ink-3);
+}
+
 /* Tabs */
 .tabs {
   display: inline-flex;

@@ -1192,12 +1192,12 @@ export default function PageSkjerm({ onBack }: Props) {
                         borderLeft: `3px solid ${row.color}`,
                         background: 'var(--surface-2)',
                       }}>
-                        <input className="input" value={todoDraft.title} autoFocus
+                        <input className="input skjerm-input" value={todoDraft.title} autoFocus
                           placeholder="Navn på gjøremål"
                           onChange={ev => setTodoDraft(d => ({ ...d, title: ev.target.value }))}
                           onKeyDown={ev => { if (ev.key === 'Enter') saveEditTodo(); if (ev.key === 'Escape') setEditingTodo(null); }}
                           style={{ flex: '1 1 160px', minWidth: 0 }} />
-                        <input className="input" type="date" value={todoDraft.deadline}
+                        <input className="input skjerm-input" type="date" value={todoDraft.deadline}
                           onChange={ev => setTodoDraft(d => ({ ...d, deadline: ev.target.value }))}
                           onKeyDown={ev => { if (ev.key === 'Enter') saveEditTodo(); if (ev.key === 'Escape') setEditingTodo(null); }}
                           style={{ flex: '0 0 auto', width: 'auto' }} />
