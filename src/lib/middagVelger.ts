@@ -79,3 +79,60 @@ export function isLeftoverDay(mealPlan: MealPlanEntry[], date: string): boolean 
   const prev = mealPlan.find(mp => mp.date === addDaysLocal(date, -1));
   return prev?.recipeId === today.recipeId;
 }
+
+/**
+ * Antall ganger hver oppskrift er LAGET (≤ i dag). Rester-dager (samme
+ * oppskrift som dagen før) teller ikke, så tre dager på rad = én gang.
+ */
+export function cookCountByRecipe(mealPlan: MealPlanEntry[], today: string): Map<string, number> {
+  const byDate = new Map(mealPlan.map(mp => [mp.date, mp.recipeId]));
+  const out = new Map<string, number>();
+  for (const mp of mealPlan) {
+    if (mp.date > today) continue;
+    if (byDate.get(addDaysLocal(mp.date, -1)) === mp.recipeId) continue;
+    out.set(mp.recipeId, (out.get(mp.recipeId) ?? 0) + 1);
+  }
+  return out;
+}
+
+export type RecipeSort = 'az' | 'sist' | 'mest' | 'tid';
+
+/**
+ * Sorterer oppskrifter. Oppskrifter uten data for valgt nøkkel (aldri laget,
+ * ingen koketid) havner sist; likt ⇒ alfabetisk.
+ */
+export function sortRecipes(
+  recipes: Recipe[], sort: RecipeSort, lastCooked: Map<string, string>, cookCount: Map<string, number>,
+): Recipe[] {
+  const byName = (a: Recipe, b: Recipe) => a.name.localeCompare(b.name, 'nb');
+  const cmp: Record<RecipeSort, (a: Recipe, b: Recipe) => number> = {
+    az: () => 0,
+    sist: (a, b) => (lastCooked.get(b.id) ?? '').localeCompare(lastCooked.get(a.id) ?? ''),
+    mest: (a, b) => (cookCount.get(b.id) ?? 0) - (cookCount.get(a.id) ?? 0),
+    tid: (a, b) => (a.cookTimeMinutes ?? Infinity) - (b.cookTimeMinutes ?? Infinity),
+  };
+  return [...recipes].sort((a, b) => cmp[sort](a, b) || byName(a, b));
+}
+
+/**
+ * Tag-forslag for kommaseparert tags-felt: eksisterende tags som starter med
+ * (deretter inneholder) det man skriver på nå (teksten etter siste komma),
+ * og som ikke allerede står i feltet. Tomt ord ⇒ alle ubrukte tags.
+ */
+export function tagSuggestions(input: string, allTags: string[], limit = 8): string[] {
+  const parts = input.split(',');
+  const current = norm(parts[parts.length - 1]);
+  const used = new Set(parts.slice(0, -1).map(norm).filter(Boolean));
+  const candidates = allTags.filter(t => !used.has(norm(t)) && norm(t) !== current);
+  if (!current) return candidates.slice(0, limit);
+  const starts = candidates.filter(t => norm(t).startsWith(current));
+  const contains = candidates.filter(t => !norm(t).startsWith(current) && norm(t).includes(current));
+  return [...starts, ...contains].slice(0, limit);
+}
+
+/** Erstatter ordet man skriver på nå med `tag`, og legger til «, » etter. */
+export function applyTagSuggestion(input: string, tag: string): string {
+  const parts = input.split(',');
+  parts[parts.length - 1] = parts.length > 1 ? ` ${tag}` : tag;
+  return parts.join(',') + ', ';
+}

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Recipe } from '../../contexts/MatplanContext';
-import { searchRecipes, lastCookedByRecipe, recentRecipeIds, lastCookedLabel, isLeftoverDay } from '../middagVelger';
+import {
+  searchRecipes, lastCookedByRecipe, recentRecipeIds, lastCookedLabel, isLeftoverDay,
+  cookCountByRecipe, sortRecipes, tagSuggestions, applyTagSuggestion,
+} from '../middagVelger';
 
 const r = (id: string, name: string, ingredients: string[] = [], tags: string[] = []): Recipe => ({
   id, name, tags, cookTimeMinutes: null, instructions: null, source: 'egen',
@@ -70,5 +73,50 @@ describe('isLeftoverDay', () => {
     expect(isLeftoverDay(plan, '2026-10-20')).toBe(false);
     expect(isLeftoverDay(plan, '2026-10-22')).toBe(false);
     expect(isLeftoverDay(plan, '2026-10-23')).toBe(false);
+  });
+});
+
+describe('cookCountByRecipe', () => {
+  it('teller rester-dager som én gang, og ignorerer fremtiden', () => {
+    const plan = [
+      mp('2026-10-01', 'a'), mp('2026-10-02', 'a'), mp('2026-10-03', 'a'), // én gang + rester
+      mp('2026-10-08', 'a'), mp('2026-10-09', 'b'), mp('2026-10-30', 'b'),
+    ];
+    const m = cookCountByRecipe(plan, '2026-10-20');
+    expect(m.get('a')).toBe(2);
+    expect(m.get('b')).toBe(1);
+  });
+});
+
+describe('sortRecipes', () => {
+  const last = new Map([['a', '2026-10-15'], ['b', '2026-10-18']]);
+  const count = new Map([['a', 5], ['b', 1], ['d', 5]]);
+  const withTime = RECIPES.map((x, i) => ({ ...x, cookTimeMinutes: [35, 20, null, 60][i] }));
+  it('A–Å', () => {
+    expect(sortRecipes(RECIPES, 'az', last, count).map(x => x.id)).toEqual(['a', 'b', 'd', 'c']);
+  });
+  it('sist laget: nyeste først, aldri laget sist alfabetisk', () => {
+    expect(sortRecipes(RECIPES, 'sist', last, count).map(x => x.id)).toEqual(['b', 'a', 'd', 'c']);
+  });
+  it('mest laget: likt antall ⇒ alfabetisk', () => {
+    expect(sortRecipes(RECIPES, 'mest', last, count).map(x => x.id)).toEqual(['a', 'd', 'b', 'c']);
+  });
+  it('koketid: korteste først, uten koketid sist', () => {
+    expect(sortRecipes(withTime, 'tid', last, count).map(x => x.id)).toEqual(['b', 'a', 'd', 'c']);
+  });
+});
+
+describe('tagSuggestions / applyTagSuggestion', () => {
+  const tags = ['prøvd', 'rask', 'vegetar', 'fredag', 'barnevennlig'];
+  it('foreslår tags som starter med, så som inneholder, det man skriver', () => {
+    expect(tagSuggestions('veg', tags)).toEqual(['vegetar']);
+    expect(tagSuggestions('prøvd, r', tags)).toEqual(['rask', 'vegetar', 'fredag', 'barnevennlig']);
+  });
+  it('utelater tags som allerede står i feltet', () => {
+    expect(tagSuggestions('prøvd, rask, ', tags)).toEqual(['vegetar', 'fredag', 'barnevennlig']);
+  });
+  it('erstatter ordet man skriver på', () => {
+    expect(applyTagSuggestion('veg', 'vegetar')).toBe('vegetar, ');
+    expect(applyTagSuggestion('prøvd, r', 'rask')).toBe('prøvd, rask, ');
   });
 });
