@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Recipe } from '../../contexts/MatplanContext';
 import { searchRecipes, lastCookedLabel } from '../../lib/middagVelger';
 
-// Maks antall søketreff som vises — resten nås ved å søke mer spesifikt, så
-// panelet aldri blir en ny lang alfabetisk liste.
+// Antall treff som vises før «Se alle oppskrifter» — så panelet ikke starter
+// som en ny lang alfabetisk liste, men hele listen er ett trykk unna.
 const MAX_RESULTS = 8;
 
 interface Props {
@@ -24,6 +24,7 @@ export default function RecipePicker({
   recipes, selectedId, recentIds, lastCooked, today, canRepeat, onPick, onRepeat, onClear, onClose,
 }: Props) {
   const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fokus kun på enheter med ekte pekere — på mobil ville autofokus åpne
@@ -33,7 +34,7 @@ export default function RecipePicker({
   }, []);
 
   const results = useMemo(() => searchRecipes(recipes, query), [recipes, query]);
-  const shown = results.slice(0, MAX_RESULTS);
+  const shown = showAll ? results : results.slice(0, MAX_RESULTS);
   const byId = useMemo(() => new Map(recipes.map(r => [r.id, r])), [recipes]);
   const recent = recentIds.map(id => byId.get(id)).filter((r): r is Recipe => !!r);
 
@@ -90,9 +91,9 @@ export default function RecipePicker({
           </div>
         )}
         {results.length > MAX_RESULTS && (
-          <div style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ink-4)' }}>
-            {results.length - MAX_RESULTS} til — søk for å finne flere
-          </div>
+          <button onClick={() => setShowAll(s => !s)} className="btn ghost sm" style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+            {showAll ? 'Vis færre' : `Se alle oppskrifter (${results.length})`}
+          </button>
         )}
       </div>
 
@@ -102,7 +103,7 @@ export default function RecipePicker({
             + 1 dag til (rester)
           </button>
         )}
-        {selectedId && <button onClick={onClear} className="btn ghost sm">Fjern middag</button>}
+        {selectedId && <button onClick={onClear} className="btn danger sm">Fjern middag</button>}
         <button onClick={onClose} className="btn ghost sm" style={{ marginLeft: 'auto' }}>Lukk</button>
       </div>
     </div>
