@@ -359,7 +359,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   // ── Ukeplan ────────────────────────────────────────────────────────────────
 
   // Ber serveren speile middagen på `date` til den delte Google-kalenderen
-  // (19:00–20:00 som standard, senere hvis det er Trening samme dag). Klienten
+  // (alltid kl. 20:00–21:00 Oslo-tid). Klienten
   // sender bare datoen — serveren leser selve meal_plan-raden og avgjør om
   // hendelsen skal opprettes/oppdateres eller fjernes, så samtidige endringer
   // på samme dato ikke kan overskrive hverandre. Kalles ETTER at meal_plan er
