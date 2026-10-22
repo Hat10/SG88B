@@ -19,6 +19,8 @@ interface Props {
   resetSignal: number;
   /** Trykk på kortet: åpne oppskriften for den VISTE datoen. */
   onOpenRecipe: (date: string) => void;
+  /** Trykk på kortet når den viste dagen er tom: åpne «Legg til middag» for den datoen. */
+  onAddMeal: (date: string) => void;
   isMobile: boolean;
   screenSize: ScreenSize;
   cell: React.CSSProperties;
@@ -26,8 +28,8 @@ interface Props {
 }
 
 // Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn — trykk
-// åpner en modal med full oppskrift. Sveip (eller ‹ ›) blar fremover t.o.m. +13 dager.
-export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe, isMobile, screenSize, cell, eyebrow }: Props) {
+// åpner en modal med full oppskrift; på en tom dag åpner trykk «Legg til middag». Sveip (eller ‹ ›) blar fremover t.o.m. +13 dager.
+export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe, onAddMeal, isMobile, screenSize, cell, eyebrow }: Props) {
   const pager = useSwipePager({ max: MAX_DAYS_AHEAD, resetSignal });
   const { offset } = pager;
   const date = addDaysLocal(today, offset);
@@ -46,18 +48,20 @@ export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe
   // Smale mobilkort har ikke plass til «ons 21. okt» ved siden av etiketten.
   const label = isToday ? 'Dagens middag' : `Middag · ${offset === 1 ? 'i morgen' : isMobile ? dateLabelShort(date) : dateLabel(date)}`;
 
-  const open = () => { if (recipe) onOpenRecipe(date); };
+  // Tom dag er også trykkbar (legg til middag). Et sveip utløser aldri klikk — se
+  // onClickCapture i useSwipePager.
+  const open = () => { if (recipe) onOpenRecipe(date); else onAddMeal(date); };
 
   return (
     <div
       {...pager.containerProps}
-      role={recipe ? 'button' : undefined}
-      tabIndex={recipe ? 0 : undefined}
+      role="button"
+      tabIndex={0}
       onClick={open}
-      onKeyDown={e => { if (recipe && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
+      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
       style={{
         ...cell, width: '100%', boxSizing: 'border-box', textAlign: 'left', font: 'inherit', color: 'inherit',
-        cursor: recipe ? 'pointer' : 'default',
+        cursor: 'pointer',
         padding: isMobile ? m.pad : screenSize === 'tablet' ? '8px 12px' : screenSize === 'desktop' ? '14px 20px' : '12px 16px',
         display: 'flex', flexDirection: 'column', ...(isMobile ? { minWidth: 0 } : {}),
         // Glød når en annen dag enn i dag vises (felles stil, se swipeGlow.ts).
@@ -97,8 +101,8 @@ export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe
                 )}
               </div>
             ) : (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 13, color: 'var(--ink-4)' }}>
-                {isToday ? 'Ingen middag planlagt i dag' : 'Ingen middag planlagt'}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: isMobile ? m.mono : 13, color: 'var(--ink-3)' }}>
+                ＋ Legg til middag
               </div>
             )}
           </div>
