@@ -21,6 +21,7 @@ import { layoutGap, glowBleed } from './skjerm/swipeGlow';
 import { ScreenPopup } from './skjerm/ScreenPopup';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
+import { MiddagAddModal } from './skjerm/MiddagAddModal';
 import { NedtellingCard } from './skjerm/NedtellingCard';
 import { NordlysCard } from './skjerm/NordlysCard';
 import { WeatherCard } from './skjerm/WeatherCard';
@@ -671,6 +672,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [weatherDay, setWeatherDay] = useState(0);
   // Datoen oppskrift-modalen er åpnet for (kortet kan vise en annen dag enn i dag); null = lukket.
   const [recipeModalDate, setRecipeModalDate] = useState<string | null>(null);
+  // Datoen «Legg til middag»-modalen er åpnet for (kortet kan vise en annen dag enn i dag); null = lukket.
+  const [mealAddDate, setMealAddDate] = useState<string | null>(null);
   const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
   const [todoQuickAddOpen, setTodoQuickAddOpen] = useState(false);
   const [groceryQuickAddOpen, setGroceryQuickAddOpen] = useState(false);
@@ -699,11 +702,11 @@ export default function PageSkjerm({ onBack }: Props) {
   // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
   const idleTick = useIdleReset({
     paused: weatherOpen || auroraOpen || recipeModalDate !== null || treningRegisterOpen
-      || todoQuickAddOpen || groceryQuickAddOpen || editingTodo !== null || cdEditing,
+      || todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null || editingTodo !== null || cdEditing,
   });
   // Bredde/høyde/skjermstørrelse. Høyden fryses mens en hurtig-popup er åpen (tastaturet kommer opp),
   // men rotasjon tas fortsatt imot — se useSkjermViewport.
-  const { winW, viewportH, screenSize } = useSkjermViewport(todoQuickAddOpen || groceryQuickAddOpen);
+  const { winW, viewportH, screenSize } = useSkjermViewport(todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -1104,7 +1107,7 @@ export default function PageSkjerm({ onBack }: Props) {
             trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
         <MiddagCard
           mealPlan={mealPlan} recipes={recipes} today={today} resetSignal={idleTick}
-          onOpenRecipe={setRecipeModalDate}
+          onOpenRecipe={setRecipeModalDate} onAddMeal={setMealAddDate}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
 
@@ -1539,6 +1542,11 @@ export default function PageSkjerm({ onBack }: Props) {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Legg til middag (fra Dagens middag-kortet, på en dag uten middag) ── */}
+      {mealAddDate && (
+        <MiddagAddModal date={mealAddDate} today={today} isMobile={isMobile} onClose={() => setMealAddDate(null)} />
       )}
 
       {/* ── Registrer trening (rask, fra headeren) ── */}
