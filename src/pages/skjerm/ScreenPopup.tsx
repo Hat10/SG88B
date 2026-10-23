@@ -33,7 +33,7 @@ function useVisualViewportBox() {
   return box;
 }
 
-const isCoarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches === true;
+export const isCoarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches === true;
 
 /**
  * Modal for hurtig-registrering med tekstfelt. Plasseres etter visualViewport (ikke etter
