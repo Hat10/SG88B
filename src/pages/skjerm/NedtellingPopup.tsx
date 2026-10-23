@@ -83,8 +83,8 @@ export function NedtellingPopup({ countdown, today, onSave, onDelete, onClose, i
             ) : (
               <>
                 <button onClick={() => setEditing(true)} className="btn primary" style={{ flex: 1, justifyContent: 'center' }}>Rediger</button>
-                <button onClick={() => setConfirmDelete(true)} className="btn ghost"
-                  style={{ flex: 1, justifyContent: 'center', color: '#E74C3C', borderColor: '#C0392B' }}>Slett</button>
+                <button onClick={() => setConfirmDelete(true)} className="btn"
+                  style={{ flex: 1, justifyContent: 'center', background: '#C0392B', borderColor: '#C0392B', color: '#fff', fontWeight: 600 }}>Slett</button>
               </>
             )}
           </div>
