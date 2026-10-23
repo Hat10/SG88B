@@ -44,25 +44,16 @@ beforeEach(() => {
 });
 
 describe('api/middag-kalender', () => {
-  it('patcher alltid med status confirmed og standardtid 19:00', async () => {
+  it('patcher alltid med status confirmed og fast tid 20:00–21:00 uten events.list', async () => {
     const res = await call();
     expect(res.status).toHaveBeenCalledWith(200);
     const body = cal.events.patch.mock.calls[0][0].requestBody;
     expect(body.status).toBe('confirmed');
     expect(body.summary).toBe('🍽️ Taco');
-    expect(body.start).toEqual({ dateTime: '2026-10-05T19:00:00', timeZone: 'Europe/Oslo' });
-    expect(body.end).toEqual({ dateTime: '2026-10-05T20:00:00', timeZone: 'Europe/Oslo' });
+    expect(body.start).toEqual({ dateTime: '2026-10-05T20:00:00', timeZone: 'Europe/Oslo' });
+    expect(body.end).toEqual({ dateTime: '2026-10-05T21:00:00', timeZone: 'Europe/Oslo' });
     expect(cal.events.insert).not.toHaveBeenCalled();
-  });
-
-  it('starter middagen når Trening slutter (Oslo-tid, ikke UTC)', async () => {
-    cal.events.list.mockResolvedValue({ data: { items: [{
-      summary: 'Trening',
-      start: { dateTime: '2026-10-05T17:00:00+02:00' },
-      end: { dateTime: '2026-10-05T18:30:00+02:00' },
-    }] } });
-    await call();
-    expect(cal.events.patch.mock.calls[0][0].requestBody.start.dateTime).toBe('2026-10-05T18:30:00');
+    expect(cal.events.list).not.toHaveBeenCalled();
   });
 
   it('oppretter ved 404 og 410', async () => {

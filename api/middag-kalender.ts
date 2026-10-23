@@ -24,79 +24,10 @@ async function getCalendar() {
 }
 type Calendar = Awaited<ReturnType<typeof getCalendar>>;
 
-// 'HH:MM:SS' / 'YYYY-MM-DD' i Oslo lokal tid for et vilkårlig ISO-tidspunkt —
-// samme sv-SE-triks som resten av appen bruker for lokal dato/tid uten et
-// tredjeparts tidssone-bibliotek (se f.eks. api/cron/rollover.ts). All
-// tidsberegning i denne filen går via Europe/Oslo, aldri serverens egen
-// tidssone (Vercel kjører UTC).
-function osloTimeOfDay(iso: string): string {
-  return new Date(iso).toLocaleTimeString('sv-SE', { timeZone: 'Europe/Oslo', hour12: false });
-}
-function osloDateOf(iso: string): string {
-  return new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
-}
-
-// Legger `hours` timer til et 'HH:MM:SS'-klokkeslett — ren klokke-aritmetikk
-// (tidssonen er allerede håndtert av kalleren). Passerer resultatet midnatt,
-// klemmes det til 23:59:59 slik at slutt aldri havner FØR start på samme dato.
-function addHours(time: string, hours: number): string {
-  const [h, m, s] = time.split(':').map(Number);
-  const total = h * 60 + m + hours * 60;
-  if (total >= 24 * 60) return '23:59:59';
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-const DEFAULT_MEAL_TIME = '19:00:00';
-const TRAINING_NO_END_MEAL_TIME = '20:00:00';
-
-// Finner en hendelse med EKSAKT denne tittelen på denne datoen (Oslo lokal
-// dato), i den oppgitte kalenderen — direkte mot Google Calendar API med
-// skrivesidens egen autentiserte klient, IKKE via api/kalender.ts (som
-// filtrerer bort andre ting før den returnerer, og uansett leser en helt
-// annen kilde — iCal-feeden, ikke selve Calendar-API-et). singleEvents:
-// true utvider en eventuell gjentakende hendelse til den faktiske
-// forekomsten denne dagen, så en flyttet/endret enkeltinstans leses riktig
-// i stedet for seriens opprinnelige starttidspunkt. Vinduet er bevisst
-// ±1 døgn i UTC (fremfor å regne ut eksakte Oslo-døgngrenser, som ville
-// krevd å vite sommer-/vintertid på forhånd) — selve datofiltreringen
-// skjer presist under, på Oslo-lokal dato.
-async function findEventByTitle(calendar: Calendar, calendarId: string, date: string, title: string) {
-  const DAY = 24 * 60 * 60 * 1000;
-  const center = new Date(`${date}T12:00:00Z`).getTime();
-  const { data } = await calendar.events.list({
-    calendarId,
-    timeMin: new Date(center - DAY).toISOString(),
-    timeMax: new Date(center + DAY).toISOString(),
-    singleEvents: true,
-  });
-  return (data.items ?? []).find(e => {
-    if ((e.summary ?? '').trim() !== title) return false;
-    const startIso = e.start?.dateTime ?? (e.start?.date ? `${e.start.date}T00:00:00Z` : null);
-    return !!startIso && osloDateOf(startIso) === date;
-  }) ?? null;
-}
-
-// Middagens starttid: 19:00 som standard, men styrt av en eventuell
-// Trening-hendelse samme dag i den felles kalenderen — spiser man ikke
-// middag midt i en treningsøkt. Finnes Trening med et satt sluttidspunkt
-// (samme Oslo-dato), blir DET middagens starttid; finnes Trening uten
-// sluttidspunkt (eller et heldags-arrangement uten klokkeslett, eller en
-// økt som slutter etter midnatt), faller vi tilbake til 20:00.
-// Feiler selve oppslaget mot Google (uavhengig av om skriving fungerer),
-// faller vi tilbake til standardtiden i stedet for å la hele synken feile
-// — samme best-effort-filosofi som resten av denne ruten.
-async function resolveMealStartTime(calendar: Calendar, calendarId: string, date: string): Promise<string> {
-  try {
-    const trening = await findEventByTitle(calendar, calendarId, date, 'Trening');
-    if (!trening) return DEFAULT_MEAL_TIME;
-    const end = trening.end?.dateTime;
-    if (!end || osloDateOf(end) !== date) return TRAINING_NO_END_MEAL_TIME;
-    return osloTimeOfDay(end);
-  } catch (e: any) {
-    console.warn('middag-kalender: klarte ikke sjekke for Trening-hendelse, bruker standardtid', e?.message ?? e);
-    return DEFAULT_MEAL_TIME;
-  }
-}
+// Middagen ligger ALLTID kl. 20:00–21:00 (Europe/Oslo), uansett hva annet som
+// står i kalenderen.
+const MEAL_START_TIME = '20:00:00';
+const MEAL_END_TIME = '21:00:00';
 
 const httpStatus = (e: any): number | undefined => e?.code ?? e?.response?.status;
 
@@ -116,16 +47,14 @@ async function syncMealEvent(calendar: Calendar, calendarId: string, date: strin
     return;
   }
 
-  const startTime = await resolveMealStartTime(calendar, calendarId, date);
-  const endTime = addHours(startTime, 1);
   // status: 'confirmed' er med hver gang: Google beholder ID-en til et slettet
   // event som «cancelled», og en patch uten status svarer 200 uten å gjøre
   // eventet synlig igjen.
   const requestBody = {
     status: 'confirmed',
     summary: `🍽️ ${title}`,
-    start: { dateTime: `${date}T${startTime}`, timeZone: 'Europe/Oslo' },
-    end: { dateTime: `${date}T${endTime}`, timeZone: 'Europe/Oslo' },
+    start: { dateTime: `${date}T${MEAL_START_TIME}`, timeZone: 'Europe/Oslo' },
+    end: { dateTime: `${date}T${MEAL_END_TIME}`, timeZone: 'Europe/Oslo' },
   };
   const patch = () => calendar.events.patch({ calendarId, eventId, requestBody });
 
