@@ -19,17 +19,12 @@ interface Props {
   /** Fra useIdleReset: endres → kortet glir tilbake til nærmeste nedtelling. */
   resetSignal: number;
   loading: boolean;
-  editing: boolean;
-  draft: { label: string; date: string };
-  setDraft: React.Dispatch<React.SetStateAction<{ label: string; date: string }>>;
-  /** ✎: åpne/lukk redigering av den VISTE nedtellingen. */
-  onToggleEdit: (cd: Countdown) => void;
+  /** Popupen er åpen: sveipet er av. */
+  popupOpen: boolean;
+  /** Trykk på kortet: åpne popupen for den VISTE nedtellingen. */
+  onOpen: (cd: Countdown) => void;
   /** «+ Legg til nedtelling» (kun når listen er tom). */
   onAdd: () => void;
-  onSave: () => void;
-  onCancel: () => void;
-  /** ×: fjern den VISTE nedtellingen. */
-  onRemove: (cd: Countdown) => void;
   /** Nylig lagret endring: følg denne nedtellingen til den nye plassen i lista. */
   follow: { id: string; date: string } | null;
   onFollowed: () => void;
@@ -42,14 +37,13 @@ interface Props {
 // Nedtelling — nærmeste først; sveip (eller ‹ ›) blar til neste kommende nedtelling.
 // Med 0–1 nedtellinger er sveipet av og kortet ser ut som det alltid har gjort.
 export function NedtellingCard({
-  countdowns, today, resetSignal, loading, editing, draft, setDraft,
-  onToggleEdit, onAdd, onSave, onCancel, onRemove, follow, onFollowed,
+  countdowns, today, resetSignal, loading, popupOpen, onOpen, onAdd, follow, onFollowed,
   isMobile, screenSize, cell, eyebrow,
 }: Props) {
   const n = countdowns.length;
   const multi = n >= 2;
   const maxIdx = Math.max(0, n - 1);
-  const pager = useSwipePager({ max: maxIdx, resetSignal, disabled: !multi || editing });
+  const pager = useSwipePager({ max: maxIdx, resetSignal, disabled: !multi || popupOpen });
   const { offset, goTo } = pager;
 
   // Listen endres (realtime, sletting, redigering): hold indeksen gyldig.
@@ -71,7 +65,9 @@ export function NedtellingCard({
   const isFirst = offset === 0;
   const gap = isMobile ? 8 : screenSize === 'tablet' ? 6 : 12;
 
-  const btn: React.CSSProperties = { background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--ink-4)', fontSize: isMobile ? m.body : 16, padding: '2px 4px', lineHeight: 1 };
+  // Toppradens høyde var tidligere gitt av ✎/×-knappene (font × linjehøyde 1 + 2×2 padding) — behold den.
+  const headerMinH = (isMobile ? m.body : 16) + 4;
+  const tappable = !!cd && !loading;
 
   // Tittel på mobil: ved flere nedtellinger maks 2 linjer med ellipse, og plassen til
   // 2 linjer er reservert (usynlig strut) så kortet er like høyt uansett tittel.
@@ -85,6 +81,17 @@ export function NedtellingCard({
   return (
     <div
       {...(multi ? pager.containerProps : {})}
+      {...(tappable ? {
+        role: 'button', tabIndex: 0, 'aria-label': `Åpne nedtelling: ${cd.label}`,
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as Element).closest('button')) return; // ‹ ›-pilene har sine egne klikk
+          onOpen(cd);
+        },
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(cd); }
+        },
+      } : {})}
       style={{
         ...cell, ...(isMobile ? { minWidth: 0 } : {}),
         padding: isMobile ? m.pad : screenSize === 'tablet' ? '10px 12px' : screenSize === 'desktop' ? '20px 22px' : '16px 18px',
@@ -94,27 +101,26 @@ export function NedtellingCard({
         // Glød når en annen enn den nærmeste vises (felles stil, se swipeGlow.ts).
         ...(multi ? swipeGlow(!isFirst, screenSize) : {}),
         ...(multi ? pager.containerProps.style : {}),
+        ...(tappable ? { cursor: 'pointer' } : {}),
       }}
     >
       {/* Det som glir. Ellers nøytral: bærer gap'en kortet tidligere hadde selv. */}
       <div ref={pager.contentRef} style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', ...(cd ? { minHeight: headerMinH } : {}) }}>
           <div style={eyebrow}>Nedtelling</div>
           {cd && (
             <div style={{ display: 'flex', gap: 2 }}>
               {/* Ikke plass til piler i de smale 2-kolonne-kortene på mobil — der sveipes det. */}
-              {multi && !isMobile && !editing && (
+              {multi && !isMobile && !popupOpen && (
                 <PagerArrows canPrev={pager.canPrev} canNext={pager.canNext} onPrev={pager.prev} onNext={pager.next} isMobile={isMobile} />
               )}
-              <button onClick={() => onToggleEdit(cd)} aria-label="Rediger nedtelling" style={btn}>✎</button>
-              <button onClick={() => onRemove(cd)} aria-label="Fjern nedtelling" style={btn}>×</button>
             </div>
           )}
         </div>
 
         {loading ? (
           <div style={{ height: isMobile ? 64 : screenSize === 'tablet' ? 60 : 80 }} />
-        ) : !editing ? (
+        ) : (
           cd && isMobile ? (
             <>
               {multi ? (
@@ -157,22 +163,10 @@ export function NedtellingCard({
               }}
             >+ Legg til nedtelling</button>
           )
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input className="input skjerm-input" placeholder="Hva teller vi ned til?" value={draft.label}
-              onChange={e => setDraft(d => ({ ...d, label: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') onSave(); }} autoFocus />
-            <input className="input skjerm-input" type="date" value={draft.date}
-              onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={onSave} className="btn primary" style={{ flex: 1 }}>Lagre</button>
-              <button onClick={onCancel} className="btn ghost" style={{ flex: 1 }}>Avbryt</button>
-            </div>
-          </div>
         )}
       </div>
 
-      {multi && !editing && !loading && (
+      {multi && !popupOpen && !loading && (
         <PagerDots count={n} index={offset} maxDots={MAX_DOTS} keys={countdowns.map(c => c.id)} />
       )}
     </div>

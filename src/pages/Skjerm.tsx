@@ -19,6 +19,7 @@ import { useIdleReset } from '../lib/useIdleReset';
 import { useSkjermViewport } from './skjerm/useSkjermViewport';
 import { layoutGap, glowBleed } from './skjerm/swipeGlow';
 import { ScreenPopup } from './skjerm/ScreenPopup';
+import { NedtellingPopup } from './skjerm/NedtellingPopup';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
 import { MiddagAddModal } from './skjerm/MiddagAddModal';
@@ -27,7 +28,7 @@ import { NordlysCard } from './skjerm/NordlysCard';
 import { WeatherCard } from './skjerm/WeatherCard';
 import { WeatherIcon } from './skjerm/WeatherIcon';
 import { todoTiming, BUCKET_ORDER, BUCKET_LABEL, BUCKET_COLOR, type TodoBucket, type TodoTiming } from './skjerm/todoTiming';
-import { m, EMPTY_COUNTDOWN_DRAFT, AURORA_COLOR, AURORA_LABEL, type AuroraData, type HourlyEntry, type WeatherData } from './skjerm/shared';
+import { m, AURORA_COLOR, AURORA_LABEL, type AuroraData, type HourlyEntry, type WeatherData } from './skjerm/shared';
 import type { CalEvent } from '../../api/kalender';
 import type { AuroraChance, AuroraHourlyEntry } from '../../api/nordlys';
 
@@ -691,10 +692,10 @@ export default function PageSkjerm({ onBack }: Props) {
   // ikke (Dashboard bruker den til CRUD), så det gjøres her.
   const todayOslo = osloToday(now);
   const upcomingCds = useMemo(() => upcomingCountdowns(countdowns, todayOslo), [countdowns, todayOslo]);
-  const [cdEditing, setCdEditing] = useState(false);
-  // Nedtellingen som redigeres (null = ny). Redigering gjelder alltid den som VISES, ikke den første.
-  const [cdEditTarget, setCdEditTarget] = useState<Countdown | null>(null);
-  const [cdDraft, setCdDraft]     = useState(EMPTY_COUNTDOWN_DRAFT);
+  // Popup for nedtelling: { id } = den VISTE nedtellingen (ikke alltid den første), 'new' = legg til.
+  const [cdPopup, setCdPopup] = useState<{ id: string } | 'new' | null>(null);
+  const cdPopupTarget = cdPopup && cdPopup !== 'new' ? countdowns.find(c => c.id === cdPopup.id) ?? null : null;
+  const cdPopupOpen = cdPopup === 'new' || cdPopupTarget !== null;
   // Etter lagring: kortet følger nedtellingen til dens nye plass i lista.
   const [cdFollow, setCdFollow]   = useState<{ id: string; date: string } | null>(null);
   // 10 s uten berøring/scroll noe sted på siden → alle sveipbare kort (useSwipePager)
@@ -702,11 +703,11 @@ export default function PageSkjerm({ onBack }: Props) {
   // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
   const idleTick = useIdleReset({
     paused: weatherOpen || auroraOpen || recipeModalDate !== null || treningRegisterOpen
-      || todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null || editingTodo !== null || cdEditing,
+      || todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null || editingTodo !== null || cdPopupOpen,
   });
   // Bredde/høyde/skjermstørrelse. Høyden fryses mens en hurtig-popup er åpen (tastaturet kommer opp),
   // men rotasjon tas fortsatt imot — se useSkjermViewport.
-  const { winW, viewportH, screenSize } = useSkjermViewport(todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null);
+  const { winW, viewportH, screenSize } = useSkjermViewport(todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null || cdPopupOpen);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -775,31 +776,17 @@ export default function PageSkjerm({ onBack }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  const handleToggleEditCd = (target: Countdown) => {
-    if (cdEditing) { setCdEditing(false); return; }
-    setCdDraft({ label: target.label, date: target.date });
-    setCdEditTarget(target);
-    setCdEditing(true);
-  };
-
-  const handleAddCd = () => {
-    setCdDraft(EMPTY_COUNTDOWN_DRAFT);
-    setCdEditTarget(null);
-    setCdEditing(true);
-  };
-
-  const handleSaveCd = () => {
-    if (!cdDraft.label.trim() || !cdDraft.date) return;
-    const patch = { label: cdDraft.label.trim(), date: cdDraft.date };
-    if (cdEditTarget) {
-      void updateCd(cdEditTarget.id, patch);
-      setCdFollow({ id: cdEditTarget.id, date: patch.date });
+  const handleSaveCd = (patch: { label: string; date: string }) => {
+    if (cdPopupTarget) {
+      void updateCd(cdPopupTarget.id, patch);
+      setCdFollow({ id: cdPopupTarget.id, date: patch.date });
     } else void addCd(patch);
-    setCdEditing(false);
+    setCdPopup(null);
   };
 
   const handleRemoveCd = (target: Countdown) => {
     void removeCd(target.id);
+    setCdPopup(null);
     notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(target) });
   };
 
@@ -1114,9 +1101,7 @@ export default function PageSkjerm({ onBack }: Props) {
         {/* Countdown */}
         <NedtellingCard
           countdowns={upcomingCds} today={todayOslo} resetSignal={idleTick} loading={cdLoading}
-          editing={cdEditing} draft={cdDraft} setDraft={setCdDraft}
-          onToggleEdit={handleToggleEditCd} onAdd={handleAddCd} onSave={handleSaveCd}
-          onCancel={() => setCdEditing(false)} onRemove={handleRemoveCd}
+          popupOpen={cdPopupOpen} onOpen={cd => setCdPopup({ id: cd.id })} onAdd={() => setCdPopup('new')}
           follow={cdFollow} onFollowed={() => setCdFollow(null)}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
@@ -1569,6 +1554,15 @@ export default function PageSkjerm({ onBack }: Props) {
       {/* ── Legg til vare (rask, fra Handleliste-boksen) ── */}
       {groceryQuickAddOpen && (
         <GroceryQuickAddModal isMobile={isMobile} onClose={() => setGroceryQuickAddOpen(false)} />
+      )}
+
+      {/* ── Nedtelling: vis / rediger / slett (trykk på kortet) ── */}
+      {cdPopupOpen && (
+        <NedtellingPopup
+          key={cdPopup === 'new' ? 'new' : cdPopup!.id}
+          countdown={cdPopupTarget} today={todayOslo} isMobile={isMobile}
+          onSave={handleSaveCd} onDelete={handleRemoveCd} onClose={() => setCdPopup(null)}
+        />
       )}
     </div>
   );
