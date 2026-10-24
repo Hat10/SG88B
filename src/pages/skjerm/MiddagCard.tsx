@@ -1,3 +1,4 @@
+import { useImperativeHandle } from 'react';
 import type React from 'react';
 import type { MealPlanEntry, Recipe } from '../../contexts/MatplanContext';
 import { m, type ScreenSize } from './shared';
@@ -5,10 +6,10 @@ import { swipeGlow } from './swipeGlow';
 import { PagerArrows } from './PagerArrows';
 import { addDaysLocal, consecutiveDays } from '../../lib/dagensMiddag';
 import { dateLabel, dateLabelShort } from '../../lib/dayLabel';
-import { useSwipePager } from '../../lib/useSwipePager';
+import { useSwipePager, type PagerHandle } from '../../lib/useSwipePager';
 
-// I dag t.o.m. i dag + 13 dager (14 dager). Ingen bakover i tid.
-const MAX_DAYS_AHEAD = 13;
+// I dag t.o.m. i dag + 13 dager (14 dager). Ingen bakover i tid. Popupen (MiddagPopup) bruker samme rekkevidde.
+export const MAX_DAYS_AHEAD = 13;
 
 interface Props {
   mealPlan: MealPlanEntry[];
@@ -17,10 +18,12 @@ interface Props {
   today: string;
   /** Fra useIdleReset: endres → kortet glir tilbake til i dag. */
   resetSignal: number;
-  /** Trykk på kortet: åpne oppskriften for den VISTE datoen. */
-  onOpenRecipe: (date: string) => void;
+  /** Trykk på kortet: åpne oppskriften for den VISTE dagen (offset fra i dag). */
+  onOpenRecipe: (offset: number) => void;
   /** Trykk på kortet når den viste dagen er tom: åpne «Legg til middag» for den datoen. */
   onAddMeal: (date: string) => void;
+  /** Lar popupen bla kortet (samme offset) og nullstille det ved lukking. */
+  pagerRef?: React.Ref<PagerHandle>;
   isMobile: boolean;
   screenSize: ScreenSize;
   cell: React.CSSProperties;
@@ -29,9 +32,10 @@ interface Props {
 
 // Dagens middag — fra ukeplanen (Middag → Ukeplan). Kompakt, kun navn — trykk
 // åpner en modal med full oppskrift; på en tom dag åpner trykk «Legg til middag». Sveip (eller ‹ ›) blar fremover t.o.m. +13 dager.
-export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe, onAddMeal, isMobile, screenSize, cell, eyebrow }: Props) {
+export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe, onAddMeal, pagerRef, isMobile, screenSize, cell, eyebrow }: Props) {
   const pager = useSwipePager({ max: MAX_DAYS_AHEAD, resetSignal });
   const { offset } = pager;
+  useImperativeHandle(pagerRef, () => ({ goTo: pager.goTo }), [pager.goTo]);
   const date = addDaysLocal(today, offset);
   const isToday = offset === 0;
 
@@ -50,7 +54,7 @@ export function MiddagCard({ mealPlan, recipes, today, resetSignal, onOpenRecipe
 
   // Tom dag er også trykkbar (legg til middag). Et sveip utløser aldri klikk — se
   // onClickCapture i useSwipePager.
-  const open = () => { if (recipe) onOpenRecipe(date); else onAddMeal(date); };
+  const open = () => { if (recipe) onOpenRecipe(offset); else onAddMeal(date); };
 
   return (
     <div

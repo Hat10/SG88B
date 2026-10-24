@@ -1,10 +1,11 @@
+import { useImperativeHandle } from 'react';
 import type React from 'react';
 import { m, AURORA_COLOR, AURORA_LABEL, type AuroraData, type ScreenSize } from './shared';
 import { swipeGlow } from './swipeGlow';
 import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
 import { dateLabel } from '../../lib/dayLabel';
-import { useSwipePager } from '../../lib/useSwipePager';
+import { useSwipePager, type PagerHandle } from '../../lib/useSwipePager';
 
 interface Props {
   aurora: AuroraData | null;
@@ -13,6 +14,8 @@ interface Props {
   resetSignal: number;
   /** Klikk på kortet. 0 = «nå» (20-timers-grafen), 1–2 = grafen for den natten. */
   onToggle: (offset: number) => void;
+  /** Lar popupen bla kortet (samme offset) og nullstille det ved lukking. */
+  pagerRef?: React.Ref<PagerHandle>;
   isMobile: boolean;
   screenSize: ScreenSize;
   cell: React.CSSProperties;
@@ -27,12 +30,13 @@ const osloClock = (iso: string) =>
 // heuristikk, ikke et offisielt varsel — se api/nordlys.ts for poengmodellen.
 // Offset 0 = nå-verdiene (som alltid); offset 1–2 = beste mørke time i morgen kveld /
 // overmorgen kveld (`aurora.daily`). Sveip (eller ‹ ›) blar.
-export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, isMobile, screenSize, cell, eyebrow }: Props) {
+export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, pagerRef, isMobile, screenSize, cell, eyebrow }: Props) {
   const daily = aurora?.daily ?? [];
   const multi = !auroraError && daily.length >= 2;
   const pager = useSwipePager({ max: Math.max(0, daily.length - 1), resetSignal, disabled: !multi });
   const offset = multi ? Math.min(pager.offset, daily.length - 1) : 0;
   const night = offset > 0 ? daily[offset] : null;
+  useImperativeHandle(pagerRef, () => ({ goTo: pager.goTo }), [pager.goTo]);
   const gap = isMobile ? 6 : screenSize === 'tablet' ? 6 : 12;
 
   const headline: React.CSSProperties = {

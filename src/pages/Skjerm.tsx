@@ -9,13 +9,13 @@ import { useTrening } from '../contexts/TreningContext';
 import { groupByNameUnit } from './middag/HandlelisteCard';
 import { snapshotGroceryRows, pushToast, startLeaving, removeToast, UNDO_TOAST_MS, type UndoToast } from '../lib/groceryUndo';
 import UndoToastStack from './skjerm/UndoToastStack';
-import { consecutiveDays, formatIngredientAmount, mealRangeLabel } from '../lib/dagensMiddag';
 import { dateLabel } from '../lib/dayLabel';
 import { fireworkRain } from '../confetti';
 import { kpLevel, type KpLevel } from '../lib/kpLevel';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
 import { useIdleReset } from '../lib/useIdleReset';
+import type { PagerHandle } from '../lib/useSwipePager';
 import { useSkjermViewport } from './skjerm/useSkjermViewport';
 import { layoutGap, glowBleed } from './skjerm/swipeGlow';
 import { ScreenPopup } from './skjerm/ScreenPopup';
@@ -23,6 +23,8 @@ import { NedtellingPopup } from './skjerm/NedtellingPopup';
 import { KalenderCard } from './skjerm/KalenderCard';
 import { MiddagCard } from './skjerm/MiddagCard';
 import { MiddagAddModal } from './skjerm/MiddagAddModal';
+import { MiddagPopup } from './skjerm/MiddagPopup';
+import { ChartPlaceholder, PopupDayNav, useGrowOnlyHeight } from './skjerm/popupPaging';
 import { NedtellingCard } from './skjerm/NedtellingCard';
 import { NordlysCard } from './skjerm/NordlysCard';
 import { WeatherCard } from './skjerm/WeatherCard';
@@ -671,8 +673,8 @@ export default function PageSkjerm({ onBack }: Props) {
   const [weatherOpen, setWeatherOpen] = useState(false);
   // Hvilken dag vær-popupen viser: 0 = i dag (hourly fra nå), 1–2 = daily[n].
   const [weatherDay, setWeatherDay] = useState(0);
-  // Datoen oppskrift-modalen er åpnet for (kortet kan vise en annen dag enn i dag); null = lukket.
-  const [recipeModalDate, setRecipeModalDate] = useState<string | null>(null);
+  // Dagen (offset fra i dag) oppskrift-popupen viser — åpnes på dagen kortet viser; null = lukket.
+  const [middagPopup, setMiddagPopup] = useState<number | null>(null);
   // Datoen «Legg til middag»-modalen er åpnet for (kortet kan vise en annen dag enn i dag); null = lukket.
   const [mealAddDate, setMealAddDate] = useState<string | null>(null);
   const [treningRegisterOpen, setTreningRegisterOpen] = useState(false);
@@ -692,17 +694,27 @@ export default function PageSkjerm({ onBack }: Props) {
   // ikke (Dashboard bruker den til CRUD), så det gjøres her.
   const todayOslo = osloToday(now);
   const upcomingCds = useMemo(() => upcomingCountdowns(countdowns, todayOslo), [countdowns, todayOslo]);
-  // Popup for nedtelling: { id } = den VISTE nedtellingen (ikke alltid den første), 'new' = legg til.
-  const [cdPopup, setCdPopup] = useState<{ id: string } | 'new' | null>(null);
-  const cdPopupTarget = cdPopup && cdPopup !== 'new' ? countdowns.find(c => c.id === cdPopup.id) ?? null : null;
-  const cdPopupOpen = cdPopup === 'new' || cdPopupTarget !== null;
-  // Etter lagring: kortet følger nedtellingen til dens nye plass i lista.
-  const [cdFollow, setCdFollow]   = useState<{ id: string; date: string } | null>(null);
+  // Popup for nedtelling: { index } = nedtellingen kortet viste (popupen blar videre selv), 'new' = legg til.
+  const [cdPopup, setCdPopup] = useState<{ index: number } | 'new' | null>(null);
+  const cdPopupOpen = cdPopup !== null;
+
+  // Popupene og kortene bak deler offset: bladning i popupen blar kortet (goTo), og når popupen
+  // lukkes — uansett hvordan — glir kortet tilbake til i dag med en gang, uten å vente på inaktivitet.
+  const weatherPager = useRef<PagerHandle>(null);
+  const auroraPager  = useRef<PagerHandle>(null);
+  const middagPager  = useRef<PagerHandle>(null);
+  const cdPager      = useRef<PagerHandle>(null);
+  const closeWeather = () => { setWeatherOpen(false); setWeatherDay(0); weatherPager.current?.goTo(0); };
+  const closeAurora  = () => { setAuroraOpen(false); setAuroraNight(0); auroraPager.current?.goTo(0); };
+  const closeMiddag  = () => { setMiddagPopup(null); middagPager.current?.goTo(0); };
+  const closeCd = useCallback(() => { setCdPopup(null); cdPager.current?.goTo(0); }, []);
+  const showWeatherDay  = (d: number) => { setWeatherDay(d); weatherPager.current?.goTo(d); };
+  const showAuroraNight = (d: number) => { setAuroraNight(d); auroraPager.current?.goTo(d); };
   // 10 s uten berøring/scroll noe sted på siden → alle sveipbare kort (useSwipePager)
   // glir tilbake til i dag. Står stille mens en popup/modal/inline-redigering er åpen,
   // så ingenting skjer bak den og ingen halvferdig redigering mister konteksten.
   const idleTick = useIdleReset({
-    paused: weatherOpen || auroraOpen || recipeModalDate !== null || treningRegisterOpen
+    paused: weatherOpen || auroraOpen || middagPopup !== null || treningRegisterOpen
       || todoQuickAddOpen || groceryQuickAddOpen || mealAddDate !== null || editingTodo !== null || cdPopupOpen,
   });
   // Bredde/høyde/skjermstørrelse. Høyden fryses mens en hurtig-popup er åpen (tastaturet kommer opp),
@@ -776,17 +788,15 @@ export default function PageSkjerm({ onBack }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  const handleSaveCd = (patch: { label: string; date: string }) => {
-    if (cdPopupTarget) {
-      void updateCd(cdPopupTarget.id, patch);
-      setCdFollow({ id: cdPopupTarget.id, date: patch.date });
-    } else void addCd(patch);
-    setCdPopup(null);
+  const handleSaveCd = (target: Countdown | null, patch: { label: string; date: string }) => {
+    if (target) void updateCd(target.id, patch);
+    else void addCd(patch);
+    closeCd();
   };
 
   const handleRemoveCd = (target: Countdown) => {
     void removeCd(target.id);
-    setCdPopup(null);
+    closeCd();
     notify('Nedtelling fjernet', { actionLabel: 'Angre', onAction: () => void restoreCd(target) });
   };
 
@@ -845,15 +855,6 @@ export default function PageSkjerm({ onBack }: Props) {
     (acc, r) => { acc[r.timing.bucket] += 1; return acc; },
     { forfalt: 0, idag: 0, uke: 0, senere: 0, ingen: 0 },
   );
-
-  // Oppskrift-modalen: for datoen kortet viste da det ble trykket på (Dagens middag / MiddagCard).
-  const modalPlan   = recipeModalDate ? mealPlan.find(mp => mp.date === recipeModalDate) : undefined;
-  const modalRecipe = modalPlan ? recipes.find(r => r.id === modalPlan.recipeId) : undefined;
-  // Samme oppskrift flere dager på rad fra den viste datoen → ingredienser vises for hele serien.
-  const modalDays   = modalRecipe && recipeModalDate ? consecutiveDays(mealPlan, recipeModalDate) : 0;
-  const modalRange  = recipeModalDate ? mealRangeLabel(recipeModalDate, modalDays, recipeModalDate === today) : '';
-  // Oppskriften forsvant mens modalen var åpen (realtime-oppdatering) → lukk, så inaktivitetstelleren ikke blir stående på pause.
-  useEffect(() => { if (recipeModalDate && !modalRecipe) setRecipeModalDate(null); }, [recipeModalDate, modalRecipe]);
 
   // Handleliste-forhåndsvisning — samme grupperingslogikk som HandlelisteCard
   // (src/pages/middag/HandlelisteCard.tsx) bruker, gjenbrukt her via
@@ -972,6 +973,13 @@ export default function PageSkjerm({ onBack }: Props) {
   const popupHours = popupNight ? popupNight.hours : aurora?.hourly;
   const popupBest  = popupNight?.best ?? null;
   const popupUncertain = !!popupNight && (popupNight.status !== 'ok' || !popupBest);
+  const popupTooLight = popupNight?.status === 'tooLight';
+  // Samme rekkevidde som kortene (vær 0–2, nordlys 0–2); under to dager/netter er det ingenting å bla i.
+  const weatherDays = (weather?.daily?.length ?? 0) >= 2 ? weather!.daily!.length : 1;
+  const auroraNights = !auroraError && (aurora?.daily?.length ?? 0) >= 2 ? aurora!.daily!.length : 1;
+  // Stabil høyde mens man blar (se useGrowOnlyHeight). Nøkkelen kobler målingen til hver åpning.
+  const weatherModalRef = useGrowOnlyHeight<HTMLDivElement>(weatherOpen);
+  const auroraModalRef  = useGrowOnlyHeight<HTMLDivElement>(auroraOpen);
 
   return (
     <div style={{
@@ -1072,7 +1080,7 @@ export default function PageSkjerm({ onBack }: Props) {
 
         {/* Weather */}
         <WeatherCard
-          weather={weather} resetSignal={idleTick}
+          weather={weather} resetSignal={idleTick} pagerRef={weatherPager}
           onToggle={off => {
             if (off === 0) {
               setWeatherDay(0);
@@ -1094,15 +1102,14 @@ export default function PageSkjerm({ onBack }: Props) {
             trykk åpner en modal med full oppskrift (ingredienser/fremgangsmåte/koketid). */}
         <MiddagCard
           mealPlan={mealPlan} recipes={recipes} today={today} resetSignal={idleTick}
-          onOpenRecipe={setRecipeModalDate} onAddMeal={setMealAddDate}
+          onOpenRecipe={setMiddagPopup} onAddMeal={setMealAddDate} pagerRef={middagPager}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
 
         {/* Countdown */}
         <NedtellingCard
           countdowns={upcomingCds} today={todayOslo} resetSignal={idleTick} loading={cdLoading}
-          popupOpen={cdPopupOpen} onOpen={cd => setCdPopup({ id: cd.id })} onAdd={() => setCdPopup('new')}
-          follow={cdFollow} onFollowed={() => setCdFollow(null)}
+          popupOpen={cdPopupOpen} onOpen={index => setCdPopup({ index })} onAdd={() => setCdPopup('new')} pagerRef={cdPager}
           isMobile={isMobile} screenSize={screenSize} cell={cell} eyebrow={eyebrow}
         />
 
@@ -1111,7 +1118,7 @@ export default function PageSkjerm({ onBack }: Props) {
             et offisielt varsel — se api/nordlys.ts for poengmodellen. Klikk
             åpner en 20-timers prognosegraf, samme mønster som Vær-boksen. */}
         <NordlysCard
-          aurora={aurora} auroraError={auroraError} resetSignal={idleTick}
+          aurora={aurora} auroraError={auroraError} resetSignal={idleTick} pagerRef={auroraPager}
           onToggle={off => {
             if (off === 0) {
               setAuroraNight(0);
@@ -1280,23 +1287,26 @@ export default function PageSkjerm({ onBack }: Props) {
       {/* ── Hourly weather popup ── */}
       {weatherOpen && weather && (
         <div
-          onClick={() => setWeatherOpen(false)}
+          onClick={closeWeather}
           style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...(isMobile ? { padding: 12, overflowY: 'auto' } : {}) }}
         >
           <div
+            ref={weatherModalRef}
             onClick={e => e.stopPropagation()}
             style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: isMobile ? '18px 16px' : '28px 32px', width: 860, maxWidth: isMobile ? '100%' : 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20, ...(isMobile ? { maxHeight: viewportH - 24, overflowY: 'auto' } : {}) }}
           >
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Vær · Bodø · Time for time</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  Vær · Bodø · {wDay ? (weatherDay === 1 ? 'I morgen' : dateLabel(wDay.date)) : 'Time for time'}
+                </div>
                 <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>
                   {(wDay ? new Date(wDay.date + 'T12:00:00') : now).toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </div>
               </div>
               <button
-                onClick={() => setWeatherOpen(false)}
+                onClick={closeWeather}
                 style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
               >✕</button>
             </div>
@@ -1328,17 +1338,26 @@ export default function PageSkjerm({ onBack }: Props) {
               </div>
             </div>
 
-            {/* Chart */}
-            {wHours && wHours.length >= 2 && (
+            {/* Chart. key per dag: trykk-markøren i grafen hører til dagen den ble satt på. */}
+            {wHours && wHours.length >= 2 ? (
               isMobile ? (
                 <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <div style={{ minWidth: 560 }}>
-                    <HourlyChart hourly={wHours} now={now} sunrise={wSunrise} sunset={wSunset} showNow={!wDay} />
+                    <HourlyChart key={weatherDay} hourly={wHours} now={now} sunrise={wSunrise} sunset={wSunset} showNow={!wDay} />
                   </div>
                 </div>
               ) : (
-                <HourlyChart hourly={wHours} now={now} sunrise={wSunrise} sunset={wSunset} showNow={!wDay} />
+                <HourlyChart key={weatherDay} hourly={wHours} now={now} sunrise={wSunrise} sunset={wSunset} showNow={!wDay} />
               )
+            ) : wDay && (
+              <ChartPlaceholder text="Ingen timesvarsel for denne dagen ennå" viewW={760} viewH={238} isMobile={isMobile} />
+            )}
+
+            {/* Forrige/neste dag — knapper, ikke sveip, så trykk og dra på grafen fortsatt viser verdier. */}
+            {weatherDays > 1 && (
+              <PopupDayNav index={Math.min(weatherDay, weatherDays - 1)} count={weatherDays}
+                onPrev={() => showWeatherDay(weatherDay - 1)} onNext={() => showWeatherDay(weatherDay + 1)}
+                prevLabel="Forrige dag" nextLabel="Neste dag" />
             )}
 
             {/* Legend */}
@@ -1369,12 +1388,13 @@ export default function PageSkjerm({ onBack }: Props) {
       )}
 
       {/* ── 20-timers nordlysprognose ── */}
-      {auroraOpen && aurora && popupHours && popupHours.length >= 2 && (
+      {auroraOpen && aurora && (
         <div
-          onClick={() => setAuroraOpen(false)}
+          onClick={closeAurora}
           style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...(isMobile ? { padding: 12, overflowY: 'auto' } : {}) }}
         >
           <div
+            ref={auroraModalRef}
             onClick={e => e.stopPropagation()}
             style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: isMobile ? '18px 16px' : '28px 32px', width: 860, maxWidth: isMobile ? '100%' : 'calc(100vw - 48px)', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20, ...(isMobile ? { maxHeight: viewportH - 24, overflowY: 'auto' } : {}) }}
           >
@@ -1386,7 +1406,7 @@ export default function PageSkjerm({ onBack }: Props) {
                 </div>
                 {popupNight ? (
                   <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: popupUncertain || !popupBest ? 'var(--ink-4)' : AURORA_COLOR[popupBest.chance], letterSpacing: '-0.01em' }}>
-                    {popupUncertain || !popupBest ? 'Usikkert varsel' : `${AURORA_LABEL[popupBest.chance]} · best ca. ${new Date(popupBest.time).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' })}`}
+                    {popupTooLight ? 'For lyst for nordlys' : popupUncertain || !popupBest ? 'Usikkert varsel' : `${AURORA_LABEL[popupBest.chance]} · best ca. ${new Date(popupBest.time).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' })}`}
                   </div>
                 ) : (
                   <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: AURORA_COLOR[aurora.probability], letterSpacing: '-0.01em' }}>
@@ -1406,7 +1426,7 @@ export default function PageSkjerm({ onBack }: Props) {
                   ))}
                 </div>
               <button
-                onClick={() => setAuroraOpen(false)}
+                onClick={closeAurora}
                 style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
               >✕</button>
               </div>
@@ -1430,15 +1450,28 @@ export default function PageSkjerm({ onBack }: Props) {
               </div>
             </div>
 
-            {/* Chart */}
-            {isMobile ? (
-              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                <div style={{ minWidth: 560 }}>
-                  <AuroraHourlyChart hourly={popupHours} view={auroraView} nowLabel={!popupNight} />
+            {/* Chart — eller en rolig melding for netter uten brukbare data. key per natt: trykk-markøren hører til natten den ble satt på. */}
+            {popupHours && popupHours.length >= 2 && !popupUncertain ? (
+              isMobile ? (
+                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                  <div style={{ minWidth: 560 }}>
+                    <AuroraHourlyChart key={auroraNight} hourly={popupHours} view={auroraView} nowLabel={!popupNight} />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <AuroraHourlyChart key={auroraNight} hourly={popupHours} view={auroraView} nowLabel={!popupNight} />
+              )
             ) : (
-              <AuroraHourlyChart hourly={popupHours} view={auroraView} nowLabel={!popupNight} />
+              <ChartPlaceholder
+                text={popupTooLight ? 'For lyst for nordlys — ingen mørke timer denne natten' : 'Usikkert varsel — for lite data for denne natten'}
+                viewW={760} viewH={190} isMobile={isMobile} />
+            )}
+
+            {/* Forrige/neste natt — knapper, ikke sveip, så trykk og dra på grafen fortsatt viser verdier. */}
+            {auroraNights > 1 && (
+              <PopupDayNav index={Math.min(auroraNight, auroraNights - 1)} count={auroraNights}
+                onPrev={() => showAuroraNight(auroraNight - 1)} onNext={() => showAuroraNight(auroraNight + 1)}
+                prevLabel="Forrige natt" nextLabel="Neste natt" />
             )}
 
             {/* Legend */}
@@ -1465,71 +1498,17 @@ export default function PageSkjerm({ onBack }: Props) {
         </div>
       )}
 
-      {/* ── Dagens middag: full oppskrift ── */}
-      {recipeModalDate && modalRecipe && (
-        <div
-          onClick={() => setRecipeModalDate(null)}
-          style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? 12 : 20 }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--ink-fixed)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: isMobile ? '18px 16px' : '28px 32px', width: 640, maxWidth: isMobile ? '100%' : 'calc(100vw - 48px)', maxHeight: isMobile ? viewportH - 24 : 'calc(100vh - 48px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: isMobile ? 14 : 20 }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{recipeModalDate === today ? 'Dagens middag' : `Middag · ${dateLabel(recipeModalDate)}`}</div>
-                <div style={{ fontSize: 26, fontWeight: 300, marginTop: 6, color: '#E8EFF7', letterSpacing: '-0.01em' }}>{modalRecipe.name}</div>
-                {modalRecipe.cookTimeMinutes != null && (
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', marginTop: 6 }}>⏱ {modalRecipe.cookTimeMinutes} min</div>
-                )}
-              </div>
-              <button
-                onClick={() => setRecipeModalDate(null)}
-                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, cursor: 'default', color: 'rgba(207,224,239,0.5)', fontSize: 18, padding: '4px 12px', lineHeight: 1.4 }}
-              >✕</button>
-            </div>
-
-            {modalRecipe.ingredients.length > 0 && (
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Ingredienser</div>
-                {modalDays > 1 && (
-                  <div style={{ fontSize: 13, color: '#C9963A', marginBottom: 10 }}>
-                    Mengder for {modalDays} dager ({modalRange})
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {modalRecipe.ingredients.map((ing, i) => {
-                    const qty = formatIngredientAmount(ing, modalDays);
-                    return (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, ...(isMobile ? { flexWrap: 'wrap' } : {}), fontSize: 15, color: '#E8EFF7', paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <span>{ing.name}</span>
-                        {qty && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.5)', flexShrink: 0 }}>
-                            {qty}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {modalRecipe.instructions && (
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(207,224,239,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Fremgangsmåte</div>
-                <div style={{ fontSize: 15, lineHeight: 1.6, color: 'rgba(207,224,239,0.85)', whiteSpace: 'pre-wrap' }}>{modalRecipe.instructions}</div>
-              </div>
-            )}
-
-            {modalRecipe.ingredients.length === 0 && !modalRecipe.instructions && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'rgba(207,224,239,0.4)' }}>Ingen detaljer lagt til for denne oppskriften ennå.</div>
-            )}
-          </div>
-        </div>
+      {/* ── Dagens middag: full oppskrift, blabar i takt med kortet ── */}
+      {middagPopup !== null && (
+        <MiddagPopup
+          mealPlan={mealPlan} recipes={recipes} today={today} initialOffset={middagPopup}
+          onNavigate={off => middagPager.current?.goTo(off)}
+          onAddMeal={setMealAddDate} onClose={closeMiddag}
+          isMobile={isMobile} viewportH={viewportH}
+        />
       )}
 
-      {/* ── Legg til middag (fra Dagens middag-kortet, på en dag uten middag) ── */}
+      {/* ── Legg til middag (fra Dagens middag-kortet eller -popupen, på en dag uten middag). Ligger oppå popupen. ── */}
       {mealAddDate && (
         <MiddagAddModal date={mealAddDate} today={today} isMobile={isMobile} onClose={() => setMealAddDate(null)} />
       )}
@@ -1559,9 +1538,10 @@ export default function PageSkjerm({ onBack }: Props) {
       {/* ── Nedtelling: vis / rediger / slett (trykk på kortet) ── */}
       {cdPopupOpen && (
         <NedtellingPopup
-          key={cdPopup === 'new' ? 'new' : cdPopup!.id}
-          countdown={cdPopupTarget} today={todayOslo} isMobile={isMobile}
-          onSave={handleSaveCd} onDelete={handleRemoveCd} onClose={() => setCdPopup(null)}
+          key={cdPopup === 'new' ? 'new' : 'view'}
+          countdowns={upcomingCds} initialIndex={cdPopup === 'new' ? null : cdPopup.index} today={todayOslo} isMobile={isMobile}
+          onNavigate={i => cdPager.current?.goTo(i)}
+          onSave={handleSaveCd} onDelete={handleRemoveCd} onClose={closeCd}
         />
       )}
     </div>
