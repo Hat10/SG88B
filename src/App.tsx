@@ -18,6 +18,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import PageLogin from './pages/Login';
 import { SnackbarProvider } from './contexts/SnackbarContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
+import { erMorkAuto } from './lib/solTema';
 
 // Hver side lastes som sin egen chunk (React.lazy) slik at startbunten kun
 // inneholder skallet. Tunge biblioteker følger med siden som bruker dem —
@@ -41,13 +42,9 @@ type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' |
 // ─── Theme ───────────────────────────────────────────────────────────────────
 type ThemeMode = 'auto' | 'light' | 'dark';
 
-// 'auto' = dark from 20:00 to 08:00 (local time), light otherwise.
-const DARK_FROM = 20;   // 20:00 → dark
-const DARK_UNTIL = 8;   // 08:00 → light
-function isNightNow(d = new Date()): boolean {
-  const h = d.getHours();
-  return h >= DARK_FROM || h < DARK_UNTIL;
-}
+// 'auto' = sol-basert for Bodø (se lib/solTema.ts): lys fra soloppgang
+// (06:00–09:00), mørk fra solnedgang (17:00–20:00).
+const isNightNow = () => erMorkAuto();
 
 // A saved choice wins; otherwise default to automatic (time-based).
 function readInitialMode(): ThemeMode {
@@ -435,7 +432,7 @@ function AppInner() {
   }, [themeMode]);
 
   // Keep the time-based value current at all times (cheap — it only re-renders at a
-  // 20:00 / 08:00 boundary) so both Auto mode and the always-auto Gangskjerm flip
+  // sunrise/sunset boundary, see lib/solTema.ts) so both Auto mode and the always-auto Gangskjerm flip
   // live while the page sits open, with no refresh.
   useEffect(() => {
     const tick = () => setAutoDark(isNightNow());
