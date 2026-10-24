@@ -1357,7 +1357,7 @@ export default function PageSkjerm({ onBack }: Props) {
             {weatherDays > 1 && (
               <PopupDayNav index={Math.min(weatherDay, weatherDays - 1)} count={weatherDays}
                 onPrev={() => showWeatherDay(weatherDay - 1)} onNext={() => showWeatherDay(weatherDay + 1)}
-                prevLabel="Forrige dag" nextLabel="Neste dag" />
+                prevLabel="Forrige dag" nextLabel="Neste dag" isMobile={isMobile} />
             )}
 
             {/* Legend */}
@@ -1471,7 +1471,7 @@ export default function PageSkjerm({ onBack }: Props) {
             {auroraNights > 1 && (
               <PopupDayNav index={Math.min(auroraNight, auroraNights - 1)} count={auroraNights}
                 onPrev={() => showAuroraNight(auroraNight - 1)} onNext={() => showAuroraNight(auroraNight + 1)}
-                prevLabel="Forrige natt" nextLabel="Neste natt" />
+                prevLabel="Forrige natt" nextLabel="Neste natt" isMobile={isMobile} />
             )}
 
             {/* Legend */}

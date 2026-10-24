@@ -34,11 +34,11 @@ export function useGrowOnlyHeight<T extends HTMLElement>(resetKey?: unknown) {
   return ref;
 }
 
-/** Lys-på-mørk knappestil, samme som ✕-knappen i popupene. */
-const navButton = (enabled: boolean): React.CSSProperties => ({
-  flex: '1 1 0', maxWidth: 240, minHeight: 48, padding: '10px 14px',
+/** Lys-på-mørk knappestil, samme som ✕-knappen i popupene. Litt mindre på mobil. */
+const navButton = (enabled: boolean, isMobile: boolean): React.CSSProperties => ({
+  flex: '1 1 0', maxWidth: isMobile ? 170 : 240, minHeight: isMobile ? 40 : 48, padding: isMobile ? '8px 10px' : '10px 14px',
   background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
-  color: '#E8EFF7', fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, letterSpacing: '0.02em',
+  color: '#E8EFF7', fontFamily: 'var(--font-mono)', fontSize: isMobile ? 13 : 15, fontWeight: 600, letterSpacing: '0.02em',
   cursor: enabled ? 'pointer' : 'default', opacity: enabled ? 1 : 0.3,
   touchAction: 'manipulation',
 });
@@ -47,16 +47,16 @@ const navButton = (enabled: boolean): React.CSSProperties => ({
  * «‹ Forrige dag» · prikker · «Neste dag ›» under grafen i vær- og nordlys-popupen.
  * Knapper i stedet for sveip, så trykk-og-dra på grafen fortsatt viser verdier.
  */
-export function PopupDayNav({ index, count, onPrev, onNext, prevLabel, nextLabel }: {
+export function PopupDayNav({ index, count, onPrev, onNext, prevLabel, nextLabel, isMobile }: {
   index: number; count: number; onPrev: () => void; onNext: () => void;
-  prevLabel: string; nextLabel: string;
+  prevLabel: string; nextLabel: string; isMobile: boolean;
 }) {
   const canPrev = index > 0, canNext = index < count - 1;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-      <button type="button" disabled={!canPrev} onClick={onPrev} style={navButton(canPrev)}>‹ {prevLabel}</button>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 8 : 12 }}>
+      <button type="button" disabled={!canPrev} onClick={onPrev} style={navButton(canPrev, isMobile)}>‹ {prevLabel}</button>
       <PagerDots count={count} index={index} popup />
-      <button type="button" disabled={!canNext} onClick={onNext} style={navButton(canNext)}>{nextLabel} ›</button>
+      <button type="button" disabled={!canNext} onClick={onNext} style={navButton(canNext, isMobile)}>{nextLabel} ›</button>
     </div>
   );
 }
