@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useImperativeHandle } from 'react';
 import type React from 'react';
 import { m, type ScreenSize } from './shared';
 import { swipeGlow } from './swipeGlow';
@@ -6,7 +6,7 @@ import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
 import type { Countdown } from '../../hooks/useCountdown';
 import { clampIndex, daysBetween } from '../../lib/countdowns';
-import { useSwipePager } from '../../lib/useSwipePager';
+import { useSwipePager, type PagerHandle } from '../../lib/useSwipePager';
 
 /** Over dette antallet vises «2/9» i stedet for prikker. */
 const MAX_DOTS = 6;
@@ -21,13 +21,12 @@ interface Props {
   loading: boolean;
   /** Popupen er åpen: sveipet er av. */
   popupOpen: boolean;
-  /** Trykk på kortet: åpne popupen for den VISTE nedtellingen. */
-  onOpen: (cd: Countdown) => void;
+  /** Trykk på kortet: åpne popupen for den VISTE nedtellingen (indeks i `countdowns`). */
+  onOpen: (index: number) => void;
   /** «+ Legg til nedtelling» (kun når listen er tom). */
   onAdd: () => void;
-  /** Nylig lagret endring: følg denne nedtellingen til den nye plassen i lista. */
-  follow: { id: string; date: string } | null;
-  onFollowed: () => void;
+  /** Lar popupen bla kortet (samme offset) og nullstille det ved lukking. */
+  pagerRef?: React.Ref<PagerHandle>;
   isMobile: boolean;
   screenSize: ScreenSize;
   cell: React.CSSProperties;
@@ -37,7 +36,7 @@ interface Props {
 // Nedtelling — nærmeste først; sveip (eller ‹ ›) blar til neste kommende nedtelling.
 // Med 0–1 nedtellinger er sveipet av og kortet ser ut som det alltid har gjort.
 export function NedtellingCard({
-  countdowns, today, resetSignal, loading, popupOpen, onOpen, onAdd, follow, onFollowed,
+  countdowns, today, resetSignal, loading, popupOpen, onOpen, onAdd, pagerRef,
   isMobile, screenSize, cell, eyebrow,
 }: Props) {
   const n = countdowns.length;
@@ -45,20 +44,12 @@ export function NedtellingCard({
   const maxIdx = Math.max(0, n - 1);
   const pager = useSwipePager({ max: maxIdx, resetSignal, disabled: !multi || popupOpen });
   const { offset, goTo } = pager;
+  useImperativeHandle(pagerRef, () => ({ goTo }), [goTo]);
 
   // Listen endres (realtime, sletting, redigering): hold indeksen gyldig.
   useEffect(() => {
     if (offset !== clampIndex(offset, n)) goTo(clampIndex(offset, n));
   }, [offset, n, goTo]);
-
-  // Etter at en redigering er lagret flytter nedtellingen seg kanskje i lista — følg den.
-  useEffect(() => {
-    if (!follow) return;
-    const idx = countdowns.findIndex(c => c.id === follow.id && c.date === follow.date);
-    if (idx < 0) return;
-    if (idx !== offset) goTo(idx);
-    onFollowed();
-  }, [follow, countdowns, offset, goTo, onFollowed]);
 
   const cd = countdowns[clampIndex(offset, n)] ?? null;
   const cdDays = cd ? daysBetween(today, cd.date) : 0;
@@ -85,11 +76,11 @@ export function NedtellingCard({
         role: 'button', tabIndex: 0, 'aria-label': `Åpne nedtelling: ${cd.label}`,
         onClick: (e: React.MouseEvent) => {
           if ((e.target as Element).closest('button')) return; // ‹ ›-pilene har sine egne klikk
-          onOpen(cd);
+          onOpen(clampIndex(offset, n));
         },
         onKeyDown: (e: React.KeyboardEvent) => {
           if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(cd); }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(clampIndex(offset, n)); }
         },
       } : {})}
       style={{

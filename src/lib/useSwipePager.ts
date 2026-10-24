@@ -22,6 +22,15 @@ export interface SwipePagerOptions {
   disabled?: boolean;
   /** Berøring som starter på treff mot denne selektoren starter ikke et sveip. */
   ignoreSelector?: string;
+  /** Startside (default `min`), f.eks. dagen kortet viste da en popup ble åpnet. */
+  initialOffset?: number;
+  /** Kalles straks en bladning starter (før glidningen), med ny offset — for å holde et annet pager-kort i takt. */
+  onNavigate?: (offset: number) => void;
+}
+
+/** Styring utenfra av et kort sin pager (popupen blar kortet bak seg, og nullstiller det ved lukking). */
+export interface PagerHandle {
+  goTo: (offset: number) => void;
 }
 
 /**
@@ -44,8 +53,11 @@ export interface SwipePagerOptions {
  *   utløser aldri klikk. prefers-reduced-motion: bytter side uten animasjon.
  * - Logikken (terskler, retningsvalg, klemming) ligger i swipePager.ts.
  */
-export function useSwipePager({ min = 0, max, resetSignal, disabled = false, ignoreSelector = 'input,select,textarea,[data-no-swipe]' }: SwipePagerOptions) {
-  const [offset, setOffset] = useState(min);
+export function useSwipePager({
+  min = 0, max, resetSignal, disabled = false, ignoreSelector = 'input,select,textarea,[data-no-swipe]',
+  initialOffset, onNavigate,
+}: SwipePagerOptions) {
+  const [offset, setOffset] = useState(() => clampOffset(initialOffset ?? min, min, max));
   const offsetRef = useRef(offset);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -56,6 +68,8 @@ export function useSwipePager({ min = 0, max, resetSignal, disabled = false, ign
   const timers = useRef<number[]>([]);
   const enterDir = useRef<0 | 1 | -1>(0);
   const suppressUntil = useRef(0);
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
 
   const later = (fn: () => void, ms: number) => { timers.current.push(window.setTimeout(fn, ms)); };
   const cancelTimers = () => { timers.current.forEach(window.clearTimeout); timers.current = []; };
@@ -83,6 +97,7 @@ export function useSwipePager({ min = 0, max, resetSignal, disabled = false, ign
       } else clear(el);
       return;
     }
+    onNavigateRef.current?.(to);
     if (!el || !animate) { clear(el); commit(to); return; }
 
     // Ut på den ene siden, bytt innhold, inn fra den andre (se useLayoutEffect under).

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type React from 'react';
 import { m, type ScreenSize, type WeatherData } from './shared';
 import { swipeGlow } from './swipeGlow';
@@ -7,7 +7,7 @@ import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
 import { dressAdvice } from '../../lib/dressAdvice';
 import { dateLabel } from '../../lib/dayLabel';
-import { useSwipePager } from '../../lib/useSwipePager';
+import { useSwipePager, type PagerHandle } from '../../lib/useSwipePager';
 
 interface Props {
   weather: WeatherData | null;
@@ -15,6 +15,8 @@ interface Props {
   resetSignal: number;
   /** Klikk på kortet. 0 = i dag (time for time fra nå), 1–2 = den dagens timer. */
   onToggle: (offset: number) => void;
+  /** Lar popupen bla kortet (samme offset) og nullstille det ved lukking. */
+  pagerRef?: React.Ref<PagerHandle>;
   isMobile: boolean;
   screenSize: ScreenSize;
   cell: React.CSSProperties;
@@ -23,12 +25,13 @@ interface Props {
 
 // Vær · Bodø — offset 0: nå-verdier fra Yr (met.no) med dagens min/maks, KLE PÅ SEG og sol
 // (som alltid). Offset 1–2: i morgen / overmorgen fra `weather.daily`. Sveip (eller ‹ ›) blar.
-export function WeatherCard({ weather, resetSignal, onToggle, isMobile, screenSize, cell, eyebrow }: Props) {
+export function WeatherCard({ weather, resetSignal, onToggle, pagerRef, isMobile, screenSize, cell, eyebrow }: Props) {
   const daily = weather?.daily ?? [];
   const multi = !!weather && daily.length >= 2;
   const pager = useSwipePager({ max: Math.max(0, daily.length - 1), resetSignal, disabled: !multi });
   const offset = multi ? Math.min(pager.offset, daily.length - 1) : 0;
   const day = offset > 0 ? daily[offset] : null;
+  useImperativeHandle(pagerRef, () => ({ goTo: pager.goTo }), [pager.goTo]);
   const gap = isMobile ? 8 : screenSize === 'tablet' ? 7 : 16;
 
   // STABIL HØYDE: høyden på offset 0 er fasit. Den måles der (ResizeObserver, kun mens offset er 0),
