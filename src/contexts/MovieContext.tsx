@@ -4,7 +4,7 @@ import { useSnackbar } from './SnackbarContext';
 import { formatError } from '../lib/formatError';
 import { isUniqueViolation, type Movie, type MovieKind, type MovieWho } from '../lib/movies';
 
-export type MoviePatch = Partial<Pick<Movie, 'title' | 'kind' | 'note'>>;
+export type MoviePatch = Partial<Pick<Movie, 'title' | 'kind' | 'note' | 'mustM' | 'mustL'>>;
 
 export interface NewMovie {
   title: string;
@@ -22,7 +22,6 @@ interface MovieCtx {
   loading: boolean;
   add: (m: NewMovie) => Promise<AddResult>;
   update: (id: string, patch: MoviePatch) => Promise<boolean>;
-  toggleMust: (id: string, who: MovieWho) => void;
   markWatched: (id: string, date: string) => void;
   unwatch: (id: string) => void;
   setRating: (id: string, who: MovieWho, rating: number | null) => void;
@@ -33,7 +32,7 @@ const noop = () => {};
 const MovieContext = createContext<MovieCtx>({
   movies: [], loading: true,
   add: async () => ({ status: 'error' }), update: async () => false,
-  toggleMust: noop, markWatched: noop, unwatch: noop, setRating: noop, remove: noop,
+  markWatched: noop, unwatch: noop, setRating: noop, remove: noop,
 });
 
 const fromRow = (r: Record<string, unknown>): Movie => ({
@@ -73,7 +72,8 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
 
   const load = async () => {
     const startEpoch = epoch.current;
-    const { data } = await supabase.from('movies').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase.from('movies').select('*')
+      .order('created_at', { ascending: false }).order('title').order('id');
     if (pending.current > 0 || epoch.current !== startEpoch) return;
     if (data) setMovies(data.map(fromRow));
     setLoading(false);
@@ -128,18 +128,13 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
     if ('title' in patch) db.title = patch.title;
     if ('kind' in patch) db.kind = patch.kind;
     if ('note' in patch) db.note = patch.note ?? null;
+    if ('mustM' in patch) db.must_m = patch.mustM;
+    if ('mustL' in patch) db.must_l = patch.mustL;
     setMovies(prev => prev.map(m => (m.id === id ? { ...m, ...patch } as Movie : m)));
     const { error } = await write(() => supabase.from('movies').update(stamp(db)).eq('id', id));
     if (isUniqueViolation(error)) { notify('Finnes allerede med samme tittel og type'); return false; }
     if (error) { fail(error); return false; }
     return true;
-  };
-
-  const toggleMust = (id: string, who: MovieWho) => {
-    const m = movies.find(x => x.id === id);
-    if (!m) return;
-    if (who === 'M') patchLocal(id, { mustM: !m.mustM }, { must_m: !m.mustM });
-    else patchLocal(id, { mustL: !m.mustL }, { must_l: !m.mustL });
   };
 
   const markWatched = (id: string, date: string) => patchLocal(id, { watchedAt: date }, { watched_at: date });
@@ -169,7 +164,7 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <MovieContext.Provider value={{ movies, loading, add, update, toggleMust, markWatched, unwatch, setRating, remove }}>
+    <MovieContext.Provider value={{ movies, loading, add, update, markWatched, unwatch, setRating, remove }}>
       {children}
     </MovieContext.Provider>
   );

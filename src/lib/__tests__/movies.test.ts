@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyFilters, sortMovies, eligibleForTonight, pickRandom, findDuplicate, normalizeTitle,
+  applyFilters, sortMovies, visibleMovies, eligibleForTonight, pickRandom, findDuplicate, normalizeTitle,
   avgRating, missingRatings, nextRating, isUniqueViolation, type Movie, type MovieFilters,
 } from '../movies';
 
@@ -148,5 +148,57 @@ describe('isUniqueViolation', () => {
     expect(isUniqueViolation({ code: '23505' })).toBe(true);
     expect(isUniqueViolation({ code: '42501' })).toBe(false);
     expect(isUniqueViolation(null)).toBe(false);
+  });
+});
+
+describe('stabil rekkefølge (identisk created_at)', () => {
+  const same = '2026-01-01T00:00:00Z';
+  const mk = (title: string, id: string, over: Partial<Movie> = {}) => mv(title, { id, createdAt: same, ...over });
+  const base = [mk('Bravo', 'b'), mk('alfa', 'a'), mk('Charlie', 'c'), mk('Bravo', 'a2', { kind: 'serie' })];
+  const SORTS = ['added', 'alpha', 'rating', 'seen'] as const;
+
+  it('gir samme rekkefølge uansett inputrekkefølge, for alle sorteringer', () => {
+    for (const sort of SORTS) {
+      const expected = sortMovies(base, sort).map(m => m.id);
+      for (const input of [[...base].reverse(), [base[2], base[0], base[3], base[1]]]) {
+        expect(sortMovies(input, sort).map(m => m.id)).toEqual(expected);
+      }
+    }
+  });
+  it('tittel er første tie-breaker (norsk, base), id den andre', () => {
+    expect(sortMovies(base, 'added').map(m => m.id)).toEqual(['a', 'a2', 'b', 'c']);
+    const twins = [mk('Lik', 'z'), mk('lik', 'm')];
+    expect(sortMovies(twins, 'added').map(m => m.id)).toEqual(['m', 'z']);
+  });
+  it('redigering av obligatorisk-felt endrer ikke rekkefølgen', () => {
+    for (const sort of SORTS) {
+      const before = sortMovies(base, sort).map(m => m.id);
+      const edited = base.map(m => (m.id === 'c' ? { ...m, mustM: true, mustL: true } : m));
+      expect(sortMovies(edited, sort).map(m => m.id)).toEqual(before);
+    }
+  });
+});
+
+describe('visibleMovies (rader blir stående ved aktivt filter)', () => {
+  const a = mv('A', { mustM: true });
+  const b = mv('B', { mustM: true });
+  const f = F({ must: 'onlyM' });
+
+  it('uten pinning forsvinner en rad som ikke lenger matcher', () => {
+    const edited = [a, { ...b, mustL: true }];
+    expect(visibleMovies(edited, f, 'alpha').map(v => v.movie.title)).toEqual(['A']);
+  });
+  it('pinnet rad blir stående, dempet, på samme plass', () => {
+    const edited = [a, { ...b, mustL: true }];
+    const v = visibleMovies(edited, f, 'alpha', new Set([b.id]));
+    expect(v.map(x => [x.movie.title, x.dimmed])).toEqual([['A', false], ['B', true]]);
+  });
+  it('pinning holder seg til samme fane og til eksisterende rader', () => {
+    const seenB = { ...b, mustL: true, watchedAt: '2026-05-01' };
+    expect(visibleMovies([a, seenB], f, 'alpha', new Set([b.id])).map(v => v.movie.title)).toEqual(['A']);
+    expect(visibleMovies([a], f, 'alpha', new Set(['finnes-ikke'])).map(v => v.movie.title)).toEqual(['A']);
+  });
+  it('pinnet rad som fortsatt matcher er ikke dempet', () => {
+    expect(visibleMovies([a, b], f, 'alpha', new Set([b.id])).map(v => v.dimmed)).toEqual([false, false]);
   });
 });

@@ -1203,6 +1203,7 @@ button:not(:disabled):hover, [role="button"]:not([aria-disabled="true"]):hover {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
   padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
 }
+.mv-row.dim { opacity: 0.55; }
 .mv-row.flash { animation: mv-flash 2s ease; }
 @keyframes mv-flash { 0%, 60% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
 .mv-title { font-size: 15px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
@@ -1236,3 +1237,5 @@ button:not(:disabled):hover, [role="button"]:not([aria-disabled="true"]):hover {
   display: flex; flex-direction: column; gap: 8px;
 }
 @media (max-width: 380px) { .mv-star { width: 40px; } }
+/* Status-visning i listen: samme utseende, men ikke en kontroll. */
+.mv-must.static { min-height: 36px; padding: 2px 14px; cursor: default; }
