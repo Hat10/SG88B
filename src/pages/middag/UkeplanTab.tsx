@@ -9,6 +9,7 @@ import { addDaysLocal } from '../../lib/dagensMiddag';
 import { isLeftoverDay, lastCookedByRecipe, recentRecipeIds } from '../../lib/middagVelger';
 import MissingDataTags from './MissingDataTags';
 import RecipePicker from './RecipePicker';
+import SuggestWeekModal from './SuggestWeekModal';
 
 // Samme anker som resten av handleuke-arkitekturen (lørdag–fredag, se
 // handleukeStart) — så Ukeplan og handlelisten alltid viser samme 7-dagers
@@ -36,6 +37,7 @@ export default function UkeplanTab() {
   // Datoen der velgeren er åpen (null = ingen).
   const [activeDate, setActiveDate] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
 
   const weekStart = handleukeStartWithOffset(weekOffset);
   const days = weekDates(weekStart);
@@ -51,6 +53,9 @@ export default function UkeplanTab() {
   const copyable = days
     .map((date, i) => ({ date, from: mealPlan.find(mp => mp.date === prevDays[i]) }))
     .filter(({ date, from }) => from && !mealPlan.some(mp => mp.date === date));
+
+  // Ikke for uker som har vært. Inneværende uke foreslås fra og med i dag.
+  const canSuggest = days[6] >= today;
 
   const changeWeek = (next: number) => { setActiveDate(null); setWeekOffset(next); };
 
@@ -96,6 +101,12 @@ export default function UkeplanTab() {
       }
     >
       {loading && <SkeletonList rows={7} />}
+      {!loading && canSuggest && (
+        <button onClick={() => setSuggesting(true)} className="btn sm" style={{ marginBottom: 10, minHeight: 36 }}
+          title={weekOffset === 0 ? 'Foreslå middager for resten av uka' : 'Foreslå middager for hele uka'}>
+          ✨ Foreslå uke
+        </button>
+      )}
       {!loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {days.map((date, i) => {
@@ -176,6 +187,7 @@ export default function UkeplanTab() {
           {copying ? 'Kopierer…' : `↻ Kopier forrige uke (${copyable.length} ${copyable.length === 1 ? 'dag' : 'dager'})`}
         </button>
       )}
+      {suggesting && <SuggestWeekModal key={weekStart} weekStart={weekStart} today={today} onClose={() => setSuggesting(false)} />}
       {!loading && recipes.length === 0 && (
         <div style={{ marginTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>
           Legg til oppskrifter under «Oppskrifter»-fanen for å kunne planlegge middager.

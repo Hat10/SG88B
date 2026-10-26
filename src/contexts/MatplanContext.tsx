@@ -101,6 +101,8 @@ interface MatplanCtx {
   clearMealPlan: (date: string) => Promise<void>;
   /** Legger samme oppskrift på `days` påfølgende ledige dager fra `date` (Gangskjerm). Overskriver aldri. */
   addMealDays: (date: string, recipeId: string, days: number) => Promise<AddMealDaysResult>;
+  /** Legger inn flere (dato, oppskrift)-par i én operasjon («Foreslå uke»). Kun ledige dager, overskriver aldri. */
+  addMealEntries: (entries: { date: string; recipeId: string }[]) => Promise<AddMealDaysResult>;
   addStaple: (s: Omit<StapleItem, 'id'>) => Promise<void>;
   updateStaple: (id: string, patch: Partial<Omit<StapleItem, 'id'>>) => Promise<void>;
   removeStaple: (id: string) => Promise<void>;
@@ -127,7 +129,7 @@ const noop = async () => {};
 const MatplanContext = createContext<MatplanCtx>({
   recipes: [], mealPlan: [], stapleItems: [], groceryItems: [], loading: true,
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
-  setMealPlan: noop, clearMealPlan: noop, addMealDays: async () => ({ ok: false, reason: 'error' }),
+  setMealPlan: noop, clearMealPlan: noop, addMealDays: async () => ({ ok: false, reason: 'error' }), addMealEntries: async () => ({ ok: false, reason: 'error' }),
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
   syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: async () => false, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
   toggleGroceryItem: noop, restoreGroceryItems: noop, removeGroceryItem: noop,
@@ -405,21 +407,21 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     void syncDinnerCalendar(date);
   };
 
-  // Legger samme oppskrift på `days` påfølgende dager fra `date` — kun ledige
-  // dager, aldri overskriving (INSERT, ikke upsert: meal_plan.date er unik, så
-  // en annen enhet som rakk det først gir 23505 i stedet for at noe skrives
-  // over). Én insert for alle dagene, så alt eller ingenting. Handlelisterader
-  // bygges fra de RETURNERTE radene (ikke fra mealPlan-closure, som er gammel
-  // rett etter insert) og kun for dager i inneværende handleuke — dager i neste
-  // uke får dem først da, samme regel som Ukeplan. Rører ikke setMealPlan.
-  const addMealDays = async (date: string, recipeId: string, days: number): Promise<AddMealDaysResult> => {
-    const dates = mealDates(date, days);
-    const recipe = recipes.find(r => r.id === recipeId);
-    if (dates.length === 0 || !recipe) return { ok: false, reason: 'error' };
+  // Legger inn (dato, oppskrift)-par — kun ledige dager, aldri overskriving
+  // (INSERT, ikke upsert: meal_plan.date er unik, så en annen enhet som rakk
+  // det først gir 23505 i stedet for at noe skrives over). Én insert for alle
+  // radene, så alt eller ingenting. Handlelisterader bygges fra de RETURNERTE
+  // radene (ikke fra mealPlan-closure, som er gammel rett etter insert) og kun
+  // for dager i inneværende handleuke — dager i neste uke får dem først da,
+  // samme regel som Ukeplan. Rører ikke setMealPlan.
+  const addMealEntries = async (entries: { date: string; recipeId: string }[]): Promise<AddMealDaysResult> => {
+    const dates = entries.map(e => e.date);
+    if (entries.length === 0 || new Set(dates).size !== dates.length) return { ok: false, reason: 'error' };
+    if (entries.some(e => !recipes.some(r => r.id === e.recipeId))) return { ok: false, reason: 'error' };
     if (anyTaken(mealPlan, dates)) { await load(); return { ok: false, reason: 'taken' }; }
 
     const { data, error } = await supabase.from('meal_plan')
-      .insert(dates.map(d => ({ date: d, recipe_id: recipeId })))
+      .insert(entries.map(e => ({ date: e.date, recipe_id: e.recipeId })))
       .select();
     if (error) {
       if (error.code === '23505') { await load(); return { ok: false, reason: 'taken' }; }
@@ -429,7 +431,12 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
 
     const inserted = (data ?? []).map(mealPlanFromRow);
     const thisWeek = new Set(datesInHandleuke(dates, handleukeStart()));
-    const rows = inserted.filter(mp => thisWeek.has(mp.date)).flatMap(mp => mealRowsFor(mp, recipe, resolveCategory));
+    const rows = inserted
+      .filter(mp => thisWeek.has(mp.date))
+      .flatMap(mp => {
+        const recipe = recipes.find(r => r.id === mp.recipeId);
+        return recipe ? mealRowsFor(mp, recipe, resolveCategory) : [];
+      });
     if (rows.length) {
       const { error: groceryError } = await supabase.from('grocery_items')
         .upsert(rows, { onConflict: 'meal_plan_id,name', ignoreDuplicates: true });
@@ -438,9 +445,13 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     }
     await load();
     // Sekvensielt, for å være snill mot Google-kvoten (samme hensyn som rollover-cron).
-    void (async () => { for (const d of dates) await syncDinnerCalendar(d); })();
+    void (async () => { for (const d of [...dates].sort()) await syncDinnerCalendar(d); })();
     return { ok: true };
   };
+
+  // Samme oppskrift på `days` påfølgende dager fra `date` (Gangskjerm).
+  const addMealDays = (date: string, recipeId: string, days: number): Promise<AddMealDaysResult> =>
+    addMealEntries(mealDates(date, days).map(d => ({ date: d, recipeId })));
 
   // ── Basisvarer ─────────────────────────────────────────────────────────────
 
@@ -644,7 +655,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     <MatplanContext.Provider value={{
       recipes, mealPlan, stapleItems, groceryItems, loading,
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
-      setMealPlan, clearMealPlan, addMealDays,
+      setMealPlan, clearMealPlan, addMealDays, addMealEntries,
       addStaple, updateStaple, removeStaple, restoreStaple,
       syncGroceryList, addMealToGroceryListNow, addStapleToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, restoreGroceryItems, removeGroceryItem,
     }}>
