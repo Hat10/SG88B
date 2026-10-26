@@ -5,6 +5,7 @@ import { useSnackbar } from '../../contexts/SnackbarContext';
 import { dateLabel } from '../../lib/dayLabel';
 import { lastCookedByRecipe, lastCookedLabel, recentRecipeIds, searchRecipes } from '../../lib/middagVelger';
 import { longDayLabel, maxMealDays, mostUsedRecipeIds } from '../../lib/middagLeggTil';
+import MissingDataTags from '../middag/MissingDataTags';
 import { ScreenPopup } from './ScreenPopup';
 
 // Antall treff som vises under søk, så listen ikke blir en lang rulleliste på iPad.
@@ -85,6 +86,7 @@ export function MiddagAddModal({ date, today, isMobile, onClose }: Props) {
         {list.map(r => (
           <button key={r.id} onClick={() => void pick(r.id)} disabled={saving || blocked} style={{ ...pill, opacity: saving ? 0.5 : 1 }}>
             {r.name}
+            <MissingDataTags recipe={r} only={['ingredients']} compact />
           </button>
         ))}
       </div>
@@ -152,7 +154,10 @@ export function MiddagAddModal({ date, today, isMobile, onClose }: Props) {
                     background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)',
                     color: '#E8EFF7', fontFamily: 'var(--font-sans)', fontSize: 15, opacity: saving ? 0.5 : 1,
                   }}>
-                    <span style={{ minWidth: 0 }}>{r.name}</span>
+                    <span style={{ minWidth: 0 }}>
+                      {r.name}
+                      <MissingDataTags recipe={r} only={['ingredients']} compact />
+                    </span>
                     <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: MUTED }}>
                       {lastCookedLabel(lastCooked.get(r.id), today)}
                     </span>

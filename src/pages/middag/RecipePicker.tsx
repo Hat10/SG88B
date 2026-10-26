@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Recipe } from '../../contexts/MatplanContext';
 import { searchRecipes, lastCookedLabel } from '../../lib/middagVelger';
+import MissingDataTags from './MissingDataTags';
 
 // Antall treff som vises før «Se alle oppskrifter» — så panelet ikke starter
 // som en ny lang alfabetisk liste, men hele listen er ett trykk unna.
@@ -61,6 +62,7 @@ export default function RecipePicker({
               <button key={r.id} onClick={() => onPick(r.id)} className="btn sm"
                 style={{ borderRadius: 999, fontWeight: r.id === selectedId ? 600 : undefined }}>
                 {r.name}
+                <MissingDataTags recipe={r} only={['ingredients']} compact />
               </button>
             ))}
           </div>
@@ -79,6 +81,7 @@ export default function RecipePicker({
             <span style={{ minWidth: 0 }}>
               {r.name}
               {r.cookTimeMinutes != null && <span style={{ color: 'var(--ink-4)', fontSize: 12 }}> · {r.cookTimeMinutes} min</span>}
+              <MissingDataTags recipe={r} only={['ingredients']} compact />
             </span>
             <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ink-4)' }}>
               {lastCookedLabel(lastCooked.get(r.id), today)}

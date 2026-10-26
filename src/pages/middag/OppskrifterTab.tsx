@@ -8,6 +8,8 @@ import { useScrollLock } from '../../lib/useScrollLock';
 import {
   searchRecipes, sortRecipes, lastCookedByRecipe, cookCountByRecipe, lastCookedLabel, type RecipeSort,
 } from '../../lib/middagVelger';
+import { getMissingDataTags, MISSING_DATA_LABEL, type MissingDataTag } from '../../lib/missingData';
+import MissingDataTags from './MissingDataTags';
 import RecipeDetail from './RecipeDetail';
 import RecipeForm from './RecipeForm';
 
@@ -85,6 +87,8 @@ export default function OppskrifterTab() {
 
   const [query, setQuery] = useState('');
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  // Filter på avledede varseltagger (OR innad, som tag-filteret); kombineres med AND mot tag-filteret.
+  const [missingFilter, setMissingFilter] = useState<Set<MissingDataTag>>(new Set());
   const [sort, setSortState] = useState<RecipeSort>(loadSort);
   const [panel, setPanel] = useState<Panel>({ kind: 'none' });
 
@@ -101,17 +105,29 @@ export default function OppskrifterTab() {
     [recipes],
   );
   const hasUntagged = recipes.some(r => r.tags.length === 0);
+  const missingKinds = useMemo(() => {
+    const present = new Set<MissingDataTag>();
+    for (const r of recipes) getMissingDataTags(r).forEach(t => present.add(t));
+    return (Object.keys(MISSING_DATA_LABEL) as MissingDataTag[]).filter(k => present.has(k) || missingFilter.has(k));
+  }, [recipes, missingFilter]);
 
   const visible = useMemo(() => {
     const byTag = tagFilter.size === 0
       ? recipes
       : recipes.filter(r => (tagFilter.has(NO_TAGS) && r.tags.length === 0) || r.tags.some(t => tagFilter.has(t)));
-    const searched = query.trim() ? searchRecipes(byTag, query) : byTag;
+    const byMissing = missingFilter.size === 0
+      ? byTag
+      : byTag.filter(r => getMissingDataTags(r).some(t => missingFilter.has(t)));
+    const searched = query.trim() ? searchRecipes(byMissing, query) : byMissing;
     return sortRecipes(searched, sort, lastCooked, cookCount);
-  }, [recipes, tagFilter, query, sort, lastCooked, cookCount]);
+  }, [recipes, tagFilter, missingFilter, query, sort, lastCooked, cookCount]);
 
   const toggleTag = (t: string) => {
     setTagFilter(prev => { const next = new Set(prev); if (next.has(t)) next.delete(t); else next.add(t); return next; });
+  };
+
+  const toggleMissing = (k: MissingDataTag) => {
+    setMissingFilter(prev => { const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k); return next; });
   };
 
   const panelRecipe: Recipe | undefined = panel.kind === 'view' || panel.kind === 'edit'
@@ -160,11 +176,14 @@ export default function OppskrifterTab() {
         </select>
       </div>
 
-      {(allTags.length > 0 || hasUntagged) && (
+      {(allTags.length > 0 || hasUntagged || missingKinds.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
           {allTags.map(t => <Chip key={t} on={tagFilter.has(t)} onClick={() => toggleTag(t)}>{t}</Chip>)}
           {hasUntagged && allTags.length > 0 && <Chip on={tagFilter.has(NO_TAGS)} onClick={() => toggleTag(NO_TAGS)}>ingen tags</Chip>}
-          {tagFilter.size > 0 && <button onClick={() => setTagFilter(new Set())} className="btn ghost sm">Nullstill</button>}
+          {missingKinds.map(k => <Chip key={k} on={missingFilter.has(k)} onClick={() => toggleMissing(k)}>⚠ {MISSING_DATA_LABEL[k]}</Chip>)}
+          {(tagFilter.size > 0 || missingFilter.size > 0) && (
+            <button onClick={() => { setTagFilter(new Set()); setMissingFilter(new Set()); }} className="btn ghost sm">Nullstill</button>
+          )}
         </div>
       )}
 
@@ -192,10 +211,11 @@ export default function OppskrifterTab() {
             }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{r.name}</div>
-                {(r.tags.length > 0 || r.source === 'spoonacular') && (
+                {(r.tags.length > 0 || r.source === 'spoonacular' || getMissingDataTags(r).length > 0) && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                     {r.source === 'spoonacular' && <Tag>spoonacular</Tag>}
                     {r.tags.map(t => <Tag key={t}>{t}</Tag>)}
+                    <MissingDataTags recipe={r} />
                   </div>
                 )}
               </div>
