@@ -836,6 +836,35 @@ create index countdowns_date_idx on public.countdowns (date);
 
 
 -- ============================================================================
+-- DOMAIN: Filmoversikt (MovieContext) — scripts/movies-migration.sql
+-- ============================================================================
+-- Kun dokumentasjon; kjør movies-migration.sql, ikke denne filen.
+-- who-koder: M = Andreas, L = Taran. watched_at is null = «Vil se».
+create table public.movies (
+  id          uuid primary key default gen_random_uuid(),
+  title       text not null,
+  kind        text not null default 'film' check (kind in ('film','serie')),
+  must_m      boolean not null default false,
+  must_l      boolean not null default false,
+  watched_at  date,
+  rating_m    smallint check (rating_m between 1 and 5),
+  rating_l    smallint check (rating_l between 1 and 5),
+  note        text,
+  added_by    text check (added_by in ('M','L')),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index movies_title_kind_uniq on public.movies (lower(title), kind);
+
+alter table public.movies enable row level security;
+create policy "authenticated_movies_all" on public.movies
+  for all using (auth.role() = 'authenticated');
+grant select, insert, update, delete on public.movies to authenticated;
+grant select, insert, update, delete on public.movies to service_role;
+-- Realtime: movies er i supabase_realtime (MovieContext abonnerer).
+
+
+-- ============================================================================
 -- OPEN QUESTIONS — verify against the live DB before treating this file as
 -- authoritative for anything destructive (e.g. before writing new migrations
 -- against these tables):
