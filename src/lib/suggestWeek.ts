@@ -36,6 +36,20 @@ export const DEFAULT_DINNER_PATTERN: DinnerPattern = {
   variable: { id: 'fre', day: 6, leftoverFrom: 'ons', defaultMode: 'leftover' },
 };
 
+/**
+ * Taggen for retter som ikke tåler rester: de lages og spises samme dag og
+ * skal aldri strekkes over flere dager.
+ */
+export const ONE_DAY_TAG = '1 dag';
+
+// Tagger er fritekst, så sammenlign uten store/små bokstaver og uten
+// mellomrom («1 dag», «1 Dag», « 1 dag », «1dag»). «11 dager» treffer ikke.
+const normTag = (t: string) => t.toLocaleLowerCase('nb').replace(/\s+/g, '');
+
+export function isOneDayRecipe(recipe: Pick<Recipe, 'tags'> | null | undefined): boolean {
+  return !!recipe && Array.isArray(recipe.tags) && recipe.tags.some(t => typeof t === 'string' && normTag(t) === normTag(ONE_DAY_TAG));
+}
+
 /** Siste ~3 uker før handleuka: oppskrifter brukt da vektes ned. */
 export const RECENT_DAYS = 21;
 
@@ -75,6 +89,11 @@ export interface SuggestedBlock {
   /** Oppskriften for `freeDates`; null ved 'locked' og 'none'. */
   recipeId: string | null;
   origin: BlockOrigin;
+  /**
+   * Satt når blokken er resten av en blokk som ble delt fordi lagedagens
+   * oppskrift er en «1 dag»-rett (tåler ikke rester). `recipeId` er den retten.
+   */
+  splitFrom: { blockId: string; recipeId: string } | null;
 }
 
 export interface SuggestWeekInput {
@@ -111,7 +130,9 @@ export function suggestWeek({
   const dates = Array.from({ length: 7 }, (_, i) => addDaysLocal(weekStart, i));
   const inWeek = new Set(dates);
   const existingByDate = new Map(existing.filter(e => inWeek.has(e.date)).map(e => [e.date, e.recipeId]));
-  const validIds = new Set(recipes.map(r => r.id));
+  const recipeById = new Map(recipes.map(r => [r.id, r]));
+  const validIds = new Set(recipeById.keys());
+  const oneDay = (id: string | null | undefined) => !!id && isOneDayRecipe(recipeById.get(id));
 
   // Nylig brukt: sist brukt før handleuka, innen siste ~3 uker. Oppføringer
   // i selve uka er allerede utelukket via `used` under.
@@ -127,26 +148,54 @@ export function suggestWeek({
   const blocks: SuggestedBlock[] = [];
   const needsPick: SuggestedBlock[] = [];
 
+  const makeBlock = (id: string, cookDate: string, days: SuggestedDay[]): SuggestedBlock => ({
+    id, cookDate, days, freeDates: days.filter(d => !d.existingRecipeId).map(d => d.date),
+    recipeId: null, origin: 'none', splitFrom: null,
+  });
+
+  // Deler `block` etter `afterDate`: dagene etter blir en egen blokk med nytt
+  // forslag («1 dag»-retter får ikke rester). Null hvis det ikke er noe ledig igjen.
+  const splitOff = (block: SuggestedBlock, afterDate: string, recipeId: string): SuggestedBlock | null => {
+    const rest = makeBlock(`${block.id}-rest`, '', block.days.filter(d => d.date > afterDate));
+    if (rest.freeDates.length === 0) return null;
+    rest.cookDate = rest.freeDates[0];
+    rest.splitFrom = { blockId: block.id, recipeId };
+    block.days = block.days.filter(d => d.date <= afterDate);
+    block.freeDates = block.days.filter(d => !d.existingRecipeId).map(d => d.date);
+    return rest;
+  };
+
+  const place = (block: SuggestedBlock, anchor: string | null, patternCook: string): void => {
+    blocks.push(block);
+    let rest: SuggestedBlock | null = null;
+
+    if (block.freeDates.length === 0) block.origin = 'locked';
+    else if (anchor) {
+      // Lagedagen har middag fra før. En «1 dag»-rett gir ikke rester.
+      if (oneDay(anchor) && (rest = splitOff(block, patternCook, anchor))) {
+        block.origin = 'locked';
+        if (block.days.length === 0) blocks.splice(blocks.indexOf(block), 1);
+      } else { block.origin = 'anchored'; block.recipeId = anchor; }
+    } else if (fixed[block.id] && validIds.has(fixed[block.id])) {
+      const f = fixed[block.id];
+      used.add(f);
+      // «Velg selv» med en «1 dag»-rett i en flerdagsblokk: den får bare lagedagen.
+      if (oneDay(f) && block.freeDates.length > 1) rest = splitOff(block, block.freeDates[0], f);
+      block.origin = 'fixed';
+      block.recipeId = f;
+    } else needsPick.push(block);
+
+    if (rest) place(rest, null, rest.cookDate);
+  };
+
   for (const b of resolvePattern(pattern, mode)) {
     const allDates = [b.cookDay, ...b.leftoverDays].map(i => dates[i]).sort();
     const upcoming = allDates.filter(d => d >= today);
     if (upcoming.length === 0) continue;
 
     const days = upcoming.map(date => ({ date, existingRecipeId: existingByDate.get(date) ?? null }));
-    const freeDates = days.filter(d => !d.existingRecipeId).map(d => d.date);
     const anchor = existingByDate.get(allDates[0]) ?? null;
-    const block: SuggestedBlock = {
-      id: b.id, cookDate: anchor ? allDates[0] : upcoming[0], days, freeDates, recipeId: null, origin: 'none',
-    };
-    blocks.push(block);
-
-    if (freeDates.length === 0) block.origin = 'locked';
-    else if (anchor) { block.origin = 'anchored'; block.recipeId = anchor; }
-    else if (fixed[b.id] && validIds.has(fixed[b.id])) {
-      block.origin = 'fixed';
-      block.recipeId = fixed[b.id];
-      used.add(fixed[b.id]);
-    } else needsPick.push(block);
+    place(makeBlock(b.id, anchor ? allDates[0] : upcoming[0], days), anchor, allDates[0]);
   }
 
   const skip = new Set(exclude);
@@ -154,26 +203,37 @@ export function suggestWeek({
 
   // Friske først. Er ingen friske igjen, trekkes blant nylig brukte, vektet
   // etter hvor lenge siden de sist ble brukt (eldst mest sannsynlig).
-  const draw = (): Recipe | null => {
-    const fresh = pool.filter(r => !lastUsed.has(r.id));
+  const draw = (from: Recipe[]): Recipe | null => {
+    const fresh = from.filter(r => !lastUsed.has(r.id));
     if (fresh.length > 0) return fresh[Math.min(Math.floor(rng() * fresh.length), fresh.length - 1)];
-    if (pool.length === 0) return null;
-    const weights = pool.map(r => Math.max(daysBetween(lastUsed.get(r.id)!, weekStart), 1));
+    if (from.length === 0) return null;
+    const weights = from.map(r => Math.max(daysBetween(lastUsed.get(r.id)!, weekStart), 1));
     let r = rng() * weights.reduce((a, w) => a + w, 0);
-    for (let i = 0; i < pool.length; i++) {
+    for (let i = 0; i < from.length; i++) {
       r -= weights[i];
-      if (r < 0) return pool[i];
+      if (r < 0) return from[i];
     }
-    return pool[pool.length - 1];
+    return from[from.length - 1];
   };
 
-  for (const block of needsPick) {
-    const r = draw();
-    if (!r) continue; // for få oppskrifter: blokken står tom
+  needsPick.forEach((block, i) => {
+    // «1 dag»-retter kan aldri strekkes over flere dager.
+    const multi = block.freeDates.length > 1;
+    const normal = pool.filter(r => !isOneDayRecipe(r));
+    let from = multi ? normal : pool;
+    if (!multi) {
+      // En enkeltdag tar en «1 dag»-rett i stedet for en vanlig hvis de vanlige
+      // ellers ikke rekker til flerdagsblokkene som står igjen.
+      const laterMulti = needsPick.slice(i + 1).filter(b => b.freeDates.length > 1).length;
+      const ones = pool.filter(r => isOneDayRecipe(r));
+      if (ones.length > 0 && normal.length <= laterMulti) from = ones;
+    }
+    const r = draw(from);
+    if (!r) return; // for få oppskrifter: blokken står tom
     block.recipeId = r.id;
     block.origin = 'suggested';
     pool = pool.filter(p => p.id !== r.id);
-  }
+  });
 
   return blocks;
 }

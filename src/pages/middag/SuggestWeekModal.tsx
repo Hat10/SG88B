@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMatplan } from '../../contexts/MatplanContext';
 import { useSnackbar } from '../../contexts/SnackbarContext';
+import { Tag } from '../../components';
 import { useScrollLock } from '../../lib/useScrollLock';
 import { addDaysLocal } from '../../lib/dagensMiddag';
 import { lastCookedByRecipe, recentRecipeIds } from '../../lib/middagVelger';
 import {
-  DEFAULT_DINNER_PATTERN, dayRangeLabel, suggestWeek, suggestionEntries, weekdayName,
+  DEFAULT_DINNER_PATTERN, ONE_DAY_TAG, dayRangeLabel, isOneDayRecipe, suggestWeek, suggestionEntries, weekdayName,
   type SuggestedBlock, type VariableMode,
 } from '../../lib/suggestWeek';
 import MissingDataTags from './MissingDataTags';
@@ -122,8 +123,9 @@ export default function SuggestWeekModal({ weekStart, today, onClose }: Props) {
     setBlocks(next);
   };
 
+  // Via suggestWeek, så en «1 dag»-rett i en flerdagsblokk deles (valgt dag + egen rest-blokk).
   const pickManually = (id: string, recipeId: string) => {
-    setBlocks(prev => prev.map(b => b.id === id ? { ...b, recipeId, origin: 'fixed' } : b));
+    setBlocks(prev => draw({ fixed: { ...recipesOf(prev), [id]: recipeId } }));
     setLocked(prev => new Set(prev).add(id));
     setPicking(null);
   };
@@ -166,6 +168,11 @@ export default function SuggestWeekModal({ weekStart, today, onClose }: Props) {
     const when = b.origin === 'anchored' ? `rester av ${weekdayName(weekStart, b.cookDate)}`
       : b.origin === 'locked' ? 'allerede planlagt'
       : b.days.length > 1 ? `lages ${weekdayName(weekStart, b.cookDate)}` : null;
+    const names = b.origin === 'locked'
+      ? existingDays.map(d => d.existingRecipeId)
+      : [b.recipeId];
+    const showOneDay = names.some(id => isOneDayRecipe(id ? byId.get(id) : undefined));
+    const splitName = b.splitFrom ? nameOf(b.splitFrom.recipeId) : null;
     const title = b.origin === 'locked'
       ? Array.from(new Set(existingDays.map(d => nameOf(d.existingRecipeId)))).join(' / ')
       : nameOf(b.recipeId);
@@ -184,12 +191,19 @@ export default function SuggestWeekModal({ weekStart, today, onClose }: Props) {
               <>
                 <span>{b.origin === 'locked' ? '🔒 ' : ''}{title}</span>
                 {when && <span style={{ color: 'var(--ink-4)' }}> ({when})</span>}
+                {showOneDay && <>{' '}<Tag>{ONE_DAY_TAG}</Tag></>}
                 {recipe && <MissingDataTags recipe={recipe} only={['ingredients']} compact />}
               </>
             ) : (
               <span style={{ color: 'var(--ink-4)' }}>Ingen oppskrift igjen å foreslå</span>
             )}
           </div>
+
+          {splitName && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
+              ↳ Egen blokk: «{splitName}» er en {ONE_DAY_TAG}-rett og får ikke rester.
+            </div>
+          )}
 
           {b.origin !== 'locked' && existingDays.map(d => (
             <div key={d.date} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>

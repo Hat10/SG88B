@@ -3,13 +3,14 @@ process.env.TZ = 'Europe/Oslo';
 import { describe, it, expect } from 'vitest';
 import type { Recipe } from '../../contexts/MatplanContext';
 import {
-  DEFAULT_DINNER_PATTERN, dayRangeLabel, resolvePattern, suggestWeek, suggestionEntries, weekdayName,
+  DEFAULT_DINNER_PATTERN, dayRangeLabel, isOneDayRecipe, resolvePattern, suggestWeek, suggestionEntries, weekdayName,
   type SuggestedBlock, type VariableMode,
 } from '../suggestWeek';
 
-const recipe = (id: string, ingredients = [{ name: 'ris', amount: 1, unit: 'dl' }]): Recipe => ({
-  id, name: `Oppskrift ${id}`, ingredients, cookTimeMinutes: null, instructions: null, tags: [], source: 'egen',
+const recipe = (id: string, ingredients = [{ name: 'ris', amount: 1, unit: 'dl' }], tags: string[] = []): Recipe => ({
+  id, name: `Oppskrift ${id}`, ingredients, cookTimeMinutes: null, instructions: null, tags, source: 'egen',
 });
+const oneDay = (id: string, tag = '1 dag') => recipe(id, undefined, [tag]);
 const recipes = (n: number) => Array.from({ length: n }, (_, i) => recipe(`r${i + 1}`));
 const mp = (date: string, recipeId: string) => ({ id: `mp-${date}`, date, recipeId });
 
@@ -326,5 +327,173 @@ describe('etiketter', () => {
   it('weekdayName', () => {
     expect(weekdayName(WEEK, SON)).toBe('søndag');
     expect(weekdayName(WEEK, FRE)).toBe('fredag');
+  });
+});
+
+describe('«1 dag»-oppskrifter', () => {
+  // r1–r3 vanlige, o1–o2 «1 dag».
+  const mixed = [...recipes(3), oneDay('o1'), oneDay('o2')];
+  const rid = (blocks: SuggestedBlock[], date: string) => suggestionEntries(blocks).find(e => e.date === date)?.recipeId;
+
+  it('tag-matching: ignorerer store/små bokstaver og mellomrom, godtar «1dag»', () => {
+    for (const tag of ['1 dag', '1 Dag', ' 1 dag ', '1dag', '1  DAG', '1\u00a0dag']) {
+      expect(isOneDayRecipe(recipe('a', undefined, [tag]))).toBe(true);
+    }
+    for (const tag of ['11 dager', '1 dager', '21 dag', '1 dag til', 'dag', '1', '']) {
+      expect(isOneDayRecipe(recipe('a', undefined, [tag]))).toBe(false);
+    }
+    expect(isOneDayRecipe(recipe('a', undefined, ['rask', '1 dag']))).toBe(true);
+    expect(isOneDayRecipe(recipe('a'))).toBe(false);
+    expect(isOneDayRecipe(undefined)).toBe(false);
+  });
+
+  it('velges aldri til flerdagsblokk (alle moduser, mange frø)', () => {
+    for (const mode of ['leftover', 'new', 'none'] as const) {
+      for (let seed = 1; seed <= 60; seed++) {
+        const blocks = run({ recipes: mixed, variableMode: mode }, seed);
+        for (const b of blocks) {
+          if (b.freeDates.length > 1) expect(['o1', 'o2']).not.toContain(b.recipeId);
+        }
+      }
+    }
+  });
+
+  it('kan velges til lørdag og fredag («ny middag»)', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 100; seed++) {
+      const blocks = run({ recipes: mixed, variableMode: 'new' }, seed);
+      for (const id of ['lor', 'fre']) {
+        const r = byId(blocks, id).recipeId!;
+        if (r.startsWith('o')) seen.add(`${id}:${r}`);
+      }
+    }
+    expect([...seen].some(x => x.startsWith('lor:'))).toBe(true);
+    expect([...seen].some(x => x.startsWith('fre:'))).toBe(true);
+  });
+
+  it('for få vanlige oppskrifter ⇒ tom flerdagsblokk, ikke en «1 dag»-rett', () => {
+    // 2 vanlige + 3 «1 dag»: søn og ons trenger hver sin vanlige, lørdag tar en «1 dag».
+    const pool = [...recipes(2), oneDay('o1'), oneDay('o2'), oneDay('o3')];
+    for (let seed = 1; seed <= 50; seed++) {
+      const blocks = run({ recipes: pool }, seed);
+      expect(byId(blocks, 'lor').recipeId).toMatch(/^o/);
+      expect(byId(blocks, 'son').recipeId).toMatch(/^r/);
+      expect(byId(blocks, 'ons').recipeId).toMatch(/^r/);
+    }
+    // 1 vanlig + 3 «1 dag»: én flerdagsblokk står tom.
+    const few = [recipe('r1'), oneDay('o1'), oneDay('o2'), oneDay('o3')];
+    for (let seed = 1; seed <= 50; seed++) {
+      const multi = run({ recipes: few }, seed).filter(b => b.freeDates.length > 1);
+      expect(multi.filter(b => b.recipeId).map(b => b.recipeId)).toEqual(['r1']);
+      expect(multi.filter(b => !b.recipeId)).toHaveLength(1);
+    }
+    // bare «1 dag»-retter ⇒ bare lørdag fylles
+    const onlyOne = run({ recipes: [oneDay('o1'), oneDay('o2')] });
+    expect(onlyOne.filter(b => b.recipeId).map(b => b.id)).toEqual(['lor']);
+  });
+
+  it('«Velg selv» med «1 dag» i søndagsblokken splitter: søn = valgt, man–tir = ny blokk', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const blocks = run({ recipes: mixed, fixed: { son: 'o1' } }, seed);
+      const son = byId(blocks, 'son');
+      expect(son).toMatchObject({ recipeId: 'o1', origin: 'fixed', freeDates: [SON] });
+      expect(son.days.map(d => d.date)).toEqual([SON]);
+      const rest = byId(blocks, 'son-rest');
+      expect(rest.freeDates).toEqual([MAN, TIR]);
+      expect(rest.cookDate).toBe(MAN);
+      expect(rest.splitFrom).toEqual({ blockId: 'son', recipeId: 'o1' });
+      expect(rest.origin).toBe('suggested');
+      expect(['o1', 'o2']).not.toContain(rest.recipeId);
+      expect(rest.recipeId).not.toBe('o1');
+      // blokkene ligger etter hverandre i dato-rekkefølge
+      expect(blocks.map(b => b.id)).toEqual(['lor', 'son', 'son-rest', 'ons']);
+      expect(rid(blocks, MAN)).toBe(rid(blocks, TIR));
+      expect(rid(blocks, MAN)).not.toBe(rid(blocks, SON));
+    }
+  });
+
+  it('delt rest-blokk kan låses/velges selv via fixed på `-rest`', () => {
+    const blocks = run({ recipes: mixed, fixed: { son: 'o1', 'son-rest': 'r2' } });
+    expect(byId(blocks, 'son-rest')).toMatchObject({ recipeId: 'r2', origin: 'fixed' });
+  });
+
+  it('«Velg selv» med «1 dag» i onsdagsblokken (med fredag) splitter ons / tor–fre', () => {
+    const blocks = run({ recipes: mixed, fixed: { ons: 'o1' } });
+    expect(byId(blocks, 'ons').freeDates).toEqual([ONS]);
+    expect(byId(blocks, 'ons-rest').freeDates).toEqual([TOR, FRE]);
+    expect(byId(blocks, 'ons-rest').cookDate).toBe(TOR);
+  });
+
+  it('«Velg selv» med «1 dag» i en enkeltdagsblokk splitter ikke', () => {
+    const blocks = run({ recipes: mixed, fixed: { lor: 'o1' } });
+    expect(byId(blocks, 'lor')).toMatchObject({ recipeId: 'o1', origin: 'fixed' });
+    expect(blocks.find(b => b.id === 'lor-rest')).toBeUndefined();
+  });
+
+  it('«Velg selv» med vanlig oppskrift splitter ikke', () => {
+    const blocks = run({ recipes: mixed, fixed: { son: 'r1' } });
+    expect(byId(blocks, 'son').freeDates).toEqual([SON, MAN, TIR]);
+    expect(blocks.find(b => b.id === 'son-rest')).toBeUndefined();
+  });
+
+  it('eksisterende «1 dag»-middag søndag gir ikke rester man/tir av samme', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const blocks = run({ recipes: mixed, existing: [mp(SON, 'o1')] }, seed);
+      const son = byId(blocks, 'son');
+      expect(son.origin).toBe('locked');
+      expect(son.freeDates).toEqual([]);
+      const rest = byId(blocks, 'son-rest');
+      expect(rest.freeDates).toEqual([MAN, TIR]);
+      expect(rest.splitFrom).toEqual({ blockId: 'son', recipeId: 'o1' });
+      expect(rest.recipeId).not.toBe('o1');
+      expect(['o1', 'o2']).not.toContain(rest.recipeId);
+      expect(suggestionEntries(blocks).map(e => e.date)).not.toContain(SON);
+    }
+  });
+
+  it('eksisterende vanlig middag søndag gir fortsatt rester (uendret)', () => {
+    const blocks = run({ recipes: mixed, existing: [mp(SON, 'r1')] });
+    expect(byId(blocks, 'son')).toMatchObject({ origin: 'anchored', recipeId: 'r1', freeDates: [MAN, TIR] });
+  });
+
+  it('eksisterende «1 dag» på passert lagedag: bare ny blokk for resten', () => {
+    const blocks = run({ recipes: mixed, today: MAN, existing: [mp(SON, 'o1')] });
+    expect(blocks.find(b => b.id === 'son')).toBeUndefined();
+    const rest = byId(blocks, 'son-rest');
+    expect(rest.freeDates).toEqual([MAN, TIR]);
+    expect(rest.cookDate).toBe(MAN);
+    expect(rest.recipeId).not.toBe('o1');
+  });
+
+  it('eksisterende «1 dag» søndag og rester-dagene allerede opptatt ⇒ ingen ny blokk', () => {
+    const blocks = run({ recipes: mixed, existing: [mp(SON, 'o1'), mp(MAN, 'r1'), mp(TIR, 'r1')] });
+    expect(byId(blocks, 'son').origin).toBe('locked');
+    expect(blocks.find(b => b.id === 'son-rest')).toBeUndefined();
+  });
+
+  it('«Bytt» (fixed på de andre + exclude) holder seg til reglene', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const first = run({ recipes: mixed }, seed);
+      const fixed = Object.fromEntries(first.filter(b => b.id !== 'son').map(b => [b.id, b.recipeId!]));
+      const next = run({ recipes: mixed, fixed, exclude: [byId(first, 'son').recipeId!] }, seed + 100);
+      const son = byId(next, 'son');
+      expect(son.recipeId).not.toBe(byId(first, 'son').recipeId);
+      expect(['o1', 'o2']).not.toContain(son.recipeId);
+    }
+  });
+
+  it('«Foreslå på nytt» med låst «1 dag»-split beholder splitten og trekker ny rest', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const blocks = run({ recipes: mixed, fixed: { son: 'o1', lor: 'r3' } }, seed);
+      expect(byId(blocks, 'son').freeDates).toEqual([SON]);
+      expect(byId(blocks, 'son-rest').recipeId).not.toMatch(/^o/);
+    }
+  });
+
+  it('ingen duplikater selv med «1 dag»-retter', () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      const ids = run({ recipes: mixed, variableMode: 'new', fixed: { son: 'o1' } }, seed).map(b => b.recipeId).filter(Boolean);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
   });
 });
