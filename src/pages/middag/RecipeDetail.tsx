@@ -6,6 +6,8 @@ import { Tag } from '../../components';
 import { addDaysLocal, formatIngredientAmount } from '../../lib/dagensMiddag';
 import { dayLabel } from '../../lib/dayLabel';
 import { lastCookedLabel } from '../../lib/middagVelger';
+import { getMissingDataTags } from '../../lib/missingData';
+import MissingDataTags from './MissingDataTags';
 
 /** Velg dag (fra i dag og fremover) å planlegge oppskriften på. */
 function PlanChooser({ recipe, onDone }: { recipe: Recipe; onDone: () => void }) {
@@ -75,10 +77,11 @@ export default function RecipeDetail({ recipe, lastCooked, cookCount, onEdit }: 
         ].filter(Boolean).join(' · ')}
       </div>
 
-      {(recipe.tags.length > 0 || recipe.source === 'spoonacular') && (
+      {(recipe.tags.length > 0 || recipe.source === 'spoonacular' || getMissingDataTags(recipe).length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {recipe.source === 'spoonacular' && <Tag>spoonacular</Tag>}
           {recipe.tags.map(t => <Tag key={t}>{t}</Tag>)}
+          <MissingDataTags recipe={recipe} />
         </div>
       )}
 

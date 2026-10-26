@@ -485,6 +485,8 @@ input, textarea, select { color-scheme: light; }
 .tag.outline { background: transparent; border: 1px solid var(--line-2); }
 .tag.dark { background: var(--ink); color: var(--surface); }
 .tag.accent { background: var(--accent-soft); color: var(--accent-deep); }
+/* Avledet varseltagg (mangler data) — dempet varselfarge, ikke en brukertagg. */
+.tag.missing { background: transparent; color: var(--warn); border: 1px dashed var(--warn); }
 .tag .who {
   width: 6px; height: 6px; border-radius: 50%;
 }

@@ -7,6 +7,7 @@ import { Card, SkeletonList, Tag } from '../../components';
 import { navigate } from '../../lib/navigate';
 import { addDaysLocal } from '../../lib/dagensMiddag';
 import { isLeftoverDay, lastCookedByRecipe, recentRecipeIds } from '../../lib/middagVelger';
+import MissingDataTags from './MissingDataTags';
 import RecipePicker from './RecipePicker';
 
 // Samme anker som resten av handleuke-arkitekturen (lørdag–fredag, se
@@ -131,6 +132,8 @@ export default function UkeplanTab() {
                       {recipe?.name ?? (planned ? 'Slettet oppskrift' : 'Velg middag')}
                     </span>
                     {leftover && <Tag>rester</Tag>}
+                    {/* Kun «mangler ingredienser» — den påvirker handlelisten. Ingen koblet oppskrift ⇒ ingen tagg. */}
+                    <MissingDataTags recipe={recipe} only={['ingredients']} />
                     {!leftover && recipe?.cookTimeMinutes != null && (
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ink-4)' }}>{recipe.cookTimeMinutes} min</span>
                     )}
