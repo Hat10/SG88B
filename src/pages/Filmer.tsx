@@ -9,9 +9,9 @@ import { Fab, Tabs, Tag, SkeletonList } from '../components';
 import { burst } from '../confetti';
 import {
   WHO_NAME, applyFilters, avgRating, eligibleForTonight, findDuplicate, isWatched, missingRatings,
-  nextRating, normalizeTitle, pickRandom, sortMovies,
+  nextRating, normalizeTitle, pickRandom, visibleMovies,
   type KindFilter, type Movie, type MovieKind, type MovieSort, type MovieTab, type MovieWho,
-  type MustFilter, type Presence,
+  type MovieFilters, type MustFilter, type Presence,
 } from '../lib/movies';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -56,14 +56,27 @@ function useIsMobile() {
 
 // ─── small controls ────────────────────────────────────────────────────────
 
-function MustChip({ who, on, onClick }: { who: MovieWho; on: boolean; onClick: () => void }) {
+/** Bryter i skjema (Ny tittel / Rediger). Eneste sted obligatorisk kan endres. */
+function MustToggle({ who, on, onClick }: { who: MovieWho; on: boolean; onClick: () => void }) {
   const name = WHO_NAME[who];
   return (
-    <button type="button" className={'mv-must' + (on ? ' on' : '')} onClick={onClick}
-      aria-pressed={on} aria-label={`${name} må være med: ${on ? 'på' : 'av'}`}>
+    <button type="button" role="switch" aria-checked={on} className={'mv-must' + (on ? ' on' : '')} onClick={onClick}
+      aria-label={`${name} må være med: ${on ? 'på' : 'av'}`}>
       <b>{name}</b>
       <span>{on ? 'Må være med' : 'Trenger ikke'}</span>
     </button>
+  );
+}
+
+/** Ren status i listen (ikke en kontroll). Endres via Rediger. */
+function MustBadge({ who, on }: { who: MovieWho; on: boolean }) {
+  const name = WHO_NAME[who];
+  return (
+    <span role="img" className={'mv-must static' + (on ? ' on' : '')}
+      aria-label={`${name}: ${on ? 'må være med' : 'trenger ikke være med'}`}>
+      <b>{name}</b>
+      <span>{on ? 'Må være med' : 'Trenger ikke'}</span>
+    </span>
   );
 }
 
@@ -192,7 +205,7 @@ function AddSheet({ onClose, onGo }: { onClose: () => void; onGo: (m: Movie) => 
       <div>
         <Label>Hvem må være med?</Label>
         <div style={{ display: 'flex', gap: 8 }}>
-          {WHOS.map(w => <MustChip key={w} who={w} on={must[w]} onClick={() => setMust(p => ({ ...p, [w]: !p[w] }))} />)}
+          {WHOS.map(w => <MustToggle key={w} who={w} on={must[w]} onClick={() => setMust(p => ({ ...p, [w]: !p[w] }))} />)}
         </div>
       </div>
       <div>
@@ -207,11 +220,16 @@ function AddSheet({ onClose, onGo }: { onClose: () => void; onGo: (m: Movie) => 
   );
 }
 
-function EditSheet({ movie, onClose, onGo }: { movie: Movie; onClose: () => void; onGo: (m: Movie) => void }) {
+function EditSheet({ movie, onClose, onGo, onBeforeSave }: {
+  movie: Movie; onClose: () => void; onGo: (m: Movie) => void;
+  /** Kalles før lagring med raden slik den var og slik den blir (for å la den bli stående ved aktivt filter). */
+  onBeforeSave: (before: Movie, after: Movie) => void;
+}) {
   const { movies, update, remove } = useMovies();
   const [title, setTitle] = useState(movie.title);
   const [kind, setKind] = useState<MovieKind>(movie.kind);
   const [note, setNote] = useState(movie.note ?? '');
+  const [must, setMust] = useState<Record<MovieWho, boolean>>({ M: movie.mustM, L: movie.mustL });
   const [saving, setSaving] = useState(false);
 
   const clean = normalizeTitle(title);
@@ -220,7 +238,9 @@ function EditSheet({ movie, onClose, onGo }: { movie: Movie; onClose: () => void
   const save = async () => {
     if (!clean || dup || saving) return;
     setSaving(true);
-    const ok = await update(movie.id, { title: clean, kind, note: note.trim() || null });
+    const patch = { title: clean, kind, note: note.trim() || null, mustM: must.M, mustL: must.L };
+    onBeforeSave(movie, { ...movie, ...patch });
+    const ok = await update(movie.id, patch);
     setSaving(false);
     if (ok) onClose();
   };
@@ -230,10 +250,17 @@ function EditSheet({ movie, onClose, onGo }: { movie: Movie; onClose: () => void
       <div><Label>Tittel</Label><input className="input" value={title} onChange={e => setTitle(e.target.value)} style={{ minHeight: 44 }} /></div>
       {dup && <DuplicateStop dup={dup} onGo={m => { onClose(); onGo(m); }} />}
       <div><Label>Type</Label><KindPicker value={kind} onChange={setKind} /></div>
+      <div>
+        <Label>Hvem må være med?</Label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {WHOS.map(w => <MustToggle key={w} who={w} on={must[w]} onClick={() => setMust(p => ({ ...p, [w]: !p[w] }))} />)}
+        </div>
+      </div>
       <div><Label hint="valgfritt">Notat</Label><textarea className="input" rows={3} value={note} onChange={e => setNote(e.target.value)} style={{ resize: 'vertical' }} /></div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn danger" style={{ minHeight: 44, justifyContent: 'center' }}
           onClick={() => { remove(movie); onClose(); }}>Slett</button>
+        <button className="btn" style={{ minHeight: 44, justifyContent: 'center' }} onClick={onClose}>Avbryt</button>
         <button className="btn primary" disabled={!clean || !!dup || saving} onClick={() => void save()}
           style={{ flex: 1, minHeight: 44, justifyContent: 'center', opacity: !clean || dup ? 0.4 : 1 }}>
           {saving ? 'Lagrer…' : 'Lagre'}
@@ -350,15 +377,15 @@ function TonightSheet({ onClose, onWatched }: { onClose: () => void; onWatched: 
 
 // ─── row ───────────────────────────────────────────────────────────────────
 
-function MovieRow({ movie, highlight, onEdit, onWatched }: {
-  movie: Movie; highlight: boolean; onEdit: () => void; onWatched: () => void;
+function MovieRow({ movie, highlight, dimmed, onEdit, onWatched }: {
+  movie: Movie; highlight: boolean; dimmed: boolean; onEdit: () => void; onWatched: () => void;
 }) {
-  const { toggleMust, setRating, unwatch } = useMovies();
+  const { setRating, unwatch } = useMovies();
   const watched = isWatched(movie);
   const avg = avgRating(movie);
   const missing = missingRatings(movie);
   return (
-    <div id={'mv-' + movie.id} className={'mv-row' + (highlight ? ' flash' : '')}>
+    <div id={'mv-' + movie.id} className={'mv-row' + (highlight ? ' flash' : '') + (dimmed ? ' dim' : '')}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div className="mv-title">{movie.title}</div>
@@ -372,8 +399,8 @@ function MovieRow({ movie, highlight, onEdit, onWatched }: {
           style={{ background: 'transparent', border: '1px solid var(--line)', borderRadius: 6, minWidth: 44, minHeight: 44, fontSize: 16, color: 'var(--ink-3)', flexShrink: 0 }}>✎</button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        {WHOS.map(w => <MustChip key={w} who={w} on={w === 'M' ? movie.mustM : movie.mustL} onClick={() => toggleMust(movie.id, w)} />)}
+      <div role="group" aria-label="Hvem må være med" style={{ display: 'flex', gap: 8 }}>
+        {WHOS.map(w => <MustBadge key={w} who={w} on={w === 'M' ? movie.mustM : movie.mustL} />)}
       </div>
 
       {watched && (
@@ -419,9 +446,21 @@ export default function Filmer() {
     return { want: movies.length - seen, seen };
   }, [movies]);
 
+  const filters = useMemo<MovieFilters>(() => ({ tab, must, kind, query }), [tab, must, kind, query]);
+
+  // Rader som en lagret redigering har flyttet ut av det aktive filteret blir stående
+  // (dempet) til brukeren bytter fane, filter eller søk.
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => { setPinned(new Set()); }, [tab, must, kind, query]);
+  const pinIfFilteredOut = (before: Movie, after: Movie) => {
+    if (applyFilters([before], filters).length && !applyFilters([after], filters).length) {
+      setPinned(p => new Set(p).add(before.id));
+    }
+  };
+
   const visible = useMemo(
-    () => sortMovies(applyFilters(movies, { tab, must, kind, query }), sorts[tab]),
-    [movies, tab, must, kind, query, sorts],
+    () => visibleMovies(movies, filters, sorts[tab], pinned),
+    [movies, filters, sorts, tab, pinned],
   );
 
   // «Gå til tittelen» fra duplikatvarselet: bytt til riktig fane, nullstill filtre og marker raden.
@@ -487,8 +526,8 @@ export default function Filmer() {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: 12 }}>
-        {visible.map(m => (
-          <MovieRow key={m.id} movie={m} highlight={m.id === highlight}
+        {visible.map(({ movie: m, dimmed }) => (
+          <MovieRow key={m.id} movie={m} highlight={m.id === highlight} dimmed={dimmed}
             onEdit={() => setSheet({ type: 'edit', id: m.id })}
             onWatched={() => setSheet({ type: 'watched', id: m.id })} />
         ))}
@@ -498,7 +537,7 @@ export default function Filmer() {
 
       {sheet?.type === 'add' && <AddSheet onClose={close} onGo={goTo} />}
       {sheet?.type === 'tonight' && <TonightSheet onClose={close} onWatched={m => setSheet({ type: 'watched', id: m.id })} />}
-      {editMovie && <EditSheet key={editMovie.id} movie={editMovie} onClose={close} onGo={goTo} />}
+      {editMovie && <EditSheet key={editMovie.id} movie={editMovie} onClose={close} onGo={goTo} onBeforeSave={pinIfFilteredOut} />}
       {watchedMovie && <WatchedSheet key={watchedMovie.id} movie={watchedMovie} onClose={close} />}
     </>
   );

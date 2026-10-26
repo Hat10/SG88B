@@ -93,27 +93,51 @@ const sortRating = (m: Movie): number | null => {
   return r.length ? r.reduce((a, b) => a + b, 0) / r.length : null;
 };
 
-const byAlpha = (a: Movie, b: Movie) => a.title.localeCompare(b.title, 'nb', { sensitivity: 'base' });
-const byAdded = (a: Movie, b: Movie) => b.createdAt.localeCompare(a.createdAt);
+const byTitle = (a: Movie, b: Movie) => a.title.localeCompare(b.title, 'nb', { sensitivity: 'base' });
+// Deterministisk tie-breaker for alle sorteringer: tittel, deretter id. Uten den
+// avhenger rekkefølgen av radrekkefølgen fra databasen (f.eks. seedede rader med
+// identisk created_at), og rader kan hoppe etter en oppdatering.
+const byTitleThenId = (a: Movie, b: Movie) => byTitle(a, b) || a.id.localeCompare(b.id);
 
 export function sortMovies(movies: Movie[], sort: MovieSort): Movie[] {
-  const list = [...movies];
-  switch (sort) {
-    case 'alpha':
-      return list.sort(byAlpha);
-    case 'rating':
-      return list.sort((a, b) => {
+  const primary = (a: Movie, b: Movie): number => {
+    switch (sort) {
+      case 'alpha':
+        return 0;
+      case 'rating': {
         const ra = sortRating(a), rb = sortRating(b);
-        if (ra == null && rb == null) return byAlpha(a, b);
+        if (ra == null && rb == null) return 0;
         if (ra == null) return 1;
         if (rb == null) return -1;
-        return rb - ra || byAlpha(a, b);
-      });
-    case 'seen':
-      return list.sort((a, b) => (b.watchedAt ?? '').localeCompare(a.watchedAt ?? '') || byAdded(a, b));
-    default:
-      return list.sort(byAdded);
-  }
+        return rb - ra;
+      }
+      case 'seen':
+        return (b.watchedAt ?? '').localeCompare(a.watchedAt ?? '');
+      default:
+        return b.createdAt.localeCompare(a.createdAt);
+    }
+  };
+  return [...movies].sort((a, b) => primary(a, b) || byTitleThenId(a, b));
+}
+
+export interface VisibleMovie { movie: Movie; dimmed: boolean }
+
+/**
+ * Filtrert og sortert liste. Rader i `pinned` (id-er som falt ut av filteret
+ * etter en lagret redigering) blir stående, dempet, så lenge de er i samme fane.
+ * Plasseringen følger vanlig sortering, så en redigering flytter ikke raden
+ * med mindre feltet den sorteres på er endret.
+ */
+export function visibleMovies(
+  movies: Movie[], f: MovieFilters, sort: MovieSort, pinned: ReadonlySet<string> = new Set(),
+): VisibleMovie[] {
+  const matched = applyFilters(movies, f);
+  const matchedIds = new Set(matched.map(m => m.id));
+  const kept = pinned.size
+    ? applyFilters(movies, { tab: f.tab, must: 'all', kind: 'all', query: '' })
+        .filter(m => pinned.has(m.id) && !matchedIds.has(m.id))
+    : [];
+  return sortMovies([...matched, ...kept], sort).map(movie => ({ movie, dimmed: !matchedIds.has(movie.id) }));
 }
 
 /**
