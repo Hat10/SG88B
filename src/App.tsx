@@ -9,6 +9,7 @@ import { FinanceProvider } from './contexts/FinanceContext';
 import { CategoryProvider } from './contexts/CategoryContext';
 import { WishProvider } from './contexts/WishContext';
 import { BucketProvider } from './contexts/BucketContext';
+import { MovieProvider } from './contexts/MovieContext';
 import { TodoProvider } from './contexts/TodoContext';
 import { MapProvider } from './contexts/MapContext';
 import { BoligflippingProvider } from './contexts/BoligflippingContext';
@@ -36,8 +37,9 @@ const PageBoligflipping = lazy(() => import('./pages/Boligflipping'));
 const PageTrening = lazy(() => import('./pages/Trening'));
 const PageMiddag = lazy(() => import('./pages/Middag'));
 const PageHandleliste = lazy(() => import('./pages/Handleliste'));
+const PageFilmer = lazy(() => import('./pages/Filmer'));
 
-type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' | 'okonomi' | 'kalender' | 'skjerm' | 'kart' | 'boligflipping' | 'trening' | 'middag' | 'handleliste';
+type Route = 'home' | 'hus' | 'onskelister' | 'ting-vi-vil-gjore' | 'gjoremal' | 'okonomi' | 'kalender' | 'skjerm' | 'kart' | 'boligflipping' | 'trening' | 'middag' | 'handleliste' | 'filmer';
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 type ThemeMode = 'auto' | 'light' | 'dark';
@@ -149,6 +151,7 @@ const NAV: NavItem[] = [
   { id: 'trening',      label: '🏋️ Trening',      group: 'Hverdag' },
   { id: 'middag',       label: '🍽️ Middag',       group: 'Hverdag' },
   { id: 'handleliste',  label: '🛒 Handleliste',   group: 'Hverdag' },
+  { id: 'filmer',       label: '🎬 Filmoversikt',  group: 'Hverdag' },
   { id: 'kart',         label: '🗺️ Kart',         group: 'Hverdag' },
   { id: 'boligflipping', label: '🏗️ Boligflipping', group: 'Prosjekter' },
 ];
@@ -162,6 +165,7 @@ const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub:
   trening: { eyebrow: 'Hverdag', title: 'Trening', sub: '' }, // siden lager sitt eget hode (se HEADLESS_ROUTES)
   middag: { eyebrow: 'Hverdag', title: 'Middag', sub: 'Oppskrifter · Ukeplan' },
   handleliste: { eyebrow: 'Hverdag', title: 'Handleliste', sub: 'Dagligvarer' },
+  filmer: { eyebrow: 'Hverdag', title: 'Filmoversikt', sub: 'Vil se · Sett' },
   okonomi: { eyebrow: '', title: 'Forbruk', sub: '' },
   kalender: { eyebrow: 'Hverdag', title: 'Kalender', sub: '' }, // sub is computed live in Page (current month)
   kart:  { eyebrow: 'Utforskning', title: <>Vårt <em>kart</em></>, sub: 'Vil besøke' },
@@ -325,6 +329,7 @@ const PAGE_COMPONENTS: Record<Exclude<Route, 'skjerm'>, React.ComponentType> = {
   trening: PageTrening,
   middag: PageMiddag,
   handleliste: PageHandleliste,
+  filmer: PageFilmer,
 };
 
 const FULLSCREEN_ROUTES: Route[] = ['kart'];
@@ -485,7 +490,7 @@ function AppInner() {
       </div>
     );
 
-  return <TopbarSlotProvider value={topbarSlot}><SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider></TopbarSlotProvider>;
+  return <TopbarSlotProvider value={topbarSlot}><SnackbarProvider><ServiceWorkerUpdater /><ConfirmProvider><FinanceProvider><CategoryProvider><WishProvider><BucketProvider><MovieProvider><TodoProvider><MapProvider><BoligflippingProvider><TreningProvider><MatplanProvider>{inner}</MatplanProvider></TreningProvider></BoligflippingProvider></MapProvider></TodoProvider></MovieProvider></BucketProvider></WishProvider></CategoryProvider></FinanceProvider></ConfirmProvider></SnackbarProvider></TopbarSlotProvider>;
 }
 
 export default function App() {
