@@ -1921,6 +1921,8 @@ export default function PageTrening() {
   const openRegister = (category?: string) => { setRegisterPreset(category); setRegisterOpen(true); };
   const openCategory = (c: WorkoutCategory | null) => { setEditCategory(c); setCatModalOpen(true); };
   const goToStats = (w: Who) => { setViewWho(w); setView('statistikk'); window.scrollTo({ top: 0 }); };
+  // Bytte mellom Andreas og Taran inne i Statistikk: samme side, så ingen scroll.
+  const switchPerson = (w: Who) => setViewWho(w);
 
   return (
     <CatColorCtx.Provider value={colorFor}>
@@ -1933,7 +1935,7 @@ export default function PageTrening() {
           />
         : <Statistikk
             viewWho={viewWho}
-            onSelectPerson={goToStats}
+            onSelectPerson={switchPerson}
             onGoToDashboard={() => { setView('okter'); window.scrollTo({ top: 0 }); }}
             onNewRecord={() => { setRecordPreset(undefined); setRecordOpen(true); }}
             onOpenRecord={pr => setDetail(pr)}
