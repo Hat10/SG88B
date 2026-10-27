@@ -156,10 +156,10 @@ const NAV: NavItem[] = [
   { id: 'boligflipping', label: '🏗️ Boligflipping', group: 'Prosjekter' },
 ];
 
-const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub: string }> = {
+const PAGE_TITLES: Record<Route, { eyebrow: string; title: React.ReactNode; sub?: string }> = {
   home: { eyebrow: 'Oversikt', title: <>God morgen, <em>Andreas</em>.</>, sub: 'Torsdag 7. mai 2026' },
   hus: { eyebrow: 'Prosjekt', title: <><em>Boligdrømmen</em> 🏡</>, sub: '' },
-  onskelister: { eyebrow: '', title: 'Ønskelister', sub: 'Felles · Andreas · Taran' },
+  onskelister: { eyebrow: '', title: 'Ønskelister' }, // ingen undertittel: sub utelatt (ikke ''), så Page ikke rendrer et tomt element
   'ting-vi-vil-gjore': { eyebrow: '', title: <>Ting vi vil <em>gjøre</em></>, sub: '' },
   gjoremal: { eyebrow: '', title: 'Gjøremål', sub: '' },
   trening: { eyebrow: 'Hverdag', title: 'Trening', sub: '' }, // siden lager sitt eget hode (se HEADLESS_ROUTES)
@@ -391,7 +391,7 @@ function Page({ route }: { route: Exclude<Route, 'skjerm'> }) {
         <div>
           <div className="page-sub">{head.eyebrow}</div>
           <h1 className="page-title">{title}</h1>
-          <div className="page-sub" style={{ marginTop: 8 }}>{sub}</div>
+          {sub !== undefined && <div className="page-sub" style={{ marginTop: 8 }}>{sub}</div>}
         </div>
       </div>
       <Suspense fallback={<PageFallback />}><ErrorBoundary label={route}><Body /></ErrorBoundary></Suspense>
