@@ -46,8 +46,23 @@ describe('availableCategories', () => {
     expect(availableCategories(cats, [])).toEqual(['Push', 'Pull']);
   });
 
-  it('arkiverte utelates, også når øktene bruker dem', () => {
-    expect(availableCategories([cat('Push', 0), cat('Gammel', 1, true)], [ses('Gammel')])).toEqual(['Push']);
+  it('arkivert kategori med økter tas med, etter de aktive', () => {
+    const cats = [cat('Push', 1), cat('Gammel', 0, true), cat('Pull', 2)];
+    expect(availableCategories(cats, [ses('Gammel')])).toEqual(['Push', 'Pull', 'Gammel']);
+  });
+
+  it('arkivert kategori uten økter utelates', () => {
+    expect(availableCategories([cat('Push', 0), cat('Gammel', 1, true)], [ses('Push')])).toEqual(['Push']);
+  });
+
+  it('arkiverte med økter og foreldreløse navn står sammen, alfabetisk', () => {
+    const cats = [cat('Push', 0), cat('Zumba', 1, true)];
+    expect(availableCategories(cats, [ses('Zumba'), ses('Boksing'), ses('Yoga')])).toEqual(['Push', 'Boksing', 'Yoga', 'Zumba']);
+  });
+
+  it('arkivert og aktiv med samme navn gir bare én chip', () => {
+    const cats = [cat('Push', 0), cat('Push', 1, true)];
+    expect(availableCategories(cats, [ses('Push')])).toEqual(['Push']);
   });
 
   it('tar med foreldreløse navn fra øktene etter tabellens kategorier', () => {

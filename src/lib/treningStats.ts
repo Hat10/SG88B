@@ -13,10 +13,12 @@ export const NO_CATEGORY = 'Uten kategori';
 export const categoryName = (s: Pick<WorkoutSession, 'category'>): string => s.category || NO_CATEGORY;
 
 /**
- * Typene filteret tilbyr: ikke-arkiverte kategorier i sortOrder, deretter navn
- * som bare finnes på øktene (omdøpte/slettede kategorier, alfabetisk), og til
- * slutt `'Uten kategori'` hvis noen økter mangler kategori. Gi inn øktene til
- * begge personer, så listen er lik i begge fanene. Ingen duplikater.
+ * Typene filteret tilbyr: ikke-arkiverte kategorier i sortOrder, deretter —
+ * samlet og alfabetisk — arkiverte kategorier som minst én økt bruker og navn
+ * som bare finnes på øktene (omdøpte/slettede kategorier), og til slutt
+ * `'Uten kategori'` hvis noen økter mangler kategori. Arkiverte kategorier
+ * uten økter utelates. Gi inn øktene til begge personer, så listen er lik i
+ * begge fanene. Ingen duplikater.
  */
 export function availableCategories(
   categories: Pick<WorkoutCategory, 'name' | 'sortOrder' | 'archived'>[],
@@ -32,14 +34,15 @@ export function availableCategories(
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .forEach(c => add(c.name));
 
-  const orphans = new Set<string>();
+  const archived = new Set(categories.filter(c => c.archived).map(c => c.name));
+  const later = new Set<string>();
   let hasNone = false;
   for (const s of sessions) {
     if (!s.category) hasNone = true;
-    else if (!known.has(s.category)) orphans.add(s.category);
+    else if (!known.has(s.category) || archived.has(s.category)) later.add(s.category);
   }
 
-  [...orphans].sort((a, b) => a.localeCompare(b, 'nb')).forEach(add);
+  [...later].sort((a, b) => a.localeCompare(b, 'nb')).forEach(add);
   if (hasNone) add(NO_CATEGORY);
   return out;
 }
