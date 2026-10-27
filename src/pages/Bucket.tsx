@@ -6,8 +6,9 @@ import { useMapPins } from '../contexts/MapContext';
 import { useGeoSearch, TYPE_LABELS } from '../lib/geoSearch';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { Check, Fab, SkeletonList } from '../components';
+import { Check, Fab, SkeletonList, WhoTabs } from '../components';
 import type { Who } from '../data';
+import { matchesWhoView, openCountsByWho } from '../lib/whoView';
 import { burst } from '../confetti';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -267,7 +268,8 @@ export default function PageBucket() {
   }, []);
 
   const [catFilter,     setCatFilter]     = useState('alle');
-  const [whoFilter,     setWhoFilter]     = useState<Who | 'alle'>('alle');
+  const [tab,           setTab]           = useState<Who>('f');
+  const [kunFelles,     setKunFelles]     = useState(true);
   const [manageCats,    setManageCats]    = useState(false);
   const [editId,        setEditId]        = useState<string | null>(null);
   const [mobileAdd,     setMobileAdd]     = useState(false);
@@ -331,9 +333,8 @@ export default function PageBucket() {
     } finally { setSaving(false); }
   };
 
-  const baseFiltered = items
-    .filter(it => catFilter === 'alle' || it.category === catFilter)
-    .filter(it => whoFilter === 'alle' || it.who === whoFilter);
+  const catFiltered = items.filter(it => catFilter === 'alle' || it.category === catFilter);
+  const baseFiltered = catFiltered.filter(it => matchesWhoView(it.who, tab, kunFelles));
   const filtered = baseFiltered.filter(it => !it.done);
   const doneItems = baseFiltered.filter(it => it.done);
   const doneCount  = items.filter(i => i.done).length;
@@ -426,10 +427,6 @@ export default function PageBucket() {
               <option value="alle">Alle kategorier</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <select className="input" value={whoFilter} onChange={e => setWhoFilter(e.target.value as Who | 'alle')} style={{ flex: 1 }}>
-              <option value="alle">Alle</option>
-              {(['f', 'M', 'L'] as Who[]).map(w => <option key={w} value={w}>{WHO_LABEL[w]}</option>)}
-            </select>
             <button onClick={() => setManageCats(true)} className="btn ghost" style={{ flexShrink: 0, padding: '0 12px' }} title="Administrer kategorier">✎</button>
           </div>
         </div>
@@ -465,21 +462,19 @@ export default function PageBucket() {
               </button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button style={{ ...btnStyle(whoFilter === 'alle'), flexShrink: 0 }} onClick={() => setWhoFilter('alle')}>Alle</button>
-            {(['f', 'M', 'L'] as Who[]).map(w => (
-              <button key={w} style={{
-                ...btnStyle(whoFilter === w), flexShrink: 0,
-                background: whoFilter === w ? WHO_COLOR[w] : 'transparent',
-                border: whoFilter === w ? '0' : `1px solid var(--line-2)`,
-              }} onClick={() => setWhoFilter(w)}>
-                {WHO_LABEL[w]}
-                <span style={{ opacity: 0.55, marginLeft: 4 }}>{items.filter(i => i.who === w).length}</span>
-              </button>
-            ))}
-          </div>
         </div>
       )}
+
+      {/* Personvalg — samme faner som Ønskelister, mobil og desktop. Tallene følger kategorifilteret. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+        <WhoTabs value={tab} onChange={setTab} counts={openCountsByWho(catFiltered)} />
+        {tab === 'f' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', whiteSpace: 'nowrap', marginLeft: isMobile ? 0 : 'auto' }}>
+            <input type="checkbox" checked={kunFelles} onChange={e => setKunFelles(e.target.checked)} />
+            Kun felles
+          </label>
+        )}
+      </div>
 
       <div className="grid grid-12">
         {/* Card grid */}
@@ -489,7 +484,7 @@ export default function PageBucket() {
           )}
           {!loading && filtered.length === 0 && doneItems.length === 0 && (
             <div style={{ padding: '40px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
-              {catFilter === 'alle' && whoFilter === 'alle' ? 'Ingen aktiviteter ennå — legg til en!' : 'Ingen aktiviteter matcher filteret'}
+              {catFilter === 'alle' && tab === 'f' && !kunFelles ? 'Ingen aktiviteter ennå — legg til en!' : 'Ingen aktiviteter matcher filteret'}
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>

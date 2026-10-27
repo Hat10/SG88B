@@ -4,11 +4,12 @@ import { useScrollLock } from '../lib/useScrollLock';
 import { useTodo, type TodoEntry, type Priority, repeatLabel } from '../contexts/TodoContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { Check, Fab, SkeletonList } from '../components';
+import { Check, Fab, SkeletonList, WhoTabs } from '../components';
 import RepeatPicker, { EMPTY_REPEAT, type RepeatState } from '../RepeatPicker';
 import type { Who } from '../data';
 import { burst } from '../confetti';
 import { formatError } from '../lib/formatError';
+import { matchesWhoView, openCountsByWho } from '../lib/whoView';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -293,7 +294,8 @@ export default function PageGjoremal() {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  const [whoFilter,  setWhoFilter]  = useState<Who | 'alle'>('alle');
+  const [tab,        setTab]        = useState<Who>('f');
+  const [kunFelles,  setKunFelles]  = useState(true);
   const [editId,     setEditId]     = useState<string | null>(null);
   const [mobileAdd,  setMobileAdd]  = useState(false);
   const [showAllDone, setShowAllDone] = useState(false);
@@ -369,7 +371,7 @@ export default function PageGjoremal() {
   };
 
   const baseFiltered = items
-    .filter(it => whoFilter === 'alle' || it.who === whoFilter);
+    .filter(it => matchesWhoView(it.who, tab, kunFelles));
   const active    = sortItems(baseFiltered.filter(it => !it.done));
   const doneItems = baseFiltered
     .filter(it => it.done)
@@ -381,14 +383,6 @@ export default function PageGjoremal() {
     });
   const total     = items.length;
   const doneCount = items.filter(i => i.done).length;
-
-  const btnStyle = (on: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 500,
-    border: on ? '0' : '1px solid var(--line-2)',
-    background: on ? 'var(--ink)' : 'transparent',
-    color: on ? 'var(--surface)' : 'var(--ink-3)',
-    fontFamily: 'var(--font-mono)',
-  });
 
   const priStyle = (p: Priority): React.CSSProperties => ({
     flex: 1, padding: '6px 0', borderRadius: 6, cursor: 'pointer', fontSize: 11,
@@ -523,38 +517,28 @@ export default function PageGjoremal() {
           <button onClick={() => { resetForm(); setMobileAdd(true); }} className="btn primary" style={{ justifyContent: 'center' }}>
             + Legg til gjøremål
           </button>
-          <select className="input" value={whoFilter} onChange={e => setWhoFilter(e.target.value as Who | 'alle')} style={{ width: '100%' }}>
-            <option value="alle">Alle</option>
-            {(['f', 'M', 'L'] as Who[]).map(w => <option key={w} value={w}>{WHO_LABEL[w]}</option>)}
-          </select>
         </div>
       )}
 
-      {/* Desktop filter bar */}
-      {!isMobile && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
-            <button style={{ ...btnStyle(whoFilter === 'alle'), flexShrink: 0 }} onClick={() => setWhoFilter('alle')}>
-              Alle <span style={{ opacity: 0.5, marginLeft: 4 }}>{total}</span>
-            </button>
-            {(['f', 'M', 'L'] as Who[]).map(w => (
-              <button key={w} style={{
-                ...btnStyle(whoFilter === w), flexShrink: 0,
-                background: whoFilter === w ? WHO_COLOR[w] : 'transparent',
-                border: whoFilter === w ? '0' : '1px solid var(--line-2)',
-              }} onClick={() => setWhoFilter(w)}>
-                {WHO_LABEL[w]}
-                <span style={{ opacity: 0.55, marginLeft: 4 }}>{items.filter(i => i.who === w).length}</span>
-              </button>
-            ))}
+      {/* Personvalg — samme faner som Ønskelister, mobil og desktop */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+        <WhoTabs value={tab} onChange={setTab} counts={openCountsByWho(items)} />
+        {(tab === 'f' || (!isMobile && total > 0)) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: isMobile ? 0 : 'auto' }}>
+            {tab === 'f' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={kunFelles} onChange={e => setKunFelles(e.target.checked)} />
+                Kun felles
+              </label>
+            )}
+            {!isMobile && total > 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
+                {doneCount} / {total} fullført
+              </span>
+            )}
           </div>
-          {total > 0 && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
-              {doneCount} / {total} fullført
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="grid grid-12">
         <div className={isMobile ? 'col-12' : 'col-8'}>
@@ -563,7 +547,7 @@ export default function PageGjoremal() {
           )}
           {!loading && active.length === 0 && doneItems.length === 0 && (
             <div style={{ padding: '40px 0', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-4)' }}>
-              {whoFilter === 'alle' ? 'Ingen gjøremål ennå — legg til et!' : 'Ingen gjøremål matcher filteret'}
+              {tab === 'f' && !kunFelles ? 'Ingen gjøremål ennå — legg til et!' : 'Ingen gjøremål matcher filteret'}
             </div>
           )}
 
