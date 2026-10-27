@@ -16,6 +16,9 @@ import {
   weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
+import {
+  availableCategories, effectiveExcluded, filterByCategories, toggleCategory, countByWeekday,
+} from '../lib/treningStats';
 import { fireworkRain } from '../confetti';
 
 // ─── Farge per kategori ──────────────────────────────────────────────────────
@@ -1304,8 +1307,10 @@ function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSes
   return done.map(s => ({ key: s.id, session: s }));
 }
 
-function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
+function Statistikk({ viewWho: who, excluded, onChangeExcluded, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
   viewWho: Trainer; onSelectPerson: (w: Trainer) => void;
+  /** Typene som er valgt bort i «Når trener …?». Tomt = alle med. Eies av PageTrening, så det overlever personbytte. */
+  excluded: Set<string>; onChangeExcluded: (next: Set<string>) => void;
   /** Navigasjonsradens «Registrer økt» — tar deg til «Hva har dere trent?», ikke rett til modalen. */
   onGoToDashboard: () => void;
   onNewRecord: () => void; onOpenRecord: (pr: PR) => void;
@@ -1385,11 +1390,12 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
       .map(c => c.name), [categories, byCategory]);
 
   // ── Rytme ──
-  const byWeekday = useMemo(() => {
-    const counts = Array.from({ length: 7 }, () => 0);
-    for (const s of inPeriod) counts[(new Date(s.startedAt).getDay() + 6) % 7] += 1;
-    return counts;
-  }, [inPeriod]);
+  // Typefilteret gjelder bare ukedagene — `inPeriod` deles med kategorifordelingen.
+  // Typene hentes fra begge personers økter, så chip-listen er lik i begge fanene.
+  const availableCats = useMemo(() => availableCategories(categories, allDone), [categories, allDone]);
+  const excludedCats = useMemo(() => effectiveExcluded(excluded, availableCats), [excluded, availableCats]);
+  const rhythmSessions = useMemo(() => filterByCategories(inPeriod, excludedCats), [inPeriod, excludedCats]);
+  const byWeekday = useMemo(() => countByWeekday(rhythmSessions), [rhythmSessions]);
   const weekdayMax = Math.max(1, ...byWeekday);
 
   // ── Søylediagram: 12 måneder ──
@@ -1664,23 +1670,43 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
             <div className="card-meta">Ingen økter i perioden</div>
           ) : (
             <div className="col" style={{ gap: 10 }}>
+              {availableCats.length > 1 && (
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  <button className={'tr-chip' + (excludedCats.size === 0 ? ' on' : '')} aria-pressed={excludedCats.size === 0}
+                    onClick={() => onChangeExcluded(new Set())}>Alle</button>
+                  {availableCats.map(name => {
+                    const on = !excludedCats.has(name);
+                    return (
+                      <button key={name} className={'tr-chip' + (on ? ' on' : '')} aria-pressed={on}
+                        style={{ '--cat': colorFor(name) } as React.CSSProperties}
+                        onClick={() => onChangeExcluded(toggleCategory(excludedCats, name, availableCats))}>
+                        <span className="tr-catdot" />{name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <span className="card-eyebrow">Ukedag</span>
-              <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 90 }}>
-                {byWeekday.map((n, i) => (
-                  <div key={WEEKDAYS[i]} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
-                    <span className="mono tabular" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{n || ''}</span>
-                    <div
-                      title={`${WEEKDAYS[i]}: ${n} økter`}
-                      style={{
-                        width: '100%', borderRadius: '3px 3px 0 0', minHeight: n ? 4 : 2,
-                        height: `${(n / weekdayMax) * 100}%`,
-                        background: n === weekdayMax && n > 0 ? 'var(--accent-deep)' : 'var(--accent-soft)',
-                      }}
-                    />
-                    <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{WEEKDAYS[i]}</span>
-                  </div>
-                ))}
-              </div>
+              {rhythmSessions.length === 0 ? (
+                <div className="card-meta">Ingen økter av valgte typer i år.</div>
+              ) : (
+                <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 90 }}>
+                  {byWeekday.map((n, i) => (
+                    <div key={WEEKDAYS[i]} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
+                      <span className="mono tabular" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{n || ''}</span>
+                      <div
+                        title={`${WEEKDAYS[i]}: ${n} økter`}
+                        style={{
+                          width: '100%', borderRadius: '3px 3px 0 0', minHeight: n ? 4 : 2,
+                          height: `${(n / weekdayMax) * 100}%`,
+                          background: n === weekdayMax && n > 0 ? 'var(--accent-deep)' : 'var(--accent-soft)',
+                        }}
+                      />
+                      <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{WEEKDAYS[i]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1858,6 +1884,9 @@ export default function PageTrening() {
   // Ingen «Felles»-fane lenger — start på den innloggede brukerens egen fane
   // i stedet for en fane som ikke finnes.
   const [viewWho, setViewWho] = useState<Trainer>(() => trainerFromEmail(session?.user?.email));
+  // Typer valgt bort i «Når trener …?» (tomt = alle). Bor her, ikke i Statistikk,
+  // så valget overlever både personbytte og turen innom Dashboard.
+  const [excludedCats, setExcludedCats] = useState<Set<string>>(() => new Set());
 
   const [registerOpen,   setRegisterOpen]   = useState(false);
   const [registerPreset, setRegisterPreset] = useState<string | undefined>();
@@ -1900,6 +1929,8 @@ export default function PageTrening() {
           />
         : <Statistikk
             viewWho={viewWho}
+            excluded={excludedCats}
+            onChangeExcluded={setExcludedCats}
             onSelectPerson={switchPerson}
             onGoToDashboard={() => { setView('okter'); window.scrollTo({ top: 0 }); }}
             onNewRecord={() => { setRecordPreset(undefined); setRecordOpen(true); }}
