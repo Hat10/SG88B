@@ -1619,7 +1619,7 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
         {/* Kategorifordeling */}
         <div className="card col-12">
           <div className="section-h">
-            <h3>Hvor ofte trener dere hva?</h3>
+            <h3>Hvor ofte trener {WHO_LABEL[who]} hva?</h3>
           </div>
           {byCategory.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
@@ -1653,9 +1653,6 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
                   ))}
                 </div>
               )}
-              <div className="card-meta" style={{ marginTop: 10 }}>
-                {`Bare øktene ${WHO_LABEL[who]} har registrert.`}
-              </div>
             </>
           )}
         </div>
@@ -1663,7 +1660,7 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
         {/* Rytme */}
         <div className="card col-12">
           <div className="section-h">
-            <h3>Når trener dere?</h3>
+            <h3>Når trener {WHO_LABEL[who]}?</h3>
           </div>
           {inPeriod.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
