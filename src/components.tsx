@@ -1,5 +1,7 @@
 import { type ReactNode, type CSSProperties, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import type { Who } from './data';
+import { WHO_TAB_ORDER } from './lib/whoView';
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 export const Ico = {
@@ -108,6 +110,23 @@ export function Tabs({ items, value, onChange }: { items: TabItem[]; value: stri
         </button>
       ))}
     </div>
+  );
+}
+
+// ── WhoTabs ──────────────────────────────────────────────────────────────────
+// Personvalg som segmenterte faner (samme utseende som Ønskelister). Eier
+// emoji-mappingen; rekkefølgen er alltid Felles, Andreas, Taran.
+const WHO_TAB_LABEL: Record<Who, string> = { f: '❤️ Felles', M: '💙 Andreas', L: '💜 Taran' };
+
+export function WhoTabs({ value, onChange, counts }: {
+  value: Who; onChange: (w: Who) => void; counts: Record<Who, number>;
+}) {
+  return (
+    <Tabs
+      items={WHO_TAB_ORDER.map(w => ({ id: w, label: WHO_TAB_LABEL[w], count: String(counts[w]) }))}
+      value={value}
+      onChange={id => onChange(id as Who)}
+    />
   );
 }
 
