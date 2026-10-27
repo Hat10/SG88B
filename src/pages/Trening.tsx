@@ -17,7 +17,7 @@ import {
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
 import {
-  availableCategories, effectiveExcluded, filterByCategories, toggleCategory, countByWeekday,
+  availableCategories, effectiveSelected, filterByCategories, toggleCategory, countByWeekday,
 } from '../lib/treningStats';
 import { fireworkRain } from '../confetti';
 
@@ -1307,10 +1307,10 @@ function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSes
   return done.map(s => ({ key: s.id, session: s }));
 }
 
-function Statistikk({ viewWho: who, excluded, onChangeExcluded, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
+function Statistikk({ viewWho: who, selected, onChangeSelected, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
   viewWho: Trainer; onSelectPerson: (w: Trainer) => void;
-  /** Typene som er valgt bort i «Når trener …?». Tomt = alle med. Eies av PageTrening, så det overlever personbytte. */
-  excluded: Set<string>; onChangeExcluded: (next: Set<string>) => void;
+  /** Typene som er valgt i «Når trener …?». Tomt = alle vises. Eies av PageTrening, så det overlever personbytte. */
+  selected: Set<string>; onChangeSelected: (next: Set<string>) => void;
   /** Navigasjonsradens «Registrer økt» — tar deg til «Hva har dere trent?», ikke rett til modalen. */
   onGoToDashboard: () => void;
   onNewRecord: () => void; onOpenRecord: (pr: PR) => void;
@@ -1393,8 +1393,8 @@ function Statistikk({ viewWho: who, excluded, onChangeExcluded, onSelectPerson, 
   // Typefilteret gjelder bare ukedagene — `inPeriod` deles med kategorifordelingen.
   // Typene hentes fra begge personers økter, så chip-listen er lik i begge fanene.
   const availableCats = useMemo(() => availableCategories(categories, allDone), [categories, allDone]);
-  const excludedCats = useMemo(() => effectiveExcluded(excluded, availableCats), [excluded, availableCats]);
-  const rhythmSessions = useMemo(() => filterByCategories(inPeriod, excludedCats), [inPeriod, excludedCats]);
+  const selectedCats = useMemo(() => effectiveSelected(selected, availableCats), [selected, availableCats]);
+  const rhythmSessions = useMemo(() => filterByCategories(inPeriod, selectedCats), [inPeriod, selectedCats]);
   const byWeekday = useMemo(() => countByWeekday(rhythmSessions), [rhythmSessions]);
   const weekdayMax = Math.max(1, ...byWeekday);
 
@@ -1672,14 +1672,14 @@ function Statistikk({ viewWho: who, excluded, onChangeExcluded, onSelectPerson, 
             <div className="col" style={{ gap: 10 }}>
               {availableCats.length > 1 && (
                 <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                  <button className={'tr-chip' + (excludedCats.size === 0 ? ' on' : '')} aria-pressed={excludedCats.size === 0}
-                    onClick={() => onChangeExcluded(new Set())}>Alle</button>
+                  <button className={'tr-chip' + (selectedCats.size === 0 ? ' on' : '')} aria-pressed={selectedCats.size === 0}
+                    onClick={() => onChangeSelected(new Set())}>Alle</button>
                   {availableCats.map(name => {
-                    const on = !excludedCats.has(name);
+                    const on = selectedCats.has(name);
                     return (
                       <button key={name} className={'tr-chip' + (on ? ' on' : '')} aria-pressed={on}
                         style={{ '--cat': colorFor(name) } as React.CSSProperties}
-                        onClick={() => onChangeExcluded(toggleCategory(excludedCats, name, availableCats))}>
+                        onClick={() => onChangeSelected(toggleCategory(selectedCats, name))}>
                         <span className="tr-catdot" />{name}
                       </button>
                     );
@@ -1884,9 +1884,9 @@ export default function PageTrening() {
   // Ingen «Felles»-fane lenger — start på den innloggede brukerens egen fane
   // i stedet for en fane som ikke finnes.
   const [viewWho, setViewWho] = useState<Trainer>(() => trainerFromEmail(session?.user?.email));
-  // Typer valgt bort i «Når trener …?» (tomt = alle). Bor her, ikke i Statistikk,
+  // Typer valgt i «Når trener …?» (tomt = alle vises). Bor her, ikke i Statistikk,
   // så valget overlever både personbytte og turen innom Dashboard.
-  const [excludedCats, setExcludedCats] = useState<Set<string>>(() => new Set());
+  const [selectedCats, setSelectedCats] = useState<Set<string>>(() => new Set());
 
   const [registerOpen,   setRegisterOpen]   = useState(false);
   const [registerPreset, setRegisterPreset] = useState<string | undefined>();
@@ -1929,8 +1929,8 @@ export default function PageTrening() {
           />
         : <Statistikk
             viewWho={viewWho}
-            excluded={excludedCats}
-            onChangeExcluded={setExcludedCats}
+            selected={selectedCats}
+            onChangeSelected={setSelectedCats}
             onSelectPerson={switchPerson}
             onGoToDashboard={() => { setView('okter'); window.scrollTo({ top: 0 }); }}
             onNewRecord={() => { setRecordPreset(undefined); setRecordOpen(true); }}

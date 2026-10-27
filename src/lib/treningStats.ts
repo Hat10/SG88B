@@ -1,8 +1,8 @@
 // Rene funksjoner bak typefilteret i Trening → Statistikk («Når trener …?»).
 // Ingen React og ingen Supabase, så logikken kan testes uten å dra med siden.
 //
-// Filteret lagrer de typene som er valgt BORT (`excluded`), ikke de valgte:
-// tomt sett = alle typer med, og en ny kategori er automatisk med.
+// Filteret lagrer de typene som er valgt (`selected`): tomt sett = ingen
+// filtrering (alle typer vises), og et trykk på en type viser bare de valgte.
 
 import type { WorkoutCategory, WorkoutSession } from '../contexts/TreningContext';
 
@@ -44,33 +44,25 @@ export function availableCategories(
   return out;
 }
 
-/** `excluded` begrenset til typene som faktisk tilbys — foreldreløse navn i settet er harmløse, men skal ikke telle. */
-export function effectiveExcluded(excluded: ReadonlySet<string>, available: readonly string[]): Set<string> {
+/** `selected` begrenset til typene som faktisk tilbys. Står ingen igjen, er resultatet tomt (= alle typer vises). */
+export function effectiveSelected(selected: ReadonlySet<string>, available: readonly string[]): Set<string> {
   const avail = new Set(available);
-  return new Set([...excluded].filter(c => avail.has(c)));
+  return new Set([...selected].filter(c => avail.has(c)));
 }
 
-/** Øktene som ikke har en bortvalgt type. Tomt `excluded` = ingen filtrering. Match på navn. */
+/** Bare øktene med en valgt type. Tomt `selected` = ingen filtrering. Match på navn. */
 export function filterByCategories<T extends Pick<WorkoutSession, 'category'>>(
   sessions: T[],
-  excluded: ReadonlySet<string>,
+  selected: ReadonlySet<string>,
 ): T[] {
-  if (excluded.size === 0) return sessions;
-  return sessions.filter(s => !excluded.has(categoryName(s)));
+  if (selected.size === 0) return sessions;
+  return sessions.filter(s => selected.has(categoryName(s)));
 }
 
-/**
- * Veksler en type i `excluded`. Ville klikket valgt bort den siste valgte
- * typen, tømmes settet i stedet — «ingen valgt» er aldri en tilstand.
- */
-export function toggleCategory(
-  excluded: ReadonlySet<string>,
-  name: string,
-  available: readonly string[],
-): Set<string> {
-  const next = new Set(excluded);
+/** Veksler en type i `selected`. Blir settet tomt, er man tilbake til «Alle». */
+export function toggleCategory(selected: ReadonlySet<string>, name: string): Set<string> {
+  const next = new Set(selected);
   if (next.has(name)) next.delete(name); else next.add(name);
-  if (available.length > 0 && available.every(c => next.has(c))) return new Set();
   return next;
 }
 

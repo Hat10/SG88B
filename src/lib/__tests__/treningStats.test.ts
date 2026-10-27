@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  categoryName, availableCategories, effectiveExcluded, filterByCategories, toggleCategory,
+  categoryName, availableCategories, effectiveSelected, filterByCategories, toggleCategory,
   countByWeekday, NO_CATEGORY,
 } from '../treningStats';
 
@@ -17,22 +17,26 @@ describe('categoryName', () => {
 });
 
 describe('filterByCategories', () => {
-  const all = [ses('Push'), ses('Pull'), ses(''), ses('Push')];
+  const all = [ses('Push'), ses('Pull'), ses(''), ses('Push'), ses('Legs')];
 
-  it('tomt excluded = alle økter', () => {
+  it('tomt selected = alle økter', () => {
     expect(filterByCategories(all, new Set())).toEqual(all);
   });
 
-  it('filtrerer bort bortvalgte typer på navn', () => {
-    expect(filterByCategories(all, new Set(['Push']))).toEqual([ses('Pull'), ses('')]);
+  it('én valgt type = bare den typen', () => {
+    expect(filterByCategories(all, new Set(['Push']))).toEqual([ses('Push'), ses('Push')]);
   });
 
-  it('«Uten kategori» kan filtreres bort', () => {
-    expect(filterByCategories(all, new Set([NO_CATEGORY]))).toEqual([ses('Push'), ses('Pull'), ses('Push')]);
+  it('to valgte = begge, ingen andre', () => {
+    expect(filterByCategories(all, new Set(['Push', 'Pull']))).toEqual([ses('Push'), ses('Pull'), ses('Push')]);
   });
 
-  it('ukjente navn i excluded påvirker ingenting', () => {
-    expect(filterByCategories(all, new Set(['Yoga']))).toEqual(all);
+  it('«Uten kategori» kan velges', () => {
+    expect(filterByCategories(all, new Set([NO_CATEGORY]))).toEqual([ses('')]);
+  });
+
+  it('matcher på navn: en valgt type uten økter gir tom liste', () => {
+    expect(filterByCategories(all, new Set(['Yoga']))).toEqual([]);
   });
 });
 
@@ -72,28 +76,40 @@ describe('availableCategories', () => {
 });
 
 describe('toggleCategory', () => {
-  const avail = ['Push', 'Pull', 'Legs'];
-
-  it('veksler en type inn og ut av excluded', () => {
-    const a = toggleCategory(new Set(), 'Push', avail);
-    expect([...a]).toEqual(['Push']);
-    expect([...toggleCategory(a, 'Push', avail)]).toEqual([]);
+  it('fra tomt sett blir det bare den typen', () => {
+    expect([...toggleCategory(new Set(), 'Push')]).toEqual(['Push']);
   });
 
-  it('tømmer excluded i stedet for å velge bort den siste valgte typen', () => {
-    expect([...toggleCategory(new Set(['Push', 'Pull']), 'Legs', avail)]).toEqual([]);
+  it('legger til en ny type i et eksisterende valg', () => {
+    expect([...toggleCategory(new Set(['Push']), 'Pull')]).toEqual(['Push', 'Pull']);
+  });
+
+  it('fjerner en valgt type, og beholder de andre', () => {
+    expect([...toggleCategory(new Set(['Push', 'Pull']), 'Push')]).toEqual(['Pull']);
+  });
+
+  it('å fjerne den siste valgte gir tomt sett (= Alle)', () => {
+    expect(toggleCategory(new Set(['Push']), 'Push').size).toBe(0);
   });
 
   it('muterer ikke inputsettet', () => {
     const before = new Set(['Push']);
-    toggleCategory(before, 'Pull', avail);
+    toggleCategory(before, 'Pull');
     expect([...before]).toEqual(['Push']);
   });
 });
 
-describe('effectiveExcluded', () => {
-  it('beholder bare navn som faktisk tilbys', () => {
-    expect([...effectiveExcluded(new Set(['Push', 'Slettet']), ['Push', 'Pull'])]).toEqual(['Push']);
+describe('effectiveSelected', () => {
+  it('fjerner navn som ikke finnes lenger', () => {
+    expect([...effectiveSelected(new Set(['Push', 'Slettet']), ['Push', 'Pull'])]).toEqual(['Push']);
+  });
+
+  it('blir tomt (= Alle) når ingen gjenstår', () => {
+    expect(effectiveSelected(new Set(['Slettet']), ['Push', 'Pull']).size).toBe(0);
+  });
+
+  it('tomt inn gir tomt ut', () => {
+    expect(effectiveSelected(new Set(), ['Push']).size).toBe(0);
   });
 });
 
