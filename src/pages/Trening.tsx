@@ -1400,8 +1400,6 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
       key: `m${i}`,
       label: d.toLocaleDateString('nb-NO', { month: 'short' }).slice(0, 3),
       total: inMonth.length,
-      m: inMonth.filter(s => s.who === 'M').length,
-      l: inMonth.filter(s => s.who === 'L').length,
     };
   }), [done, year]);
   const barMax = Math.max(1, ...bars.map(b => b.total));
@@ -1794,25 +1792,20 @@ function Statistikk({ viewWho: who, onSelectPerson, onGoToDashboard, onNewRecord
             <h3>Økter per måned</h3>
             <div className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="meta">Siste 12 måneder</span>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> Andreas</span>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> Taran</span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: WHO_COLOR[who] }}>●</b> {WHO_LABEL[who]}</span>
             </div>
           </div>
           <div className="row" style={{ alignItems: 'flex-end', gap: 10, height: 110 }}>
             {bars.map(b => (
               <div key={b.key} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
                 <div
-                  title={`${b.label}: ${b.total} økter · Andreas ${b.m} / Taran ${b.l}`}
+                  title={`${b.label}: ${b.total} økter`}
                   style={{
-                    width: '100%', background: 'var(--surface-2)', borderRadius: '3px 3px 0 0',
+                    width: '100%', borderRadius: '3px 3px 0 0',
+                    background: b.total ? WHO_COLOR[who] : 'var(--surface-2)',
                     height: `${(b.total / barMax) * 100}%`, minHeight: b.total ? 4 : 2,
-                    overflow: 'hidden',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
                   }}
-                >
-                  <div style={{ width: '100%', background: 'var(--ink)', height: `${b.total ? (b.l / b.total) * 100 : 0}%` }} />
-                  <div style={{ width: '100%', background: 'var(--accent)', height: `${b.total ? (b.m / b.total) * 100 : 0}%` }} />
-                </div>
+                />
                 <span className="mono" style={{ fontSize: 8, color: 'var(--ink-4)' }}>{b.label}</span>
               </div>
             ))}
