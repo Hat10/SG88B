@@ -11,12 +11,14 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { Fab, SkeletonList } from '../components';
 import { TopbarPortal } from '../lib/topbarSlot';
-import type { Who } from '../data';
 import {
   WHO_LABEL, TRAINERS, dayKey, fmtNum, startOfWeek,
   weekStreak, bestWeekStreak, computePulse,
   goalStatus, goalKindInfo, fmtDeadline, GOAL_KINDS, STREAK_MIN_SESSIONS,
 } from '../lib/treningPulse';
+import {
+  availableCategories, effectiveSelected, filterByCategories, toggleCategory, countByWeekday,
+} from '../lib/treningStats';
 import { fireworkRain } from '../confetti';
 
 // ─── Farge per kategori ──────────────────────────────────────────────────────
@@ -30,7 +32,7 @@ type ColorFor = (name: string) => string;
 const CatColorCtx = createContext<ColorFor>(catColor);
 const useCatColor = () => useContext(CatColorCtx);
 
-const WHO_COLOR: Record<Who, string> = { f: 'var(--good)', M: 'var(--accent)', L: 'var(--ink)' };
+const WHO_COLOR: Record<Trainer, string> = { M: 'var(--accent)', L: 'var(--ink)' };
 
 // Fargepalett for egendefinerte kategorier — valgt for å være lesbare i både lyst
 // og mørkt tema. De seks første er standardfargenes lyse-tema-verdier.
@@ -1145,8 +1147,8 @@ function GoalModal({ goal, exercises, onClose }: {
 
 function TreningNav({ activeWho, onSelectPerson, onRegister }: {
   /** Aktiv fane akkurat nå — null på registreringsskjermbildet, som ikke har noe personfilter. */
-  activeWho: Who | null;
-  onSelectPerson: (w: Who) => void;
+  activeWho: Trainer | null;
+  onSelectPerson: (w: Trainer) => void;
   onRegister: () => void;
 }) {
   return (
@@ -1166,7 +1168,7 @@ function TreningNav({ activeWho, onSelectPerson, onRegister }: {
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 function Dashboard({ onSelectPerson, onRegister, onNewCategory, onEditCategory }: {
-  onSelectPerson: (w: Who) => void; onRegister: (category?: string) => void;
+  onSelectPerson: (w: Trainer) => void; onRegister: (category?: string) => void;
   onNewCategory: () => void; onEditCategory: (c: WorkoutCategory) => void;
 }) {
   const { categories, sessions, loading } = useTrening();
@@ -1305,8 +1307,10 @@ function occasionsOf(done: WorkoutSession[]): { key: string; session: WorkoutSes
   return done.map(s => ({ key: s.id, session: s }));
 }
 
-function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
-  viewWho: Who; onSelectPerson: (w: Who) => void;
+function Statistikk({ viewWho: who, selected, onChangeSelected, onSelectPerson, onGoToDashboard, onNewRecord, onOpenRecord, onNewGoal, onEditGoal, onEditSession, onRegister }: {
+  viewWho: Trainer; onSelectPerson: (w: Trainer) => void;
+  /** Typene som er valgt i «Når trener …?». Tomt = alle vises. Eies av PageTrening, så det overlever personbytte. */
+  selected: Set<string>; onChangeSelected: (next: Set<string>) => void;
   /** Navigasjonsradens «Registrer økt» — tar deg til «Hva har dere trent?», ikke rett til modalen. */
   onGoToDashboard: () => void;
   onNewRecord: () => void; onOpenRecord: (pr: PR) => void;
@@ -1324,14 +1328,9 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
   const allDone = useMemo(() => sessions.filter(s => s.completedAt), [sessions]);
 
-  // Person-filteret: Felles = begge, ellers bare den ene. Alt aktivitets-basert
-  // under bygger på `done`, så ett bytte scoper hele siden på én gang.
-  const isPerson = viewWho !== 'f';
-  const who = viewWho as Trainer; // meningsfull kun når isPerson
-  const done = useMemo(
-    () => (isPerson ? allDone.filter(s => s.who === who) : allDone),
-    [allDone, isPerson, who],
-  );
+  // Person-filteret: alt aktivitets-basert under bygger på `done`, så ett
+  // bytte scoper hele siden på én gang.
+  const done = useMemo(() => allDone.filter(s => s.who === who), [allDone, who]);
 
   const isThisMonth = month.getTime() === thisMonthStart().getTime();
 
@@ -1369,16 +1368,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     () => done.filter(s => new Date(s.startedAt).getFullYear() === year),
     [done, year]);
 
-  const daysTrained = useMemo(() => new Set(inPeriod.map(s => dayKey(new Date(s.startedAt)))).size, [inPeriod]);
-
   // ── Kategorier ──
   const byCategory = useMemo(() => {
-    const rows = new Map<string, { category: string; n: number; m: number; l: number; last: number }>();
+    const rows = new Map<string, { category: string; n: number; last: number }>();
     for (const s of inPeriod) {
       const cat = s.category || 'Uten kategori';
-      const row = rows.get(cat) ?? { category: cat, n: 0, m: 0, l: 0, last: 0 };
+      const row = rows.get(cat) ?? { category: cat, n: 0, last: 0 };
       row.n += 1;
-      if (s.who === 'M') row.m += 1; else row.l += 1;
       row.last = Math.max(row.last, new Date(s.startedAt).getTime());
       rows.set(cat, row);
     }
@@ -1394,11 +1390,12 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
       .map(c => c.name), [categories, byCategory]);
 
   // ── Rytme ──
-  const byWeekday = useMemo(() => {
-    const counts = Array.from({ length: 7 }, () => 0);
-    for (const s of inPeriod) counts[(new Date(s.startedAt).getDay() + 6) % 7] += 1;
-    return counts;
-  }, [inPeriod]);
+  // Typefilteret gjelder bare ukedagene — `inPeriod` deles med kategorifordelingen.
+  // Typene hentes fra begge personers økter, så chip-listen er lik i begge fanene.
+  const availableCats = useMemo(() => availableCategories(categories, allDone), [categories, allDone]);
+  const selectedCats = useMemo(() => effectiveSelected(selected, availableCats), [selected, availableCats]);
+  const rhythmSessions = useMemo(() => filterByCategories(inPeriod, selectedCats), [inPeriod, selectedCats]);
+  const byWeekday = useMemo(() => countByWeekday(rhythmSessions), [rhythmSessions]);
   const weekdayMax = Math.max(1, ...byWeekday);
 
   // ── Søylediagram: 12 måneder ──
@@ -1409,8 +1406,6 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
       key: `m${i}`,
       label: d.toLocaleDateString('nb-NO', { month: 'short' }).slice(0, 3),
       total: inMonth.length,
-      m: inMonth.filter(s => s.who === 'M').length,
-      l: inMonth.filter(s => s.who === 'L').length,
     };
   }), [done, year]);
   const barMax = Math.max(1, ...bars.map(b => b.total));
@@ -1442,9 +1437,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     return out;
   }, [done, month]);
 
-  // «Felles» finnes ikke lenger som fane, så viewWho er i praksis alltid en
-  // Trainer her — TreningNav tilbyr ikke lenger 'f' som valg.
-  const pulse = useMemo(() => computePulse(sessions, records, goals, viewWho as Trainer), [sessions, records, goals, viewWho]);
+  const pulse = useMemo(() => computePulse(sessions, records, goals, who), [sessions, records, goals, who]);
 
   const myBadges = useMemo(
     () => earnedBadges.filter(b => b.who === who),
@@ -1461,21 +1454,20 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
     : undefined;
 
   const prs = useMemo(() => buildPRs(records), [records]);
-  const visiblePrs = isPerson ? prs.filter(p => p.who === who) : prs;
-  const streakWho = isPerson ? [who] : TRAINERS;
-  const streak = weekStreak(done, streakWho);
-  const best = bestWeekStreak(done, streakWho);
-  const sessionsGoal = goals.find(g => g.kind === 'sessions_year' && g.who === viewWho);
+  const visiblePrs = prs.filter(p => p.who === who);
+  const streak = weekStreak(done, [who]);
+  const best = bestWeekStreak(done, [who]);
+  const sessionsGoal = goals.find(g => g.kind === 'sessions_year' && g.who === who);
 
   const logRows = useMemo(() => occasionsOf(done), [done]);
 
   const visibleGoals = useMemo(() => {
-    const mine = goals.filter(g => g.who === viewWho);
+    const mine = goals.filter(g => g.who === who);
     return [
       ...mine.filter(g => !goalStatus(g, done, records).done),
       ...mine.filter(g => goalStatus(g, done, records).done),
     ];
-  }, [goals, viewWho, done, records]);
+  }, [goals, who, done, records]);
 
   const delOccasion = async (s: WorkoutSession) => {
     if (!await confirm({
@@ -1498,13 +1490,13 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
 
   return (
     <>
-      <TopbarPortal><TreningNav activeWho={viewWho} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} /></TopbarPortal>
+      <TopbarPortal><TreningNav activeWho={who} onSelectPerson={onSelectPerson} onRegister={onGoToDashboard} /></TopbarPortal>
       <div className="page-head">
         <div>
           <div className="page-sub">
             Oversikt <span className="meta">• {year}</span>
           </div>
-          <h1 className="page-title">Slik trener <em>{isPerson ? WHO_LABEL[who] : 'dere'}</em></h1>
+          <h1 className="page-title">Slik trener <em>{WHO_LABEL[who]}</em></h1>
         </div>
       </div>
 
@@ -1523,7 +1515,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
                   if (!def) return null;
                   const badgeId = `${b.who}-${b.badgeKey}`;
                   return (
-                    <span key={badgeId} title={`${def.label}${isPerson ? '' : ` · ${WHO_LABEL[b.who]}`}`}
+                    <span key={badgeId} title={def.label}
                       role="button" tabIndex={0}
                       onClick={() => setOpenBadge(cur => cur === badgeId ? null : badgeId)}
                       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenBadge(cur => cur === badgeId ? null : badgeId); } }}
@@ -1545,7 +1537,6 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
                 >
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
                     {openBadgeInfo.def.icon} {openBadgeInfo.def.label}
-                    {!isPerson && <span style={{ fontWeight: 400, color: 'var(--ink-3)' }}> · {WHO_LABEL[openBadgeInfo.b.who]}</span>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{openBadgeInfo.def.message}</div>
                   <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 4 }}>Opptjent {fmtDateNumeric(openBadgeInfo.b.earnedAt)}</div>
@@ -1568,10 +1559,10 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
           <span className="stat-delta">siden start</span>
         </div>
         <div className="stat" style={{ flex: 1, minWidth: 130 }}
-          title={`En uke teller i streaken når ${isPerson ? WHO_LABEL[who] + ' har' : 'begge har'} minst ${STREAK_MIN_SESSIONS} registrerte økter (mandag–søndag). Beste rekke: ${best}.`}>
+          title={`En uke teller i streaken når ${WHO_LABEL[who]} har minst ${STREAK_MIN_SESSIONS} registrerte økter (mandag–søndag). Beste rekke: ${best}.`}>
           <span className="stat-lbl">Streak</span>
           <span className="stat-val">{streak} {streak === 1 ? 'uke' : 'uker'}</span>
-          <span className="stat-delta">{STREAK_MIN_SESSIONS} økter {isPerson ? 'i uka' : 'hver'} · beste: {best}</span>
+          <span className="stat-delta">{STREAK_MIN_SESSIONS} økter i uka · beste: {best}</span>
         </div>
         <div className="stat" style={{ flex: 1, minWidth: 130 }}>
           <span className="stat-lbl">Snitt per uke</span>
@@ -1604,15 +1595,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
               )}
             </div>
             <div className="row" style={{ gap: 12 }}>
-              {isPerson ? (
-                <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: WHO_COLOR[who] }}>●</b> {WHO_LABEL[who]}</span>
-              ) : (
-                <>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> {WHO_INITIAL.M}</span>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> {WHO_INITIAL.L}</span>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--tr-both)' }}>●</b> begge</span>
-                </>
-              )}
+              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: WHO_COLOR[who] }}>●</b> {WHO_LABEL[who]}</span>
             </div>
           </div>
           <div className="tr-cal" style={{ marginBottom: 6 }}>
@@ -1621,9 +1604,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
             ))}
           </div>
           <div className="card-meta" style={{ marginBottom: 8 }}>
-            {isPerson
-              ? <>Dagene {WHO_LABEL[who]} trente.</>
-              : <><strong>{WHO_INITIAL.M}+{WHO_INITIAL.L}</strong> betyr at begge trente den dagen.</>}
+            Dagene {WHO_LABEL[who]} trente.
           </div>
           <div className="tr-cal">
             {cells.map(c => (
@@ -1642,7 +1623,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
         {/* Kategorifordeling */}
         <div className="card col-12">
           <div className="section-h">
-            <h3>Hvor ofte trener dere hva?</h3>
+            <h3>Hvor ofte trener {WHO_LABEL[who]} hva?</h3>
           </div>
           {byCategory.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
@@ -1659,7 +1640,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
                         </span>
                       </div>
                       <span className="mono tabular" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
-                        {Math.round((c.n / Math.max(1, catSessions)) * 100)} %{isPerson ? '' : ` · ${WHO_INITIAL.M} ${c.m} / ${WHO_INITIAL.L} ${c.l}`}
+                        {Math.round((c.n / Math.max(1, catSessions)) * 100)} %
                       </span>
                     </div>
                     <div className="prog tall">
@@ -1676,11 +1657,6 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
                   ))}
                 </div>
               )}
-              <div className="card-meta" style={{ marginTop: 10 }}>
-                {isPerson
-                  ? `Bare øktene ${WHO_LABEL[who]} har registrert.`
-                  : 'Teller én rad per person.'}
-              </div>
             </>
           )}
         </div>
@@ -1688,29 +1664,49 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
         {/* Rytme */}
         <div className="card col-12">
           <div className="section-h">
-            <h3>Når trener dere?</h3>
+            <h3>Når trener {WHO_LABEL[who]}?</h3>
           </div>
           {inPeriod.length === 0 ? (
             <div className="card-meta">Ingen økter i perioden</div>
           ) : (
             <div className="col" style={{ gap: 10 }}>
+              {availableCats.length > 1 && (
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  <button className={'tr-chip' + (selectedCats.size === 0 ? ' on' : '')} aria-pressed={selectedCats.size === 0}
+                    onClick={() => onChangeSelected(new Set())}>Alle</button>
+                  {availableCats.map(name => {
+                    const on = selectedCats.has(name);
+                    return (
+                      <button key={name} className={'tr-chip' + (on ? ' on' : '')} aria-pressed={on}
+                        style={{ '--cat': colorFor(name) } as React.CSSProperties}
+                        onClick={() => onChangeSelected(toggleCategory(selectedCats, name))}>
+                        <span className="tr-catdot" />{name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <span className="card-eyebrow">Ukedag</span>
-              <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 90 }}>
-                {byWeekday.map((n, i) => (
-                  <div key={WEEKDAYS[i]} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
-                    <span className="mono tabular" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{n || ''}</span>
-                    <div
-                      title={`${WEEKDAYS[i]}: ${n} økter`}
-                      style={{
-                        width: '100%', borderRadius: '3px 3px 0 0', minHeight: n ? 4 : 2,
-                        height: `${(n / weekdayMax) * 100}%`,
-                        background: n === weekdayMax && n > 0 ? 'var(--accent-deep)' : 'var(--accent-soft)',
-                      }}
-                    />
-                    <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{WEEKDAYS[i]}</span>
-                  </div>
-                ))}
-              </div>
+              {rhythmSessions.length === 0 ? (
+                <div className="card-meta">Ingen økter av valgte typer i år.</div>
+              ) : (
+                <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 90 }}>
+                  {byWeekday.map((n, i) => (
+                    <div key={WEEKDAYS[i]} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
+                      <span className="mono tabular" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{n || ''}</span>
+                      <div
+                        title={`${WEEKDAYS[i]}: ${n} økter`}
+                        style={{
+                          width: '100%', borderRadius: '3px 3px 0 0', minHeight: n ? 4 : 2,
+                          height: `${(n / weekdayMax) * 100}%`,
+                          background: n === weekdayMax && n > 0 ? 'var(--accent-deep)' : 'var(--accent-soft)',
+                        }}
+                      />
+                      <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{WEEKDAYS[i]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1720,7 +1716,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
           <div className="section-h">
             <h3>Siste økter</h3>
             <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
-              <span className="meta">{isPerson ? `${WHO_LABEL[who]} sin logg` : 'Felles logg'} · {logRows.length} totalt</span>
+              <span className="meta">{WHO_LABEL[who]} sin logg · {logRows.length} totalt</span>
               <button className="btn ghost sm" onClick={onRegister}>Registrer økt</button>
             </div>
           </div>
@@ -1761,9 +1757,9 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
         <div className="card col-4">
           <div className="row between" style={{ gap: 8 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Mål</h3>
-            <span className="meta">{isPerson ? WHO_LABEL[who] : 'Felles'}</span>
+            <span className="meta">{WHO_LABEL[who]}</span>
           </div>
-          {visibleGoals.length === 0 && <div className="card-meta" style={{ marginTop: 8 }}>Ingen mål for {WHO_LABEL[viewWho].toLowerCase()} ennå — bytt person øverst for å se andres.</div>}
+          {visibleGoals.length === 0 && <div className="card-meta" style={{ marginTop: 8 }}>Ingen mål for {WHO_LABEL[who].toLowerCase()} ennå — bytt person øverst for å se andres.</div>}
           <div className="col" style={{ gap: 16, marginTop: 4 }}>
             {visibleGoals.map(g => {
               const st = goalStatus(g, done, records);
@@ -1822,25 +1818,20 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
             <h3>Økter per måned</h3>
             <div className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="meta">Siste 12 måneder</span>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--accent)' }}>●</b> Andreas</span>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink)' }}>●</b> Taran</span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}><b style={{ color: WHO_COLOR[who] }}>●</b> {WHO_LABEL[who]}</span>
             </div>
           </div>
           <div className="row" style={{ alignItems: 'flex-end', gap: 10, height: 110 }}>
             {bars.map(b => (
               <div key={b.key} className="col" style={{ flex: 1, alignItems: 'center', gap: 6, justifyContent: 'flex-end', height: '100%' }}>
                 <div
-                  title={`${b.label}: ${b.total} økter · Andreas ${b.m} / Taran ${b.l}`}
+                  title={`${b.label}: ${b.total} økter`}
                   style={{
-                    width: '100%', background: 'var(--surface-2)', borderRadius: '3px 3px 0 0',
+                    width: '100%', borderRadius: '3px 3px 0 0',
+                    background: b.total ? WHO_COLOR[who] : 'var(--surface-2)',
                     height: `${(b.total / barMax) * 100}%`, minHeight: b.total ? 4 : 2,
-                    overflow: 'hidden',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
                   }}
-                >
-                  <div style={{ width: '100%', background: 'var(--ink)', height: `${b.total ? (b.l / b.total) * 100 : 0}%` }} />
-                  <div style={{ width: '100%', background: 'var(--accent)', height: `${b.total ? (b.m / b.total) * 100 : 0}%` }} />
-                </div>
+                />
                 <span className="mono" style={{ fontSize: 8, color: 'var(--ink-4)' }}>{b.label}</span>
               </div>
             ))}
@@ -1853,7 +1844,7 @@ function Statistikk({ viewWho, onSelectPerson, onGoToDashboard, onNewRecord, onO
             <h3>Personlige rekorder</h3>
             <span className="meta">Trykk en rekord for utvikling →</span>
           </div>
-          {visiblePrs.length === 0 && <div className="card-meta">{isPerson ? `Ingen rekorder for ${WHO_LABEL[who]} ennå` : 'Ingen rekorder logget ennå'}</div>}
+          {visiblePrs.length === 0 && <div className="card-meta">{`Ingen rekorder for ${WHO_LABEL[who]} ennå`}</div>}
           <div className="grid grid-12" style={{ gap: 12 }}>
             {visiblePrs.map(pr => {
               const delta = monthDelta(pr);
@@ -1892,7 +1883,10 @@ export default function PageTrening() {
   const [view, setView] = useState<'okter' | 'statistikk'>('okter');
   // Ingen «Felles»-fane lenger — start på den innloggede brukerens egen fane
   // i stedet for en fane som ikke finnes.
-  const [viewWho, setViewWho] = useState<Who>(() => trainerFromEmail(session?.user?.email));
+  const [viewWho, setViewWho] = useState<Trainer>(() => trainerFromEmail(session?.user?.email));
+  // Typer valgt i «Når trener …?» (tomt = alle vises). Bor her, ikke i Statistikk,
+  // så valget overlever både personbytte og turen innom Dashboard.
+  const [selectedCats, setSelectedCats] = useState<Set<string>>(() => new Set());
 
   const [registerOpen,   setRegisterOpen]   = useState(false);
   const [registerPreset, setRegisterPreset] = useState<string | undefined>();
@@ -1920,7 +1914,9 @@ export default function PageTrening() {
 
   const openRegister = (category?: string) => { setRegisterPreset(category); setRegisterOpen(true); };
   const openCategory = (c: WorkoutCategory | null) => { setEditCategory(c); setCatModalOpen(true); };
-  const goToStats = (w: Who) => { setViewWho(w); setView('statistikk'); window.scrollTo({ top: 0 }); };
+  const goToStats = (w: Trainer) => { setViewWho(w); setView('statistikk'); window.scrollTo({ top: 0 }); };
+  // Bytte mellom Andreas og Taran inne i Statistikk: samme side, så ingen scroll.
+  const switchPerson = (w: Trainer) => setViewWho(w);
 
   return (
     <CatColorCtx.Provider value={colorFor}>
@@ -1933,7 +1929,9 @@ export default function PageTrening() {
           />
         : <Statistikk
             viewWho={viewWho}
-            onSelectPerson={goToStats}
+            selected={selectedCats}
+            onChangeSelected={setSelectedCats}
+            onSelectPerson={switchPerson}
             onGoToDashboard={() => { setView('okter'); window.scrollTo({ top: 0 }); }}
             onNewRecord={() => { setRecordPreset(undefined); setRecordOpen(true); }}
             onOpenRecord={pr => setDetail(pr)}

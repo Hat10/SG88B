@@ -1084,14 +1084,7 @@ details[open] > summary::before { content: "−"; }
 .tr-livedot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: tr-livepulse 1.4s ease-in-out infinite; }
 @keyframes tr-livepulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
-/* Måneds-heatmap.
-   Taran-dagene får en nøytral grå — --chip ligger for tett på --accent-soft
-   (Andreas) til at de to kan skilles på et lite kalenderfelt.
-   --tr-both: begge trente, men hver for seg — et mellomtrinn mellom «én person»
-   (--accent-soft) og «felles økt» (--accent-deep). Mørk i lyst tema / lys i
-   mørkt tema, som --accent-deep, så dagtallet kan stå i --bg og være lesbart. */
-:root { --tr-solo-l: #D9DEE6; --tr-both: #4680B8; }
-[data-theme="dark"] { --tr-solo-l: #26313F; --tr-both: #5589BC; }
+/* Måneds-kalender. */
 .tr-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .tr-cal-cell {
   position: relative; aspect-ratio: 1; border-radius: 6px; padding: 6px;
