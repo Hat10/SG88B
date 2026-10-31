@@ -5,7 +5,7 @@ import { guessCategory } from '../lib/groceryCategories';
 import { useSnackbar } from './SnackbarContext';
 import type { GroceryUndoSnapshot } from '../lib/groceryUndo';
 import { anyTaken, datesInHandleuke, mealDates } from '../lib/middagLeggTil';
-import { newBatchId, planUndo, type BasisPlan } from '../lib/basisvarer';
+import { newBatchId, planUndo, reactivationPatch, restorePatch, type BasisPlan } from '../lib/basisvarer';
 
 // PostgREST svarer slik når en kolonne i payloaden ikke finnes (PGRST204,
 // «Could not find the 'basis_batch_id' column …»), eller Postgres selv
@@ -598,27 +598,51 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  // Én upsert for hele innsettingen (ikke én per vare), med samme
-  // onConflict som addStapleToGroceryListNow — en avhuket rad for basisvaren
-  // gjenaktiveres. basis_prev_done_at husker den gamle done_at, slik at
-  // angring kan legge raden tilbake som kjøpt i stedet for å slette den.
-  // Mangler kolonnene (migreringen ikke kjørt) prøves det på nytt uten dem:
+  // Nye rader settes inn i én upsert med felles basis_batch_id. Gjenbrukte
+  // (avhukede) rader — én rad per basisvare, se grocery_items_staple_uidx —
+  // oppdateres i stedet KUN på avkrysning + batch-felt (reactivationPatch),
+  // slik at angring kan sette dem nøyaktig tilbake. ignoreDuplicates: dukker
+  // det opp en rad for basisvaren fra den andre enheten i mellomtiden, røres
+  // den ikke (og får ingen batch-id, så angring kan aldri slette den).
+  // Mangler kolonnene (migreringen ikke kjørt) gjøres det samme uten dem:
   // varene legges til som før, bare uten angremulighet.
   const addBasisBatch = async (plan: BasisPlan): Promise<AddBasisBatchResult | null> => {
     if (!plan.toAdd.length) return { added: 0, batchId: null };
     const batchId = newBatchId();
-    const base = plan.toAdd.map(a => stapleRowFor(a.staple, resolveCategory));
-    let { error } = await supabase.from('grocery_items')
-      .upsert(base.map((row, i) => ({ ...row, basis_batch_id: batchId, basis_prev_done_at: plan.toAdd[i].prevDoneAt })),
-        { onConflict: 'staple_item_id' });
+    const fresh = plan.toAdd.filter(a => !a.existingRowId);
+    const reused = plan.toAdd.filter(a => a.existingRowId);
+
+    const run = async (withBatch: boolean) => {
+      let added = 0;
+      if (fresh.length) {
+        const rows = fresh.map(a => ({
+          ...stapleRowFor(a.staple, resolveCategory),
+          ...(withBatch ? { basis_batch_id: batchId, basis_prev_done_at: null } : {}),
+        }));
+        const { data, error } = await supabase.from('grocery_items')
+          .upsert(rows, { onConflict: 'staple_item_id', ignoreDuplicates: true }).select('id');
+        if (error) return { added, error };
+        added += data?.length ?? 0;
+      }
+      for (const a of reused) {
+        const patch = withBatch ? reactivationPatch(a, batchId) : { done: false };
+        const { data, error } = await supabase.from('grocery_items')
+          .update(patch).eq('id', a.existingRowId!).eq('done', true).select('id');
+        if (error) return { added, error };
+        added += data?.length ?? 0;
+      }
+      return { added, error: null };
+    };
+
+    let res = await run(true);
     let usedBatchId: string | null = batchId;
-    if (isMissingBasisColumn(error)) {
+    if (isMissingBasisColumn(res.error)) {
       usedBatchId = null;
-      ({ error } = await supabase.from('grocery_items').upsert(base, { onConflict: 'staple_item_id' }));
+      res = await run(false);
     }
-    if (reportDbError('Å legge basisvarene til handlelisten', error)) return null;
+    if (reportDbError('Å legge basisvarene til handlelisten', res.error)) { await load(); return null; }
     await load();
-    return { added: plan.toAdd.length, batchId: usedBatchId };
+    return { added: res.added, batchId: usedBatchId };
   };
 
   // Henter radene fra databasen i stedet for å stole på groceryItems — den
@@ -637,7 +661,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     }
     for (const r of plan.restore) {
       const { data: restored, error: upError } = await supabase.from('grocery_items')
-        .update({ done: true, done_at: r.doneAt, basis_batch_id: null, basis_prev_done_at: null })
+        .update(restorePatch(r))
         .eq('id', r.id).eq('basis_batch_id', batchId).eq('done', false).select('id');
       if (!reportDbError('Angring', upError)) removed += restored?.length ?? 0;
     }

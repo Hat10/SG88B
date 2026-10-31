@@ -8,6 +8,7 @@ import type { GroceryItem, StapleItem } from '../../contexts/MatplanContext';
 import {
   planBasisBatch, nextHandleukeStart, formatHandleukeRange, previewNames, planUndo,
   latestUndoableBatch, newBatchId, batchTimestamp, undoMessage, LEGACY_DONE_AT,
+  reactivationPatch, restorePatch,
 } from '../basisvarer';
 
 const staple = (id: string, over: Partial<StapleItem> = {}): StapleItem => ({
@@ -177,5 +178,45 @@ describe('undoMessage', () => {
     expect(undoMessage(10, 2)).toBe('10 fjernet, 2 beholdt fordi de er krysset av');
     expect(undoMessage(1, 1)).toBe('1 fjernet, 1 beholdt fordi den er krysset av');
     expect(undoMessage(3, 0)).toBe('3 fjernet');
+  });
+});
+
+describe('gjenaktivering + angring av en gjenbrukt rad', () => {
+  const B = newBatchId(Date.UTC(2026, 9, 31, 12));
+  // En rad slik den ligger i databasen: kjøpt forrige gang med brukerjustert
+  // mengde (2 i stedet for basisvarens 1), og basisvaren har siden fått nytt
+  // navn, enhet og kategori-forslag.
+  const dbRow = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: 'g1', name: 'Melk lett', amount: 2, amount_range: null, unit: 'l', category: 'Meieri',
+    done: true, done_at: '2026-10-31T10:00:00Z', meal_plan_id: null, staple_item_id: 'Melk',
+    created_at: '2026-09-01T08:00:00Z', basis_batch_id: null, basis_prev_done_at: null, ...over,
+  });
+  const toItem = (r: Record<string, unknown>) => row(r.id as string, {
+    name: r.name as string, amount: r.amount as number, unit: r.unit as string, category: r.category as string,
+    done: r.done as boolean, doneAt: r.done_at as string | null, stapleItemId: r.staple_item_id as string,
+    basisBatchId: r.basis_batch_id as string | null, basisPrevDoneAt: r.basis_prev_done_at as string | null,
+  });
+  const renamed = staple('Melk', { name: 'Melk ekstra lett', amount: 1, unit: 'stk' });
+
+  it('gjenaktivering rører bare avkrysning og batch-felt — ikke navn, mengde, enhet, kategori eller done_at', () => {
+    const [a] = planBasisBatch([renamed], [toItem(dbRow())], SAT).toAdd;
+    const patch = reactivationPatch(a, B);
+    expect(Object.keys(patch).sort()).toEqual(['basis_batch_id', 'basis_prev_done_at', 'done']);
+  });
+
+  it.each([
+    ['vanlig done_at', '2026-10-31T10:00:00Z'],
+    ['legacy-rad uten done_at', null],
+  ])('angring gir raden tilbake nøyaktig slik den var (%s)', (_, doneAt) => {
+    const before = dbRow({ done_at: doneAt });
+    const [a] = planBasisBatch([renamed], [toItem(before)], SAT).toAdd;
+    const reactivated = { ...before, ...reactivationPatch(a, B) };
+    expect(reactivated.done).toBe(false);
+
+    const plan = planUndo([toItem(reactivated)], B);
+    expect(plan.deleteIds).toEqual([]);
+    expect(plan.restore).toHaveLength(1);
+    const after = { ...reactivated, ...restorePatch(plan.restore[0]) };
+    expect(after).toEqual(before);
   });
 });

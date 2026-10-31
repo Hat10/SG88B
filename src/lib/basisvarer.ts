@@ -130,6 +130,28 @@ export function batchTimestamp(id: string): number | null {
 
 // ── Angre ───────────────────────────────────────────────────────────────────
 
+/**
+ * Endringen en gjenaktivering gjør på en eksisterende (avhuket) rad: KUN
+ * avkrysningen og batch-feltene. Navn, mengde, enhet, kategori og done_at
+ * røres ikke — da kan angring (restorePatch) sette raden tilbake nøyaktig
+ * slik den var. Innholdet friskes uansett opp fra basisvaren av
+ * syncGroceryList når handleuken starter; da er angring ikke lenger mulig
+ * (se latestUndoableBatch), så de to kan aldri komme i konflikt.
+ */
+export function reactivationPatch(a: BasisAddition, batchId: string): Record<string, unknown> {
+  return { done: false, basis_batch_id: batchId, basis_prev_done_at: a.prevDoneAt };
+}
+
+/** Endringen angring gjør på en gjenaktivert rad — motsatsen til reactivationPatch. */
+export function restorePatch(r: { doneAt: string }): Record<string, unknown> {
+  return {
+    done: true,
+    done_at: r.doneAt === LEGACY_DONE_AT ? null : r.doneAt,
+    basis_batch_id: null,
+    basis_prev_done_at: null,
+  };
+}
+
 export interface UndoPlan {
   /** Nye rader fra innsettingen som ikke er krysset av — slettes. */
   deleteIds: string[];
