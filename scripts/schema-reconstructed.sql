@@ -739,6 +739,10 @@ create table public.grocery_items (
   meal_plan_id     uuid references public.meal_plan(id) on delete cascade,
   staple_item_id   uuid references public.staple_items(id) on delete cascade,
   created_at       timestamptz default now(),
+  -- [CONFIRMED] scripts/2026-10-31_basis_batch_id.sql — «Legg til basisvarer
+  -- for neste uke» + Angre (src/lib/basisvarer.ts).
+  basis_batch_id      uuid,
+  basis_prev_done_at  timestamptz,
   constraint grocery_items_single_origin check (
     (meal_plan_id is not null)::int + (staple_item_id is not null)::int <= 1
   )
@@ -761,6 +765,7 @@ create index grocery_items_staple_item_idx on public.grocery_items (staple_item_
 -- freeform/meal rows with staple_item_id = null, or vice versa.
 create unique index grocery_items_meal_name_uidx on public.grocery_items (meal_plan_id, name);
 create unique index grocery_items_staple_uidx     on public.grocery_items (staple_item_id);
+create index grocery_items_basis_batch_idx on public.grocery_items (basis_batch_id) where basis_batch_id is not null;
 
 
 -- ============================================================================

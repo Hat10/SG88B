@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMatplan, isStapleDueNextWeek, todayKey, type StapleItem } from '../contexts/MatplanContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
@@ -6,6 +6,10 @@ import { Card } from '../components';
 import HandlelisteCard from './middag/HandlelisteCard';
 import UnitSelect from './middag/UnitSelect';
 import ShoppingMode from './middag/ShoppingMode';
+import BasisvarerDialog from './middag/BasisvarerDialog';
+import {
+  planBasisBatch, isStapleOnList, latestUndoableBatch, undoMessage, basisvarer, varer, type BasisPlan,
+} from '../lib/basisvarer';
 
 // Eget menypunkt for handlelisten. Bodde tidligere delvis i en «Dagligvarer»-
 // fane på Middag-siden (DagligvarerTab.tsx) — den fanen er fjernet, og hele
@@ -37,7 +41,7 @@ function sortStaples(items: StapleItem[]): StapleItem[] {
 }
 
 function StapleManager() {
-  const { stapleItems, groceryItems, addStaple, updateStaple, removeStaple, restoreStaple, addStapleToGroceryListNow } = useMatplan();
+  const { stapleItems, groceryItems, addStaple, updateStaple, removeStaple, addBasisBatch, undoBasisBatch } = useMatplan();
   const { confirm } = useConfirm();
   const { notify } = useSnackbar();
   const [draft, setDraft] = useState(emptyStapleDraft());
@@ -48,25 +52,51 @@ function StapleManager() {
   // basisvarer trolig bare trenger et navn.
   const [showFrequency, setShowFrequency] = useState(false);
   const today = todayKey();
-  const [addingNextWeek, setAddingNextWeek] = useState(false);
+  const [busy, setBusyState] = useState(false);
+  // Ref i tillegg til state: «Angre» i snackbaren kaller undo() fra en eldre
+  // render, der busy-staten er utdatert.
+  const busyRef = useRef(false);
+  const setBusy = (v: boolean) => { busyRef.current = v; setBusyState(v); };
+  // Planen som vises i bekreftelsesdialogen — fryst når dialogen åpnes, og
+  // nøyaktig dette objektet sendes til addBasisBatch, så «Legg til N» legger
+  // til de N varene dialogen viste (ikke noe som endret seg i mellomtiden).
+  const [pendingPlan, setPendingPlan] = useState<BasisPlan | null>(null);
 
-  // Uavhuket rad finnes allerede (trykk, eller syncGroceryList/manuelt) — da er
-  // det ingenting å legge til, bare vis at den er på listen.
-  const isOnList = (s: StapleItem) => groceryItems.some(g => g.stapleItemId === s.id && !g.done);
-  // Varer som forfaller neste handleuke og ikke allerede står på listen.
-  const nextWeekDue = stapleItems.filter(s => isStapleDueNextWeek(s, today) && !isOnList(s));
+  const isOnList = (s: StapleItem) => isStapleOnList(s, groceryItems);
+  // Samme utvalg som innsettingen: forfaller neste handleuke (lørdag-anker)
+  // og står ikke allerede uavhuket på listen. Se planBasisBatch.
+  const plan = planBasisBatch(stapleItems, groceryItems, today);
+  const dueNextWeekTotal = plan.toAdd.length + plan.skipped.length;
+  // Siste innsetting som fortsatt kan angres — avledet av basis_batch_id på
+  // radene, så den overlever ny innlasting og vises på den andre enheten
+  // også (Realtime-abonnementet i MatplanContext laster inn på nytt).
+  const undoable = latestUndoableBatch(groceryItems, today);
 
-  const addAllNextWeek = async () => {
-    if (addingNextWeek || !nextWeekDue.length) return;
-    setAddingNextWeek(true);
+  const undo = async (batchId: string) => {
+    if (busyRef.current) return;
+    setBusy(true);
     try {
-      // Parallelt, ikke én om gangen. Feil varsles allerede per vare i
-      // addStapleToGroceryListNow — her telles bare de som faktisk ble lagret.
-      const results = await Promise.all(nextWeekDue.map(s => addStapleToGroceryListNow(s.id)));
-      const added = results.filter(Boolean).length;
-      if (added) notify(`${added} ${added === 1 ? 'vare' : 'varer'} lagt til handlelisten`);
+      const res = await undoBasisBatch(batchId);
+      if (res) notify(undoMessage(res.removed, res.kept));
     } finally {
-      setAddingNextWeek(false);
+      setBusy(false);
+    }
+  };
+
+  const confirmAdd = async () => {
+    if (!pendingPlan || busyRef.current) return;
+    const p = pendingPlan;
+    setBusy(true);
+    try {
+      const res = await addBasisBatch(p);
+      setPendingPlan(null);
+      if (!res || !res.added) return;
+      const batchId = res.batchId;
+      notify(`✓ ${basisvarer(res.added)} lagt til`, batchId
+        ? { actionLabel: 'Angre', onAction: () => void undo(batchId), duration: 10_000 }
+        : { duration: 4000 });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -108,10 +138,17 @@ function StapleManager() {
   return (
     <Card eyebrow="Basisvarer" title="Faste og sjeldne basisvarer" action={
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        {nextWeekDue.length > 0 && (
-          <button onClick={() => void addAllNextWeek()} disabled={addingNextWeek} className="btn primary sm"
+        {undoable ? (
+          <button onClick={() => void undo(undoable.batchId)} disabled={busy} className="btn ghost sm"
+            title="Fjern basisvarene som sist ble lagt til for neste uke (varer som er krysset av beholdes)">
+            ↶ Angre basisvarer ({undoable.count})
+          </button>
+        ) : dueNextWeekTotal > 0 && (
+          <button onClick={() => setPendingPlan(plan)} disabled={busy} className="btn primary sm"
             title="Legg til alle basisvarer som forfaller neste handleuke">
-            🛒+ Legg til {nextWeekDue.length} {nextWeekDue.length === 1 ? 'vare' : 'varer'} for neste uke
+            {plan.toAdd.length
+              ? `🛒+ Legg til ${varer(plan.toAdd.length)} for neste uke`
+              : '🛒+ Basisvarer for neste uke'}
           </button>
         )}
         <button onClick={() => setOpen(o => !o)} className="btn ghost sm">{open ? 'Skjul' : 'Administrer'}</button>
@@ -193,6 +230,10 @@ function StapleManager() {
             )}
           </div>
         </div>
+      )}
+      {pendingPlan && (
+        <BasisvarerDialog plan={pendingPlan} busy={busy}
+          onCancel={() => setPendingPlan(null)} onConfirm={() => void confirmAdd()} />
       )}
     </Card>
   );

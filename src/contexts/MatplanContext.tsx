@@ -5,6 +5,14 @@ import { guessCategory } from '../lib/groceryCategories';
 import { useSnackbar } from './SnackbarContext';
 import type { GroceryUndoSnapshot } from '../lib/groceryUndo';
 import { anyTaken, datesInHandleuke, mealDates } from '../lib/middagLeggTil';
+import { newBatchId, planUndo, type BasisPlan } from '../lib/basisvarer';
+
+// PostgREST svarer slik når en kolonne i payloaden ikke finnes (PGRST204,
+// «Could not find the 'basis_batch_id' column …»), eller Postgres selv
+// (42703 undefined_column) — dvs. at scripts/2026-10-31_basis_batch_id.sql
+// ikke er kjørt ennå.
+const isMissingBasisColumn = (error: { code?: string; message: string } | null) =>
+  !!error && (error.code === 'PGRST204' || error.code === '42703') && /basis_/.test(error.message);
 
 // Faste enhetsvalg — delt mellom oppskrift-editoren (Ingredient.unit) og
 // «Legg til kjøpsfrekvens» i StapleManager (StapleItem.unit), én kilde til
@@ -83,7 +91,21 @@ export interface GroceryItem {
   // (ShoppingMode.tsx). Ren tekst uten fast sett verdier i databasen — den
   // kanoniske lista lever i GROCERY_CATEGORIES, ikke i et CHECK-constraint.
   category: string | null;
+  // Satt når raden ble lagt til (eller gjenaktivert) av «Legg til basisvarer
+  // for neste uke» — én uuid (v7, se newBatchId i src/lib/basisvarer.ts) per
+  // innsetting, felles for alle radene i den. Grunnlaget for «Angre». null for
+  // alt annet, og alltid null hvis scripts/2026-10-31_basis_batch_id.sql ikke
+  // er kjørt ennå (kolonnen mangler da i select('*')) — angring er da skjult.
+  basisBatchId: string | null;
+  // Bare satt sammen med basisBatchId, for en rad som var AVHUKET før
+  // innsettingen gjenaktiverte den (én rad per basisvare, se
+  // grocery_items_staple_uidx): den gamle done_at, som angring skriver
+  // tilbake i stedet for å slette raden. null ⇒ raden var ny, slettes.
+  basisPrevDoneAt: string | null;
 }
+
+export type AddBasisBatchResult = { added: number; batchId: string | null };
+export type UndoBasisBatchResult = { removed: number; kept: number };
 
 export type AddMealDaysResult = { ok: true } | { ok: false; reason: 'taken' | 'error' };
 
@@ -113,6 +135,10 @@ interface MatplanCtx {
   addMealToGroceryListNow: (mealPlanId: string) => Promise<void>;
   /** Legger til (eller reaktiverer) handlelisteraden for ÉN bestemt basisvare med det samme, uavhengig av om den er forfalt nå. Flipper en avhuket rad tilbake til done: false. Returnerer true hvis raden ble lagret. */
   addStapleToGroceryListNow: (stapleId: string) => Promise<boolean>;
+  /** «Legg til basisvarer for neste uke»: setter inn/gjenaktiverer alle radene i planen i én upsert med felles basis_batch_id. batchId er null hvis kolonnen mangler (migrering ikke kjørt) — da finnes ingen angring. null ved feil. */
+  addBasisBatch: (plan: BasisPlan) => Promise<AddBasisBatchResult | null>;
+  /** Angrer én basisvare-innsetting: sletter nye rader og setter gjenaktiverte tilbake til avhuket — bare de som ikke er krysset av. null ved feil. */
+  undoBasisBatch: (batchId: string) => Promise<UndoBasisBatchResult | null>;
   /** Frittstående dagligvare — ikke koblet til en middag eller basisvare. */
   addGroceryItem: (input: { name: string; amount: number | null }) => Promise<void>;
   setGroceryAmount: (id: string, amount: number) => Promise<void>;
@@ -131,7 +157,7 @@ const MatplanContext = createContext<MatplanCtx>({
   addRecipe: noop, updateRecipe: noop, removeRecipe: noop, restoreRecipe: noop,
   setMealPlan: noop, clearMealPlan: noop, addMealDays: async () => ({ ok: false, reason: 'error' }), addMealEntries: async () => ({ ok: false, reason: 'error' }),
   addStaple: noop, updateStaple: noop, removeStaple: noop, restoreStaple: noop,
-  syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: async () => false, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
+  syncGroceryList: noop, addMealToGroceryListNow: noop, addStapleToGroceryListNow: async () => false, addBasisBatch: async () => null, undoBasisBatch: async () => null, addGroceryItem: noop, setGroceryAmount: noop, setGroceryCategory: noop,
   toggleGroceryItem: noop, restoreGroceryItems: noop, removeGroceryItem: noop,
 });
 
@@ -172,6 +198,8 @@ const groceryFromRow = (r: Record<string, unknown>): GroceryItem => ({
   mealPlanId: (r.meal_plan_id as string | null) ?? null,
   stapleItemId: (r.staple_item_id as string | null) ?? null,
   category: (r.category as string | null) ?? null,
+  basisBatchId: (r.basis_batch_id as string | null | undefined) ?? null,
+  basisPrevDoneAt: (r.basis_prev_done_at as string | null | undefined) ?? null,
 });
 
 /**
@@ -570,6 +598,53 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
+  // Én upsert for hele innsettingen (ikke én per vare), med samme
+  // onConflict som addStapleToGroceryListNow — en avhuket rad for basisvaren
+  // gjenaktiveres. basis_prev_done_at husker den gamle done_at, slik at
+  // angring kan legge raden tilbake som kjøpt i stedet for å slette den.
+  // Mangler kolonnene (migreringen ikke kjørt) prøves det på nytt uten dem:
+  // varene legges til som før, bare uten angremulighet.
+  const addBasisBatch = async (plan: BasisPlan): Promise<AddBasisBatchResult | null> => {
+    if (!plan.toAdd.length) return { added: 0, batchId: null };
+    const batchId = newBatchId();
+    const base = plan.toAdd.map(a => stapleRowFor(a.staple, resolveCategory));
+    let { error } = await supabase.from('grocery_items')
+      .upsert(base.map((row, i) => ({ ...row, basis_batch_id: batchId, basis_prev_done_at: plan.toAdd[i].prevDoneAt })),
+        { onConflict: 'staple_item_id' });
+    let usedBatchId: string | null = batchId;
+    if (isMissingBasisColumn(error)) {
+      usedBatchId = null;
+      ({ error } = await supabase.from('grocery_items').upsert(base, { onConflict: 'staple_item_id' }));
+    }
+    if (reportDbError('Å legge basisvarene til handlelisten', error)) return null;
+    await load();
+    return { added: plan.toAdd.length, batchId: usedBatchId };
+  };
+
+  // Henter radene fra databasen i stedet for å stole på groceryItems — den
+  // andre enheten kan ha krysset av noe siden sist. Slettingen filtrerer i
+  // tillegg på done = false og basis_batch_id i selve spørringen, så en rad
+  // som krysses av i mellomtiden aldri slettes.
+  const undoBasisBatch = async (batchId: string): Promise<UndoBasisBatchResult | null> => {
+    const { data, error } = await supabase.from('grocery_items').select('*').eq('basis_batch_id', batchId);
+    if (reportDbError('Angring', error) || !data) return null;
+    const plan = planUndo(data.map(groceryFromRow), batchId);
+    let removed = 0;
+    if (plan.deleteIds.length) {
+      const { data: deleted, error: delError } = await supabase.from('grocery_items').delete()
+        .in('id', plan.deleteIds).eq('basis_batch_id', batchId).eq('done', false).select('id');
+      if (!reportDbError('Angring', delError)) removed += deleted?.length ?? 0;
+    }
+    for (const r of plan.restore) {
+      const { data: restored, error: upError } = await supabase.from('grocery_items')
+        .update({ done: true, done_at: r.doneAt, basis_batch_id: null, basis_prev_done_at: null })
+        .eq('id', r.id).eq('basis_batch_id', batchId).eq('done', false).select('id');
+      if (!reportDbError('Angring', upError)) removed += restored?.length ?? 0;
+    }
+    await load();
+    return { removed, kept: plan.keptIds.length };
+  };
+
   const addGroceryItem = async ({ name, amount }: { name: string; amount: number | null }) => {
     const { error } = await supabase.from('grocery_items').insert({
       name, amount, unit: null, meal_plan_id: null, staple_item_id: null, category: resolveCategory(name),
@@ -582,8 +657,16 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
     await load();
   };
 
+  // En basisvarerad som får endret mengde etter «Legg til basisvarer» kobles
+  // fra innsettingen (basis_batch_id = null), så angring aldri fjerner en
+  // vare noen har gjort noe med. Bare når raden faktisk har en batch-id —
+  // da vet vi også at kolonnen finnes.
   const setGroceryAmount = async (id: string, amount: number) => {
-    const { error } = await supabase.from('grocery_items').update({ amount }).eq('id', id);
+    const item = groceryItems.find(g => g.id === id);
+    const patch: Record<string, unknown> = item?.basisBatchId
+      ? { amount, basis_batch_id: null, basis_prev_done_at: null }
+      : { amount };
+    const { error } = await supabase.from('grocery_items').update(patch).eq('id', id);
     if (reportDbError('Endring av mengde', error)) return;
     await load();
   };
@@ -657,7 +740,7 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
       addRecipe, updateRecipe, removeRecipe, restoreRecipe,
       setMealPlan, clearMealPlan, addMealDays, addMealEntries,
       addStaple, updateStaple, removeStaple, restoreStaple,
-      syncGroceryList, addMealToGroceryListNow, addStapleToGroceryListNow, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, restoreGroceryItems, removeGroceryItem,
+      syncGroceryList, addMealToGroceryListNow, addStapleToGroceryListNow, addBasisBatch, undoBasisBatch, addGroceryItem, setGroceryAmount, setGroceryCategory, toggleGroceryItem, restoreGroceryItems, removeGroceryItem,
     }}>
       {children}
     </MatplanContext.Provider>
