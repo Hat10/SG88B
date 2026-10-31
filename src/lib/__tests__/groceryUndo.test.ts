@@ -7,7 +7,8 @@ import {
 
 const g = (id: string, over: Partial<GroceryItem> = {}): GroceryItem => ({
   id, name: 'Melk', amount: 1, amountRange: null, unit: 'l', done: false, doneAt: null,
-  mealPlanId: null, stapleItemId: null, category: null, ...over,
+  mealPlanId: null, stapleItemId: null, category: null,
+  basisBatchId: null, basisPrevDoneAt: null, ...over,
 });
 const staple: StapleItem = {
   id: 's1', name: 'Kaffe', amount: 1, unit: 'pk', intervalWeeks: 2,
