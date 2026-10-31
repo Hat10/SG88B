@@ -1235,3 +1235,31 @@ button:not(:disabled):hover, [role="button"]:not([aria-disabled="true"]):hover {
 @media (max-width: 380px) { .mv-star { width: 40px; } }
 /* Status-visning i listen: samme utseende, men ikke en kontroll. */
 .mv-must.static { min-height: 36px; padding: 2px 14px; cursor: default; }
+
+/* ───── Sorterbar liste (src/SortableList.tsx) ─────
+   Brukt for ingredienser i oppskrift-editoren. Bare grepet starter dra, så
+   touch-action: none settes KUN der — resten av linjen scroller siden som før. */
+.sort-row { position: relative; display: flex; align-items: flex-start; gap: 4px; border-radius: 6px; }
+.sort-row.is-dragging {
+  z-index: 2; background: var(--surface); opacity: 0.9;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.sort-row-body { flex: 1; min-width: 0; }
+.sort-grip, .sort-step {
+  flex-shrink: 0; display: grid; place-items: center; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  color: var(--ink-4); font-size: 15px; line-height: 1;
+}
+button.sort-grip {
+  width: 28px; min-height: 36px;
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+button.sort-grip:hover { color: var(--ink); background: var(--chip); }
+.sort-row.is-dragging button.sort-grip, body.sort-dragging, body.sort-dragging * { cursor: grabbing !important; }
+button.sort-step { width: 36px; min-height: 36px; border-color: var(--line); cursor: pointer; font-size: 12px; }
+button.sort-step:disabled { opacity: 0.3; cursor: default; }
+/* Berøringsskjerm: minst 44×44 px trykkflate. */
+@media (pointer: coarse) {
+  button.sort-grip, button.sort-step { min-width: 44px; min-height: 44px; }
+}

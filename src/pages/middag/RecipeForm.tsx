@@ -1,12 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type KeyboardEvent } from 'react';
 import { useMatplan, type Recipe, type Ingredient } from '../../contexts/MatplanContext';
 import { tagSuggestions, applyTagSuggestion } from '../../lib/middagVelger';
+import { formatIngredientAmount } from '../../lib/dagensMiddag';
+import SortableList from '../../SortableList';
 import UnitSelect from './UnitSelect';
 
 // Skjema for ny/redigert oppskrift — flyttet ut av OppskrifterTab.tsx da
 // skjemaet gikk fra alltid synlig til å åpnes ved «+ Ny» / «Rediger».
 
-const emptyIngredient = (): Ingredient => ({ name: '', amount: null, unit: null, amountRange: null });
+// Ingredienser lagres som en JSON-array (recipes.ingredients) — rekkefølgen i
+// arrayen ER rekkefølgen, så omsortering er bare å endre rekkefølgen i
+// draften; den lagres med «Lagre endring» som alt annet i skjemaet.
+//
+// _key er en stabil, rent lokal id per linje (strippes før lagring). Den
+// trengs av dra-og-slipp, og som React-key så IngredientRow sin lokale
+// amountText-state følger med linjen når den flyttes (key={index} ville latt
+// teksten bli stående igjen på gammel plass).
+type DraftIngredient = Ingredient & { _key: string };
+
+let ingredientKeySeq = 0;
+const withKey = (ing: Ingredient): DraftIngredient => ({ ...ing, _key: `ing-${++ingredientKeySeq}` });
+const emptyIngredient = (): DraftIngredient => withKey({ name: '', amount: null, unit: null, amountRange: null });
 
 // Tolker det som faktisk står i Mengde-feltet: en bindestrek ⇒ intervall
 // (f.eks. "0,5-1" for salt i teskjeer, normalisert til "0.5-1"), ellers et
@@ -19,9 +33,27 @@ function deriveAmount(text: string): Pick<Ingredient, 'amount' | 'amountRange'> 
   return { amount: parsed != null && Number.isFinite(parsed) ? parsed : null, amountRange: null };
 }
 
-function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
+function IngredientRow({ ing, stapleNames, onChange, onRemove, onEnter, autoFocus, onAutoFocused }: {
   ing: Ingredient; stapleNames: Set<string>; onChange: (patch: Partial<Ingredient>) => void; onRemove: () => void;
+  /** Satt bare for siste linje: Enter der lager en ny, tom linje. */
+  onEnter?: () => void;
+  /** Sett fokus i navnefeltet ved montering (ny linje via Enter / «+ Legg til»). */
+  autoFocus?: boolean;
+  onAutoFocused?: () => void;
 }) {
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    nameRef.current?.focus();
+    onAutoFocused?.();
+  }, [autoFocus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || !onEnter || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    onEnter();
+  };
+
   // Matcher navnet en basisvare (Dagligvarer → Basisvarer)? Da er det trolig
   // noe man vanligvis har hjemme — vis avkrysning for å ta den med likevel,
   // i stedet for å anta den skal på handlelisten som alle andre ingredienser.
@@ -55,10 +87,12 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', gap: 6 }}>
-        <input className="input" placeholder="Ingrediens" value={ing.name}
-          onChange={e => onChange({ name: e.target.value })} style={{ flex: 3 }} />
+        <input ref={nameRef} className="input" placeholder="Ingrediens" value={ing.name}
+          onChange={e => onChange({ name: e.target.value })} onKeyDown={handleKeyDown}
+          enterKeyHint={onEnter ? 'next' : undefined} style={{ flex: 3, minWidth: 0 }} />
         <input className="input" placeholder="Mengde, f.eks. 0,5-1" inputMode="text" value={amountText}
-          onChange={e => handleAmountChange(e.target.value)}
+          onChange={e => handleAmountChange(e.target.value)} onKeyDown={handleKeyDown}
+          enterKeyHint={onEnter ? 'next' : undefined}
           style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }} />
         <UnitSelect value={ing.unit ?? ''} onChange={unit => onChange({ unit: unit || null })} style={{ flex: 1 }} />
         <button onClick={onRemove} aria-label="Fjern ingrediens" style={{
@@ -78,9 +112,25 @@ function IngredientRow({ ing, stapleNames, onChange, onRemove }: {
   );
 }
 
+/** Kompakt, skrivebeskyttet linje i «Endre rekkefølge»-modus — gir plass til ▲▼ på smale skjermer. */
+function IngredientSummary({ ing }: { ing: Ingredient }) {
+  const amount = formatIngredientAmount(ing);
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, minHeight: 36,
+      padding: '0 4px', marginBottom: 6, fontSize: 13.5, color: ing.name.trim() ? 'var(--ink)' : 'var(--ink-4)',
+    }}>
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {ing.name.trim() || '(tom linje)'}
+      </span>
+      {amount && <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--ink-3)', flexShrink: 0 }}>{amount}</span>}
+    </div>
+  );
+}
+
 interface Draft {
   name: string;
-  ingredients: Ingredient[];
+  ingredients: DraftIngredient[];
   cookTimeMinutes: string;
   instructions: string;
   tags: string;
@@ -88,7 +138,7 @@ interface Draft {
 
 const draftFromRecipe = (r: Recipe): Draft => ({
   name: r.name,
-  ingredients: r.ingredients.length ? r.ingredients : [emptyIngredient()],
+  ingredients: r.ingredients.length ? r.ingredients.map(withKey) : [emptyIngredient()],
   cookTimeMinutes: r.cookTimeMinutes == null ? '' : String(r.cookTimeMinutes),
   instructions: r.instructions ?? '',
   tags: r.tags.join(', '),
@@ -111,9 +161,16 @@ export default function RecipeForm({ recipe, allTags, onSaved, onCancel, onDelet
   const [draft, setDraft] = useState<Draft>(() => recipe ? draftFromRecipe(recipe) : emptyDraft());
   const [saving, setSaving] = useState(false);
   const [tagsFocused, setTagsFocused] = useState(false);
+  // «Endre rekkefølge»: ▲▼ per linje som alternativ til å dra i grepet.
+  const [reordering, setReordering] = useState(false);
+  // _key til en nylig lagt til linje som skal få fokus når den monteres.
+  const [focusKey, setFocusKey] = useState<string | null>(null);
 
   // Bytter man oppskrift mens skjemaet er åpent, start på nytt fra den.
-  useEffect(() => { setDraft(recipe ? draftFromRecipe(recipe) : emptyDraft()); }, [recipe?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setDraft(recipe ? draftFromRecipe(recipe) : emptyDraft());
+    setReordering(false);
+  }, [recipe?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stapleNames = new Set(stapleItems.map(s => s.name.trim().toLowerCase()));
   const suggestions = tagsFocused ? tagSuggestions(draft.tags, allTags) : [];
@@ -124,7 +181,12 @@ export default function RecipeForm({ recipe, allTags, onSaved, onCancel, onDelet
   const removeIngredient = (i: number) => {
     setDraft(d => ({ ...d, ingredients: d.ingredients.filter((_, idx) => idx !== i) }));
   };
-  const addIngredient = () => setDraft(d => ({ ...d, ingredients: [...d.ingredients, emptyIngredient()] }));
+  // Ny ingrediens havner alltid nederst, og får fokus.
+  const addIngredient = () => {
+    const next = emptyIngredient();
+    setFocusKey(next._key);
+    setDraft(d => ({ ...d, ingredients: [...d.ingredients, next] }));
+  };
 
   const submit = async () => {
     if (!draft.name.trim() || saving) return;
@@ -137,7 +199,8 @@ export default function RecipeForm({ recipe, allTags, onSaved, onCancel, onDelet
         // (uansett hva som måtte stå i draften); basisvare ⇒ kun med hvis
         // brukeren aktivt har krysset av (se IngredientRow).
         const onGroceryList = stapleNames.has(name.toLowerCase()) ? i.onGroceryList === true : true;
-        return { ...i, name, onGroceryList };
+        const { _key, ...ing } = i; // eslint-disable-line @typescript-eslint/no-unused-vars
+        return { ...ing, name, onGroceryList };
       }),
       cookTimeMinutes: draft.cookTimeMinutes.trim() ? Number(draft.cookTimeMinutes) : null,
       instructions: draft.instructions.trim() || null,
@@ -163,13 +226,33 @@ export default function RecipeForm({ recipe, allTags, onSaved, onCancel, onDelet
       </div>
 
       <div>
-        <div className="card-eyebrow" style={{ marginBottom: 4 }}>Ingredienser</div>
-        {draft.ingredients.map((ing, i) => (
-          <IngredientRow key={i} ing={ing} stapleNames={stapleNames}
-            onChange={patch => patchIngredient(i, patch)}
-            onRemove={() => removeIngredient(i)} />
-        ))}
-        <button onClick={addIngredient} className="btn ghost sm" style={{ marginTop: 2 }}>+ Legg til ingrediens</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <div className="card-eyebrow">Ingredienser</div>
+          {(draft.ingredients.length > 1 || reordering) && (
+            <button type="button" onClick={() => setReordering(r => !r)} className="btn ghost sm" aria-pressed={reordering}>
+              {reordering ? '✓ Ferdig' : '↕ Endre rekkefølge'}
+            </button>
+          )}
+        </div>
+        <SortableList
+          items={draft.ingredients}
+          getId={ing => ing._key}
+          getLabel={ing => ing.name}
+          noun="ingrediens"
+          stepMode={reordering}
+          onReorder={ingredients => setDraft(d => ({ ...d, ingredients }))}
+          renderItem={(ing, i) => reordering
+            ? <IngredientSummary ing={ing} />
+            : <IngredientRow ing={ing} stapleNames={stapleNames}
+                onChange={patch => patchIngredient(i, patch)}
+                onRemove={() => removeIngredient(i)}
+                onEnter={i === draft.ingredients.length - 1 ? addIngredient : undefined}
+                autoFocus={ing._key === focusKey}
+                onAutoFocused={() => setFocusKey(null)} />}
+        />
+        {!reordering && (
+          <button onClick={addIngredient} className="btn ghost sm" style={{ marginTop: 2 }}>+ Legg til ingrediens</button>
+        )}
       </div>
 
       <div>
