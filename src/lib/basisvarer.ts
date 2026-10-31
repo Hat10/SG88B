@@ -12,7 +12,7 @@
 // til avhuket med sin gamle done_at (basis_prev_done_at) — den sto der fra
 // før og skal aldri slettes.
 import { handleukeStart } from '../hooks/useWeeklyBucket';
-import { isStapleDueNextWeek, type GroceryItem, type StapleItem } from '../contexts/MatplanContext';
+import { isStapleDueNextWeek, stapleRowFor, type GroceryItem, type StapleItem } from '../contexts/MatplanContext';
 
 const addDaysKey = (key: string, n: number): string => {
   const d = new Date(key + 'T00:00:00Z');
@@ -46,6 +46,9 @@ export interface BasisPlan {
   weekStart: string;
   /** Fredagen neste handleuke slutter. */
   weekEnd: string;
+  /** Alt som KAN legges til (forfaller neste uke, ikke på listen) — det dialogen lister opp. */
+  candidates: BasisAddition[];
+  /** Det som faktisk legges til: de valgte blant `candidates` (alle hvis ingen utvalg er gitt). */
   toAdd: BasisAddition[];
   /** Forfaller neste uke, men står allerede (uavhuket) på listen. */
   skipped: StapleItem[];
@@ -56,26 +59,50 @@ export const isStapleOnList = (s: StapleItem, items: GroceryItem[]) =>
   items.some(g => g.stapleItemId === s.id && !g.done);
 
 /**
- * Hva «Legg til basisvarer» kommer til å gjøre akkurat nå. Samme utvalg som
- * knappen alltid har brukt: basisvarer som forfaller neste handleuke
- * (isStapleDueNextWeek — lørdag-anker via handleukeStart) og som ikke
- * allerede står uavhuket på listen. Rekkefølgen følger `staples`.
+ * Hva «Legg til basisvarer» kommer til å gjøre akkurat nå. Kandidatene er
+ * samme utvalg som knappen alltid har brukt: basisvarer som forfaller neste
+ * handleuke (isStapleDueNextWeek — lørdag-anker via handleukeStart) og som
+ * ikke allerede står uavhuket på listen. Rekkefølgen følger `staples`.
+ * `selectedIds` (basisvare-id-er) avgrenser hva som faktisk legges til;
+ * utelatt ⇒ alle kandidatene. Se withSelection.
  */
-export function planBasisBatch(staples: StapleItem[], items: GroceryItem[], today: string): BasisPlan {
+export function planBasisBatch(
+  staples: StapleItem[], items: GroceryItem[], today: string, selectedIds?: Iterable<string>,
+): BasisPlan {
   const weekStart = nextHandleukeStart(today);
-  const toAdd: BasisAddition[] = [];
+  const candidates: BasisAddition[] = [];
   const skipped: StapleItem[] = [];
   for (const s of staples) {
     if (!isStapleDueNextWeek(s, today)) continue;
     if (isStapleOnList(s, items)) { skipped.push(s); continue; }
     const existing = items.find(g => g.stapleItemId === s.id);
-    toAdd.push({
+    candidates.push({
       staple: s,
       existingRowId: existing?.id ?? null,
       prevDoneAt: existing ? (existing.doneAt ?? LEGACY_DONE_AT) : null,
     });
   }
-  return { weekStart, weekEnd: addDaysKey(weekStart, 6), toAdd, skipped };
+  const plan = { weekStart, weekEnd: addDaysKey(weekStart, 6), candidates, toAdd: candidates, skipped };
+  return selectedIds ? withSelection(plan, selectedIds) : plan;
+}
+
+/**
+ * Samme plan, men bare de valgte basisvarene (id-er) legges til. Varer som
+ * velges bort røres ikke i det hele tatt — verken raden eller basisvaren
+ * (last_bought_at, postponed_until) — så de kommer med i den vanlige
+ * syncGroceryList når handleuken starter. Id-er som ikke er kandidater
+ * ignoreres; rekkefølgen følger kandidatene.
+ */
+export function withSelection(plan: BasisPlan, selectedIds: Iterable<string>): BasisPlan {
+  const selected = new Set(selectedIds);
+  return { ...plan, toAdd: plan.candidates.filter(a => selected.has(a.staple.id)) };
+}
+
+/** «7 varer blir lagt til …» når alle er valgt, ellers «5 av 7 varer legges til …». */
+export function selectionSummary(selected: number, total: number, range: string): string {
+  return selected === total
+    ? `${varer(total)} blir lagt til handlelisten for neste handleuke (${range}).`
+    : `${selected} av ${varer(total)} legges til handlelisten for neste handleuke (${range}).`;
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'mai', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'des'];
@@ -87,11 +114,6 @@ export function formatHandleukeRange(weekStart: string): string {
   const [, em, ed] = end.split('-').map(Number);
   const startPart = sm === em ? `lør ${sd}.` : `lør ${sd}. ${MONTHS[sm - 1]}`;
   return `${startPart}–fre ${ed}. ${MONTHS[em - 1]}`;
-}
-
-/** Forhåndsvisning av varenavn: de første `max`, og hvor mange som gjenstår. */
-export function previewNames(names: string[], max = 7): { shown: string[]; rest: number } {
-  return { shown: names.slice(0, max), rest: Math.max(0, names.length - max) };
 }
 
 export const varer = (n: number) => `${n} ${n === 1 ? 'vare' : 'varer'}`;
@@ -150,6 +172,37 @@ export function restorePatch(r: { doneAt: string }): Record<string, unknown> {
     basis_batch_id: null,
     basis_prev_done_at: null,
   };
+}
+
+export interface BatchWrites {
+  /** Nye rader (basisvaren har ingen rad fra før) — én upsert med ignoreDuplicates. */
+  insertRows: Record<string, unknown>[];
+  /** Gjenbrukte, avhukede rader — oppdateres hver for seg (reactivationPatch). */
+  updates: { id: string; patch: Record<string, unknown> }[];
+}
+
+/**
+ * Databaseskrivingene for `plan.toAdd` — og ingenting annet: bortvalgte
+ * kandidater og overhoppede varer gir ingen skriving. `batchId` null ⇒
+ * kolonnene finnes ikke (migreringen ikke kjørt): samme skriving uten
+ * angrefeltene.
+ */
+export function buildBatchWrites(
+  plan: BasisPlan, batchId: string | null, resolveCategory: (name: string) => string | null,
+): BatchWrites {
+  const insertRows: Record<string, unknown>[] = [];
+  const updates: BatchWrites['updates'] = [];
+  for (const a of plan.toAdd) {
+    if (a.existingRowId) {
+      updates.push({ id: a.existingRowId, patch: batchId ? reactivationPatch(a, batchId) : { done: false } });
+    } else {
+      insertRows.push({
+        ...stapleRowFor(a.staple, resolveCategory),
+        ...(batchId ? { basis_batch_id: batchId, basis_prev_done_at: null } : {}),
+      });
+    }
+  }
+  return { insertRows, updates };
 }
 
 export interface UndoPlan {

@@ -6,7 +6,8 @@ vi.mock('../supabase', () => ({ supabase: {} }));
 
 import type { GroceryItem, StapleItem } from '../../contexts/MatplanContext';
 import {
-  planBasisBatch, nextHandleukeStart, formatHandleukeRange, previewNames, planUndo,
+  planBasisBatch, nextHandleukeStart, formatHandleukeRange, planUndo, withSelection,
+  buildBatchWrites, selectionSummary,
   latestUndoableBatch, newBatchId, batchTimestamp, undoMessage, LEGACY_DONE_AT,
   reactivationPatch, restorePatch,
 } from '../basisvarer';
@@ -89,14 +90,6 @@ describe('planBasisBatch', () => {
   it('frittstående/middag-rader med samme navn teller ikke som «på listen» (samme regel som upserten)', () => {
     const items = [row('g1', { name: 'Melk' })];
     expect(planBasisBatch([staple('Melk')], items, SAT).toAdd).toHaveLength(1);
-  });
-});
-
-describe('previewNames', () => {
-  it('viser de første 7 og teller resten', () => {
-    const names = Array.from({ length: 10 }, (_, i) => `v${i}`);
-    expect(previewNames(names)).toEqual({ shown: names.slice(0, 7), rest: 3 });
-    expect(previewNames(['a', 'b'])).toEqual({ shown: ['a', 'b'], rest: 0 });
   });
 });
 
@@ -218,5 +211,67 @@ describe('gjenaktivering + angring av en gjenbrukt rad', () => {
     expect(plan.restore).toHaveLength(1);
     const after = { ...reactivated, ...restorePatch(plan.restore[0]) };
     expect(after).toEqual(before);
+  });
+});
+
+describe('valg av varer i dialogen', () => {
+  const B = newBatchId(Date.UTC(2026, 9, 31, 12));
+  const cat = () => null;
+  const staples = [staple('Melk'), staple('Egg'), staple('Brød'), staple('Smør')];
+  // Melk: gjenbrukt (avhuket) rad · Smør: gjenbrukt rad, men velges bort ·
+  // Egg/Brød: ingen rad fra før. Kaffe: sto på listen fra før (uten batch).
+  const before = [
+    row('gMelk', { stapleItemId: 'Melk', done: true, doneAt: '2026-10-31T10:00:00Z' }),
+    row('gSmør', { stapleItemId: 'Smør', done: true, doneAt: '2026-10-30T10:00:00Z' }),
+    row('gKaffe', { stapleItemId: 'Kaffe' }),
+  ];
+
+  it('uten utvalg legges alle kandidatene til; med utvalg bare de valgte', () => {
+    expect(planBasisBatch(staples, before, SAT).toAdd.map(a => a.staple.id)).toEqual(['Melk', 'Egg', 'Brød', 'Smør']);
+    const plan = planBasisBatch(staples, before, SAT, ['Brød', 'Melk', 'Ukjent']);
+    expect(plan.candidates.map(a => a.staple.id)).toEqual(['Melk', 'Egg', 'Brød', 'Smør']);
+    expect(plan.toAdd.map(a => a.staple.id)).toEqual(['Melk', 'Brød']);
+    expect(withSelection(planBasisBatch(staples, before, SAT), ['Brød', 'Melk'])).toEqual(plan);
+  });
+
+  it('bare valgte varer settes inn — bortvalgte gir ingen skriving i det hele tatt', () => {
+    const plan = planBasisBatch(staples, before, SAT, ['Melk', 'Brød']);
+    const w = buildBatchWrites(plan, B, cat);
+    expect(w.insertRows.map(r => r.staple_item_id)).toEqual(['Brød']);
+    expect(w.insertRows[0]).toMatchObject({ basis_batch_id: B, basis_prev_done_at: null, done: false });
+    expect(w.updates).toEqual([{ id: 'gMelk', patch: { done: false, basis_batch_id: B, basis_prev_done_at: '2026-10-31T10:00:00Z' } }]);
+    // Egg (ny) og Smør (gjenbrukt) er valgt bort: ingen rad, ingen oppdatering.
+    const touched = [...w.insertRows.map(r => r.staple_item_id), ...w.updates.map(u => u.id)];
+    expect(touched).not.toContain('Egg');
+    expect(touched).not.toContain('gSmør');
+  });
+
+  it('0 valgt gir ingen innsetting', () => {
+    const plan = planBasisBatch(staples, before, SAT, []);
+    expect(plan.toAdd).toEqual([]);
+    expect(buildBatchWrites(plan, B, cat)).toEqual({ insertRows: [], updates: [] });
+  });
+
+  it('angring etter et delvis valg rører bare de innsatte radene', () => {
+    const plan = planBasisBatch(staples, before, SAT, ['Melk', 'Brød']);
+    const w = buildBatchWrites(plan, B, cat);
+    // «Databasen» etter innsettingen.
+    const after: GroceryItem[] = before.map(g => {
+      const u = w.updates.find(x => x.id === g.id);
+      return u ? { ...g, done: false, basisBatchId: B, basisPrevDoneAt: u.patch.basis_prev_done_at as string } : g;
+    });
+    after.push(row('gBrød', { stapleItemId: 'Brød', basisBatchId: B }));
+
+    expect(latestUndoableBatch(after, SAT)).toEqual({ batchId: B, count: 2 });
+    expect(planUndo(after, B)).toEqual({
+      deleteIds: ['gBrød'],
+      restore: [{ id: 'gMelk', doneAt: '2026-10-31T10:00:00Z' }],
+      keptIds: [],
+    });
+  });
+
+  it('teksten følger valget', () => {
+    expect(selectionSummary(7, 7, 'lør 7.–fre 13. nov')).toBe('7 varer blir lagt til handlelisten for neste handleuke (lør 7.–fre 13. nov).');
+    expect(selectionSummary(5, 7, 'lør 7.–fre 13. nov')).toBe('5 av 7 varer legges til handlelisten for neste handleuke (lør 7.–fre 13. nov).');
   });
 });

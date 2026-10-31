@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from '../../lib/useScrollLock';
-import { formatHandleukeRange, previewNames, varer, type BasisPlan } from '../../lib/basisvarer';
+import { formatHandleukeRange, selectionSummary, varer, type BasisPlan } from '../../lib/basisvarer';
 
 // Bekreftelse før «Legg til basisvarer for neste uke» (StapleManager på
 // Handleliste-siden). Samme skall som QuickSheet i QuickAdd.tsx: ark nederst
@@ -9,18 +9,29 @@ import { formatHandleukeRange, previewNames, varer, type BasisPlan } from '../..
 // klikk utenfor = avbryt. `plan` er regnet ut av planBasisBatch() med samme
 // logikk som selve innsettingen (addBasisBatch får nøyaktig dette objektet),
 // så tallet i dialogen er tallet som faktisk blir lagt til.
+//
+// Hver kandidat har en avkrysningsboks (alle valgt som standard). Valget
+// sendes som basisvare-id-er til onConfirm, og innsettingen bruker
+// withSelection(plan, ids) — bortvalgte varer røres ikke i databasen.
+// Komponenten monteres på nytt hver gang dialogen åpnes, så valget nullstilles.
 export default function BasisvarerDialog({ plan, busy, onCancel, onConfirm }: {
   plan: BasisPlan;
   busy: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (selectedStapleIds: string[]) => void;
 }) {
   useScrollLock();
   const isMobile = window.innerWidth < 768;
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const n = plan.toAdd.length;
+  const n = plan.candidates.length;
   const range = formatHandleukeRange(plan.weekStart);
-  const { shown, rest } = previewNames(plan.toAdd.map(a => a.staple.name));
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(plan.candidates.map(a => a.staple.id)));
+  const k = selected.size;
+  const toggle = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   // Via ref, så lytteren (og fokuset på Avbryt) settes opp én gang, ikke på
   // nytt ved hver re-render fra sanntidsoppdateringer mens dialogen er åpen.
@@ -65,13 +76,30 @@ export default function BasisvarerDialog({ plan, busy, onCancel, onConfirm }: {
 
         {n > 0 ? (
           <>
-            <p style={{ margin: '10px 0 0', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
-              {varer(n)} blir lagt til handlelisten for neste handleuke ({range}).
+            <p aria-live="polite" style={{ margin: '10px 0 0', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+              {selectionSummary(k, n, range)}
             </p>
-            <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 13.5, lineHeight: 1.6, color: 'var(--ink)' }}>
-              {shown.map((name, i) => <li key={i}>{name}</li>)}
-              {rest > 0 && <li style={{ listStyle: 'none', marginLeft: -18, color: 'var(--ink-4)' }}>… og {rest} til</li>}
-            </ul>
+            <div style={{
+              margin: '10px 0 0', maxHeight: isMobile ? '45dvh' : 320, overflowY: 'auto',
+              border: '1px solid var(--line)', borderRadius: 8, overscrollBehavior: 'contain',
+            }}>
+              {plan.candidates.map((a, i) => {
+                const on = selected.has(a.staple.id);
+                return (
+                  <label key={a.staple.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
+                    minHeight: isMobile ? 44 : 36, padding: '4px 12px',
+                    borderTop: i ? '1px solid var(--line)' : 'none',
+                    fontSize: 14, color: on ? 'var(--ink)' : 'var(--ink-4)',
+                    WebkitTapHighlightColor: 'transparent',
+                  }}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(a.staple.id)}
+                      style={{ width: 20, height: 20, margin: 0, flexShrink: 0, accentColor: 'var(--ink)', cursor: 'pointer' }} />
+                    <span style={{ flex: 1, minWidth: 0, textDecoration: on ? 'none' : 'line-through' }}>{a.staple.name}</span>
+                  </label>
+                );
+              })}
+            </div>
           </>
         ) : (
           <p style={{ margin: '10px 0 0', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
@@ -90,8 +118,9 @@ export default function BasisvarerDialog({ plan, busy, onCancel, onConfirm }: {
             {n ? 'Avbryt' : 'Lukk'}
           </button>
           {n > 0 && (
-            <button onClick={onConfirm} disabled={busy} className="btn primary" style={{ padding: '8px 18px' }}>
-              Legg til {n}
+            <button onClick={() => onConfirm(plan.candidates.filter(a => selected.has(a.staple.id)).map(a => a.staple.id))}
+              disabled={busy || k === 0} className="btn primary" style={{ padding: '8px 18px', opacity: k === 0 ? 0.4 : 1 }}>
+              Legg til {k}
             </button>
           )}
         </div>

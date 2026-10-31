@@ -5,7 +5,7 @@ import { guessCategory } from '../lib/groceryCategories';
 import { useSnackbar } from './SnackbarContext';
 import type { GroceryUndoSnapshot } from '../lib/groceryUndo';
 import { anyTaken, datesInHandleuke, mealDates } from '../lib/middagLeggTil';
-import { newBatchId, planUndo, reactivationPatch, restorePatch, type BasisPlan } from '../lib/basisvarer';
+import { buildBatchWrites, newBatchId, planUndo, restorePatch, type BasisPlan } from '../lib/basisvarer';
 
 // PostgREST svarer slik når en kolonne i payloaden ikke finnes (PGRST204,
 // «Could not find the 'basis_batch_id' column …»), eller Postgres selv
@@ -280,7 +280,7 @@ function mealRowsFor(mp: MealPlanEntry, recipe: Recipe, resolveCategory: (name: 
  * Handlelisterad for ÉN basisvare — delt av syncGroceryList() (alle forfalte)
  * og addStapleToGroceryListNow() (én bestemt, uavhengig av forfall).
  */
-function stapleRowFor(s: StapleItem, resolveCategory: (name: string) => string | null): Record<string, unknown> {
+export function stapleRowFor(s: StapleItem, resolveCategory: (name: string) => string | null): Record<string, unknown> {
   return {
     name: s.name, amount: s.amount, unit: s.unit, category: resolveCategory(s.name),
     meal_plan_id: null, staple_item_id: s.id, done: false,
@@ -609,25 +609,19 @@ export function MatplanProvider({ children }: { children: React.ReactNode }) {
   const addBasisBatch = async (plan: BasisPlan): Promise<AddBasisBatchResult | null> => {
     if (!plan.toAdd.length) return { added: 0, batchId: null };
     const batchId = newBatchId();
-    const fresh = plan.toAdd.filter(a => !a.existingRowId);
-    const reused = plan.toAdd.filter(a => a.existingRowId);
 
     const run = async (withBatch: boolean) => {
+      const { insertRows, updates } = buildBatchWrites(plan, withBatch ? batchId : null, resolveCategory);
       let added = 0;
-      if (fresh.length) {
-        const rows = fresh.map(a => ({
-          ...stapleRowFor(a.staple, resolveCategory),
-          ...(withBatch ? { basis_batch_id: batchId, basis_prev_done_at: null } : {}),
-        }));
+      if (insertRows.length) {
         const { data, error } = await supabase.from('grocery_items')
-          .upsert(rows, { onConflict: 'staple_item_id', ignoreDuplicates: true }).select('id');
+          .upsert(insertRows, { onConflict: 'staple_item_id', ignoreDuplicates: true }).select('id');
         if (error) return { added, error };
         added += data?.length ?? 0;
       }
-      for (const a of reused) {
-        const patch = withBatch ? reactivationPatch(a, batchId) : { done: false };
+      for (const u of updates) {
         const { data, error } = await supabase.from('grocery_items')
-          .update(patch).eq('id', a.existingRowId!).eq('done', true).select('id');
+          .update(u.patch).eq('id', u.id).eq('done', true).select('id');
         if (error) return { added, error };
         added += data?.length ?? 0;
       }

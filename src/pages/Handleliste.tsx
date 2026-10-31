@@ -8,7 +8,7 @@ import UnitSelect from './middag/UnitSelect';
 import ShoppingMode from './middag/ShoppingMode';
 import BasisvarerDialog from './middag/BasisvarerDialog';
 import {
-  planBasisBatch, isStapleOnList, latestUndoableBatch, undoMessage, basisvarer, varer, type BasisPlan,
+  planBasisBatch, withSelection, isStapleOnList, latestUndoableBatch, undoMessage, basisvarer, varer, type BasisPlan,
 } from '../lib/basisvarer';
 
 // Eget menypunkt for handlelisten. Bodde tidligere delvis i en «Dagligvarer»-
@@ -66,7 +66,7 @@ function StapleManager() {
   // Samme utvalg som innsettingen: forfaller neste handleuke (lørdag-anker)
   // og står ikke allerede uavhuket på listen. Se planBasisBatch.
   const plan = planBasisBatch(stapleItems, groceryItems, today);
-  const dueNextWeekTotal = plan.toAdd.length + plan.skipped.length;
+  const dueNextWeekTotal = plan.candidates.length + plan.skipped.length;
   // Siste innsetting som fortsatt kan angres — avledet av basis_batch_id på
   // radene, så den overlever ny innlasting og vises på den andre enheten
   // også (Realtime-abonnementet i MatplanContext laster inn på nytt).
@@ -83,9 +83,12 @@ function StapleManager() {
     }
   };
 
-  const confirmAdd = async () => {
+  // Bare de valgte basisvarene legges til (og får basis_batch_id); bortvalgte
+  // røres ikke. 0 valgt ⇒ ingen innsetting (knappen er også deaktivert).
+  const confirmAdd = async (selectedStapleIds: string[]) => {
     if (!pendingPlan || busyRef.current) return;
-    const p = pendingPlan;
+    const p = withSelection(pendingPlan, selectedStapleIds);
+    if (!p.toAdd.length) { setPendingPlan(null); return; }
     setBusy(true);
     try {
       const res = await addBasisBatch(p);
@@ -146,8 +149,8 @@ function StapleManager() {
         ) : dueNextWeekTotal > 0 && (
           <button onClick={() => setPendingPlan(plan)} disabled={busy} className="btn primary sm"
             title="Legg til alle basisvarer som forfaller neste handleuke">
-            {plan.toAdd.length
-              ? `🛒+ Legg til ${varer(plan.toAdd.length)} for neste uke`
+            {plan.candidates.length
+              ? `🛒+ Legg til ${varer(plan.candidates.length)} for neste uke`
               : '🛒+ Basisvarer for neste uke'}
           </button>
         )}
@@ -233,7 +236,7 @@ function StapleManager() {
       )}
       {pendingPlan && (
         <BasisvarerDialog plan={pendingPlan} busy={busy}
-          onCancel={() => setPendingPlan(null)} onConfirm={() => void confirmAdd()} />
+          onCancel={() => setPendingPlan(null)} onConfirm={ids => void confirmAdd(ids)} />
       )}
     </Card>
   );
