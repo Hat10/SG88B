@@ -46,7 +46,8 @@ export function Sheet({ eyebrow, title, onClose, children, width = 460 }: {
             <button onClick={onClose} aria-label="Lukk" style={{ background: 'transparent', border: '1px solid var(--line)', borderRadius: 6, minWidth: 44, minHeight: 44, display: 'grid', placeItems: 'center', fontSize: 18, color: 'var(--ink-3)', flexShrink: 0 }}>×</button>
           </div>
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px', paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* overscroll-behavior: contain: scroll i arket kjeder ikke videre til siden bak (iPad). */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: '16px 20px', paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {children}
         </div>
       </div>
