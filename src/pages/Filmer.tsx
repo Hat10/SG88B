@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useScrollLock } from '../lib/useScrollLock';
 import { useAuth } from '../contexts/AuthContext';
 import { trainerFromEmail } from '../contexts/TreningContext';
 import { useMovies } from '../contexts/MovieContext';
@@ -8,16 +6,20 @@ import { useSnackbar } from '../contexts/SnackbarContext';
 import { Fab, Tabs, Tag, SkeletonList } from '../components';
 import { burst } from '../confetti';
 import {
-  WHO_NAME, applyFilters, avgRating, eligibleForTonight, findDuplicate, isWatched, missingRatings,
-  nextRating, normalizeTitle, pickRandom, visibleMovies,
-  type KindFilter, type Movie, type MovieKind, type MovieSort, type MovieTab, type MovieWho,
+  WHO_NAME, applyFilters, avgRating, eligibleForTonight, findDuplicate, findTmdbDuplicate, isLinked, isWatched,
+  missingRatings, normalizeTitle, pickRandom, visibleMovies,
+  type KindFilter, type LinkFilter, type Movie, type MovieKind, type MovieSort, type MovieTab, type MovieWho,
   type MovieFilters, type MustFilter, type Presence,
 } from '../lib/movies';
+import { metaLine, tmdbKindOf, type TmdbCandidate } from '../lib/tmdb';
+import { Label, Sheet, useIsMobile } from './filmer/Sheet';
+import { KIND_LABEL, KindPicker, MustBadge, MustToggle, Stars, WHOS, fmtAvg, fmtDate, todayIso } from './filmer/controls';
+import { TmdbPicker } from './filmer/TmdbPicker';
+import { Poster, TmdbCredit, TmdbLinkSection, fieldsFor } from './filmer/tmdbParts';
+import { MoviePopup } from './filmer/MoviePopup';
+import { LinkSheet } from './filmer/LinkSheet';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
-
-const KIND_LABEL: Record<MovieKind, string> = { film: 'Film', serie: 'Serie' };
-const WHOS: MovieWho[] = ['M', 'L'];
 
 const MUST_FILTERS: { id: MustFilter; label: string }[] = [
   { id: 'all', label: 'Alle' },
@@ -34,119 +36,6 @@ const SORTS: Record<MovieTab, { id: MovieSort; label: string }[]> = {
     { id: 'added', label: 'Nylig lagt til' }, { id: 'alpha', label: 'Alfabetisk' },
   ],
 };
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-// 'YYYY-MM-DD' tolkes lokalt (ikke som UTC) så datoen ikke skifter en dag.
-const fmtDate = (iso: string) => {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', year: 'numeric' });
-};
-const fmtAvg = (n: number) => n.toLocaleString('nb-NO', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-
-function useIsMobile() {
-  const [m, setM] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const f = () => setM(window.innerWidth < 768);
-    window.addEventListener('resize', f);
-    return () => window.removeEventListener('resize', f);
-  }, []);
-  return m;
-}
-
-// ─── small controls ────────────────────────────────────────────────────────
-
-/** Bryter i skjema (Ny tittel / Rediger). Eneste sted obligatorisk kan endres. */
-function MustToggle({ who, on, onClick }: { who: MovieWho; on: boolean; onClick: () => void }) {
-  const name = WHO_NAME[who];
-  return (
-    <button type="button" role="switch" aria-checked={on} className={'mv-must' + (on ? ' on' : '')} onClick={onClick}
-      aria-label={`${name} må være med: ${on ? 'på' : 'av'}`}>
-      <b>{name}</b>
-      <span>{on ? 'Må være med' : 'Trenger ikke'}</span>
-    </button>
-  );
-}
-
-/** Ren status i listen (ikke en kontroll). Endres via Rediger. */
-function MustBadge({ who, on }: { who: MovieWho; on: boolean }) {
-  const name = WHO_NAME[who];
-  return (
-    <span role="img" className={'mv-must static' + (on ? ' on' : '')}
-      aria-label={`${name}: ${on ? 'må være med' : 'trenger ikke være med'}`}>
-      <b>{name}</b>
-      <span>{on ? 'Må være med' : 'Trenger ikke'}</span>
-    </span>
-  );
-}
-
-function Stars({ who, value, onChange }: { who: MovieWho; value: number | null; onChange: (v: number | null) => void }) {
-  const name = WHO_NAME[who];
-  return (
-    <div className="mv-stars" role="group" aria-label={`Rating fra ${name}`}>
-      {[1, 2, 3, 4, 5].map(n => (
-        <button key={n} type="button" className={'mv-star' + (value != null && n <= value ? ' on' : '')}
-          aria-pressed={value === n}
-          aria-label={value === n ? `${name}: ${n} av 5 stjerner, trykk for å fjerne` : `${name}: ${n} av 5 stjerner`}
-          onClick={() => onChange(nextRating(value, n))}>★</button>
-      ))}
-    </div>
-  );
-}
-
-function Sheet({ eyebrow, title, onClose, children }: {
-  eyebrow: string; title: string; onClose: () => void; children: React.ReactNode;
-}) {
-  useScrollLock();
-  const isMobile = useIsMobile();
-  return createPortal((
-    <div role="dialog" aria-modal="true" aria-label={title} style={{
-      position: 'fixed', inset: 0, zIndex: 400, display: 'flex',
-      alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 20,
-    }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(11,37,69,0.45)', animation: 'confirm-fade 0.18s ease both' }} />
-      <div style={{
-        position: 'relative', background: 'var(--surface)', width: '100%', maxWidth: isMobile ? '100%' : 460,
-        borderRadius: isMobile ? '16px 16px 0 0' : 12, maxHeight: isMobile ? '92dvh' : '86dvh',
-        overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(11,37,69,0.22)',
-        animation: `${isMobile ? 'quick-sheet-up' : 'confirm-pop'} 0.22s cubic-bezier(0.18,0.9,0.32,1.1) both`,
-      }}>
-        <div style={{ flexShrink: 0, borderBottom: '1px solid var(--line)' }}>
-          {isMobile && (
-            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 10 }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--line-2)' }} />
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px' }}>
-            <div style={{ minWidth: 0 }}>
-              <div className="card-eyebrow">{eyebrow}</div>
-              <h3 className="card-title" style={{ marginTop: 2, overflowWrap: 'anywhere' }}>{title}</h3>
-            </div>
-            <button onClick={onClose} aria-label="Lukk" style={{ background: 'transparent', border: '1px solid var(--line)', borderRadius: 6, minWidth: 44, minHeight: 44, display: 'grid', placeItems: 'center', fontSize: 18, color: 'var(--ink-3)', flexShrink: 0 }}>×</button>
-          </div>
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px', paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {children}
-        </div>
-      </div>
-    </div>
-  ), document.body);
-}
-
-const Label = ({ children, hint }: { children: React.ReactNode; hint?: string }) => (
-  <div className="card-eyebrow" style={{ marginBottom: 6 }}>{children}{hint && <span style={{ opacity: 0.5 }}> ({hint})</span>}</div>
-);
-
-function KindPicker({ value, onChange }: { value: MovieKind; onChange: (k: MovieKind) => void }) {
-  return (
-    <div className="mv-chips">
-      {(['film', 'serie'] as MovieKind[]).map(k => (
-        <button key={k} type="button" className={'mv-chip' + (value === k ? ' on' : '')} aria-pressed={value === k}
-          style={{ minHeight: 44, flex: 1, justifyContent: 'center' }} onClick={() => onChange(k)}>{KIND_LABEL[k]}</button>
-      ))}
-    </div>
-  );
-}
 
 /** Stopp-varsel: tittelen finnes allerede (unik indeks), ingen «legg til likevel». */
 function DuplicateStop({ dup, onGo }: { dup: Movie | null; onGo?: (m: Movie) => void }) {
@@ -174,33 +63,52 @@ function AddSheet({ onClose, onGo }: { onClose: () => void; onGo: (m: Movie) => 
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [serverDup, setServerDup] = useState(false);
+  // Valgt TMDB-treff (valgfritt). Tittelen fylles inn, men kan redigeres.
+  const [picked, setPicked] = useState<TmdbCandidate | null>(null);
 
   const clean = normalizeTitle(title);
   const dup = useMemo(() => findDuplicate(movies, clean, kind), [movies, clean, kind]);
+  const tmdbDup = useMemo(() => (picked ? findTmdbDuplicate(movies, picked.kind, picked.id) : null), [movies, picked]);
   useEffect(() => { setServerDup(false); }, [clean, kind]);
-  const blocked = !!dup || serverDup;
+  // Bytter man type, passer ikke lenger et treff av den andre typen.
+  useEffect(() => { if (picked && picked.kind !== tmdbKindOf(kind)) setPicked(null); }, [kind, picked]);
+  const blocked = !!dup || serverDup || !!tmdbDup;
+
+  const pick = (c: TmdbCandidate) => { setPicked(c); setTitle(c.title); };
 
   const submit = async () => {
     if (!clean || blocked || saving) return;
     setSaving(true);
+    const tmdb = picked ? await fieldsFor(picked) : null;
     const r = await add({
       title: clean, kind, mustM: must.M, mustL: must.L,
-      note: note.trim() || null, addedBy: trainerFromEmail(session?.user?.email),
+      note: note.trim() || null, addedBy: trainerFromEmail(session?.user?.email), tmdb,
     });
     setSaving(false);
     if (r.status === 'ok') { notify(`«${clean}» lagt til`); onClose(); }
     else if (r.status === 'duplicate') setServerDup(true);
+    else if (r.status === 'tmdbDuplicate') notify('Denne TMDB-tittelen er allerede koblet til en annen film');
   };
 
   return (
     <Sheet eyebrow="Filmoversikt" title="Ny tittel" onClose={onClose}>
       <div>
         <Label>Tittel</Label>
-        <input className="input" autoFocus value={title} placeholder="🎬 Hva vil dere se?"
-          onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && void submit()}
-          style={{ minHeight: 44 }} />
+        <TmdbPicker value={title} onChange={setTitle} kind={tmdbKindOf(kind)} onPick={pick} onEnter={() => void submit()}
+          search={!picked} autoFocus placeholder="🎬 Hva vil dere se?" />
+        {picked && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <Poster path={picked.posterPath} size="w92" width={24} height={36} radius={3} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--ink-3)', overflowWrap: 'anywhere' }}>
+              🔗 Koblet til TMDB: <b>{picked.title}</b>{picked.year ? ` (${picked.year})` : ''}
+            </span>
+            <button type="button" className="btn ghost" aria-label="Fjern TMDB-kobling" style={{ minHeight: 44, minWidth: 44, justifyContent: 'center' }}
+              onClick={() => setPicked(null)}>✕</button>
+          </div>
+        )}
       </div>
-      {blocked && <DuplicateStop dup={dup} onGo={m => { onClose(); onGo(m); }} />}
+      {(dup || serverDup) && <DuplicateStop dup={dup} onGo={m => { onClose(); onGo(m); }} />}
+      {tmdbDup && !dup && <DuplicateStop dup={tmdbDup} onGo={m => { onClose(); onGo(m); }} />}
       <div><Label>Type</Label><KindPicker value={kind} onChange={setKind} /></div>
       <div>
         <Label>Hvem må være med?</Label>
@@ -257,6 +165,10 @@ function EditSheet({ movie, onClose, onGo, onBeforeSave }: {
         </div>
       </div>
       <div><Label hint="valgfritt">Notat</Label><textarea className="input" rows={3} value={note} onChange={e => setNote(e.target.value)} style={{ resize: 'vertical' }} /></div>
+      <div>
+        <Label hint="lagres med en gang">TMDB</Label>
+        <TmdbLinkSection key={`${movie.id}-${movie.tmdbId ?? 'x'}`} movie={movie} />
+      </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn danger" style={{ minHeight: 44, justifyContent: 'center' }}
           onClick={() => { remove(movie); onClose(); }}>Slett</button>
@@ -354,6 +266,7 @@ function TonightSheet({ onClose, onWatched }: { onClose: () => void; onWatched: 
       )}
       {showResult && (
         <div ref={resultRef} className="mv-row" style={{ alignItems: 'center', textAlign: 'center', borderColor: 'var(--accent)' }}>
+          {isLinked(current) && <Poster path={current.posterPath} size="w185" width={96} height={144} />}
           <Tag kind="outline">{KIND_LABEL[current.kind]}</Tag>
           <div style={{ fontSize: 22, fontWeight: 500, overflowWrap: 'anywhere' }}>{current.title}</div>
           <div className="mv-meta">
@@ -377,22 +290,31 @@ function TonightSheet({ onClose, onWatched }: { onClose: () => void; onWatched: 
 
 // ─── row ───────────────────────────────────────────────────────────────────
 
-function MovieRow({ movie, highlight, dimmed, onEdit, onWatched }: {
-  movie: Movie; highlight: boolean; dimmed: boolean; onEdit: () => void; onWatched: () => void;
+// Klikk på kontroller inne i kortet skal ikke åpne popupen.
+const INTERACTIVE = 'button, a, input, textarea, select, label, [role="switch"]';
+
+function MovieRow({ movie, highlight, dimmed, onOpen, onEdit, onWatched }: {
+  movie: Movie; highlight: boolean; dimmed: boolean; onOpen: () => void; onEdit: () => void; onWatched: () => void;
 }) {
   const { setRating, unwatch } = useMovies();
   const watched = isWatched(movie);
   const avg = avgRating(movie);
   const missing = missingRatings(movie);
+  // Skjules helt når filmen ikke er koblet (ingen tomme felt).
+  const meta = metaLine(movie.kind, movie.releaseYear, movie.runtimeMin);
   return (
-    <div id={'mv-' + movie.id} className={'mv-row' + (highlight ? ' flash' : '') + (dimmed ? ' dim' : '')}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+    <div id={'mv-' + movie.id} className={'mv-row clickable' + (highlight ? ' flash' : '') + (dimmed ? ' dim' : '')}
+      onClick={e => { if (!(e.target as HTMLElement).closest(INTERACTIVE)) onOpen(); }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <Poster path={movie.posterPath} size="w154" width={56} height={84} />
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div className="mv-title">{movie.title}</div>
+          <button type="button" className="mv-title mv-open" onClick={onOpen} aria-label={`Vis detaljer for ${movie.title}`}>{movie.title}</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Tag kind="outline">{KIND_LABEL[movie.kind]}</Tag>
+            {meta && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meta}</span>}
             {watched && <span className="mv-meta">Sett {fmtDate(movie.watchedAt!)}</span>}
           </div>
+          {movie.genres.length > 0 && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{movie.genres.join(' · ')}</div>}
           {movie.note && <div style={{ fontSize: 12, color: 'var(--ink-3)', overflowWrap: 'anywhere' }}>{movie.note}</div>}
         </div>
         <button onClick={onEdit} aria-label={`Rediger ${movie.title}`}
@@ -434,24 +356,26 @@ export default function Filmer() {
   const [must, setMust] = useState<MustFilter>('all');
   const [kind, setKind] = useState<KindFilter>('all');
   const [query, setQuery] = useState('');
+  const [link, setLink] = useState<LinkFilter>('all');
   const [sorts, setSorts] = useState<Record<MovieTab, MovieSort>>({ want: 'added', seen: 'seen' });
   const [sheet, setSheet] = useState<
     | { type: 'add' } | { type: 'tonight' }
-    | { type: 'edit'; id: string } | { type: 'watched'; id: string } | null
+    | { type: 'edit'; id: string } | { type: 'watched'; id: string }
+    | { type: 'detail'; id: string } | { type: 'link' } | null
   >(null);
   const [highlight, setHighlight] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const seen = movies.filter(isWatched).length;
-    return { want: movies.length - seen, seen };
+    return { want: movies.length - seen, seen, unlinked: movies.filter(m => !isLinked(m)).length };
   }, [movies]);
 
-  const filters = useMemo<MovieFilters>(() => ({ tab, must, kind, query }), [tab, must, kind, query]);
+  const filters = useMemo<MovieFilters>(() => ({ tab, must, kind, query, link }), [tab, must, kind, query, link]);
 
   // Rader som en lagret redigering har flyttet ut av det aktive filteret blir stående
   // (dempet) til brukeren bytter fane, filter eller søk.
   const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => { setPinned(new Set()); }, [tab, must, kind, query]);
+  useEffect(() => { setPinned(new Set()); }, [tab, must, kind, query, link]);
   const pinIfFilteredOut = (before: Movie, after: Movie) => {
     if (applyFilters([before], filters).length && !applyFilters([after], filters).length) {
       setPinned(p => new Set(p).add(before.id));
@@ -466,7 +390,7 @@ export default function Filmer() {
   // «Gå til tittelen» fra duplikatvarselet: bytt til riktig fane, nullstill filtre og marker raden.
   const goTo = (m: Movie) => {
     setTab(isWatched(m) ? 'seen' : 'want');
-    setMust('all'); setKind('all'); setQuery('');
+    setMust('all'); setKind('all'); setQuery(''); setLink('all');
     setHighlight(m.id);
   };
   useEffect(() => {
@@ -479,8 +403,9 @@ export default function Filmer() {
   const sheetMovie = (id: string) => movies.find(m => m.id === id) ?? null;
   const editMovie = sheet?.type === 'edit' ? sheetMovie(sheet.id) : null;
   const watchedMovie = sheet?.type === 'watched' ? sheetMovie(sheet.id) : null;
+  const detailMovie = sheet?.type === 'detail' ? sheetMovie(sheet.id) : null;
   const close = () => setSheet(null);
-  const filtering = must !== 'all' || kind !== 'all' || query.trim() !== '';
+  const filtering = must !== 'all' || kind !== 'all' || query.trim() !== '' || link !== 'all';
 
   return (
     <>
@@ -510,6 +435,15 @@ export default function Filmer() {
           {([['all', 'Alle typer'], ['film', 'Film'], ['serie', 'Serie']] as [KindFilter, string][]).map(([id, label]) => (
             <button key={id} className={'mv-chip' + (kind === id ? ' on' : '')} aria-pressed={kind === id} onClick={() => setKind(id)}>{label}</button>
           ))}
+          {(counts.unlinked > 0 || link === 'unlinked') && (
+            <button className={'mv-chip' + (link === 'unlinked' ? ' on' : '')} aria-pressed={link === 'unlinked'}
+              onClick={() => setLink(l => (l === 'unlinked' ? 'all' : 'unlinked'))}>
+              Ikke koblet til TMDB ({counts.unlinked})
+            </button>
+          )}
+          <button className="btn ghost" style={{ minHeight: 36, marginLeft: 'auto' }} onClick={() => setSheet({ type: 'link' })}>
+            🔗 Koble filmer til TMDB
+          </button>
         </div>
       </div>
 
@@ -528,10 +462,13 @@ export default function Filmer() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: 12 }}>
         {visible.map(({ movie: m, dimmed }) => (
           <MovieRow key={m.id} movie={m} highlight={m.id === highlight} dimmed={dimmed}
+            onOpen={() => setSheet({ type: 'detail', id: m.id })}
             onEdit={() => setSheet({ type: 'edit', id: m.id })}
             onWatched={() => setSheet({ type: 'watched', id: m.id })} />
         ))}
       </div>
+
+      {!loading && <TmdbCredit />}
 
       {isMobile && !sheet && <Fab onClick={() => setSheet({ type: 'add' })} label="Legg til tittel" />}
 
@@ -539,6 +476,14 @@ export default function Filmer() {
       {sheet?.type === 'tonight' && <TonightSheet onClose={close} onWatched={m => setSheet({ type: 'watched', id: m.id })} />}
       {editMovie && <EditSheet key={editMovie.id} movie={editMovie} onClose={close} onGo={goTo} onBeforeSave={pinIfFilteredOut} />}
       {watchedMovie && <WatchedSheet key={watchedMovie.id} movie={watchedMovie} onClose={close} />}
+      {detailMovie && (
+        <MoviePopup key={detailMovie.id} movie={detailMovie} onClose={close}
+          onEdit={() => setSheet({ type: 'edit', id: detailMovie.id })}
+          onWatched={() => setSheet({ type: 'watched', id: detailMovie.id })} />
+      )}
+      {sheet?.type === 'link' && (
+        <LinkSheet onClose={close} onShowUnlinked={() => { setLink('unlinked'); setMust('all'); setKind('all'); setQuery(''); close(); }} />
+      )}
     </>
   );
 }
