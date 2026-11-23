@@ -1,14 +1,19 @@
-// Tittelfelt med rullegardin av TMDB-treff (plakat-miniatyr, tittel, år).
+// Tittelfelt med TMDB-treff (plakat-miniatyr, tittel, år) rett under feltet.
+//
+// Treffene rendres INLINE i arkets vanlige flyt (ikke portal/position: fixed),
+// slik at arket og lista scroller som én flate. En flytende liste utenfor arkets
+// scroll-område ga på iPad «dobbel» scrolling (lista + arket/siden samtidig), og
+// med tastaturet oppe ble den plassert etter visualViewport-målinger som raskt
+// ble utdaterte. Alle bruksstedene ligger inne i et Sheet.
+//
 // Tastaturlogikk som i okonomi/shared.tsx: ↓/↑ velger i lista, Enter tar KUN et
 // treff man bevisst har valgt (ellers egen tekst via onEnter), Esc lukker lista.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import { useTmdbSearch } from '../../lib/tmdbClient';
 import { tmdbImg, type TmdbCandidate, type TmdbKind } from '../../lib/tmdb';
 
 const MAX_ROWS = 8;
-
-interface Pos { left: number; width: number; top: number; up: boolean; maxH: number }
+let nextId = 0;
 
 export function TmdbPicker({
   value, onChange, kind, onPick, onEnter, search = true, autoFocus, placeholder, ariaLabel = 'Tittel',
@@ -25,11 +30,11 @@ export function TmdbPicker({
   placeholder?: string;
   ariaLabel?: string;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const blurRef = useRef<ReturnType<typeof setTimeout>>();
+  const listRef = useRef<HTMLDivElement>(null);
+  const [listId] = useState(() => `tmdb-picker-${++nextId}`);
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
-  const [pos, setPos] = useState<Pos | null>(null);
   const { results, loading, error } = useTmdbSearch(value, kind, search && open);
 
   const rows = results.slice(0, MAX_ROWS);
@@ -39,38 +44,11 @@ export function TmdbPicker({
   useEffect(() => { setHi(-1); }, [results]);
   useEffect(() => () => clearTimeout(blurRef.current), []);
 
-  // Fast plassering under (eller over) feltet, innenfor det synlige området over tastaturet.
-  useLayoutEffect(() => {
-    if (!showList) return;
-    const place = () => {
-      const r = inputRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const vvTop = window.visualViewport?.offsetTop ?? 0;
-      const vvBottom = vvTop + (window.visualViewport?.height ?? window.innerHeight);
-      const below = vvBottom - r.bottom - 8;
-      const above = r.top - vvTop - 8;
-      const up = below < 200 && above > below;
-      setPos({
-        left: r.left, width: r.width, up,
-        top: up ? r.top - 4 : r.bottom + 4,
-        maxH: Math.max(120, Math.min(360, up ? above : below)),
-      });
-    };
-    place();
-    // Arket åpnes med en skaler-animasjon; mål på nytt når den er ferdig.
-    const settle = setTimeout(place, 260);
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    window.visualViewport?.addEventListener('resize', place);
-    window.visualViewport?.addEventListener('scroll', place);
-    return () => {
-      clearTimeout(settle);
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
-      window.visualViewport?.removeEventListener('resize', place);
-      window.visualViewport?.removeEventListener('scroll', place);
-    };
-  }, [showList]);
+  // Tastaturvalget holdes synlig i arkets scroll-område.
+  useEffect(() => {
+    if (hiSafe < 0) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-idx="${hiSafe}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [hiSafe]);
 
   const pick = (c: TmdbCandidate) => {
     clearTimeout(blurRef.current);
@@ -79,12 +57,9 @@ export function TmdbPicker({
     onPick(c);
   };
 
-  const listId = 'tmdb-picker-list';
-
   return (
-    <>
+    <div>
       <input
-        ref={inputRef}
         className="input"
         autoFocus={autoFocus}
         value={value}
@@ -94,9 +69,11 @@ export function TmdbPicker({
         aria-expanded={search ? showList : undefined}
         aria-controls={search ? listId : undefined}
         aria-autocomplete={search ? 'list' : undefined}
+        aria-activedescendant={showList && hiSafe >= 0 ? `${listId}-${hiSafe}` : undefined}
         autoComplete="off"
         onChange={e => { onChange(e.target.value); setOpen(true); setHi(-1); }}
         onFocus={() => { clearTimeout(blurRef.current); setOpen(true); }}
+        // Liten forsinkelse: et klikk på et treff skal rekke å registreres først.
         onBlur={() => { blurRef.current = setTimeout(() => setOpen(false), 140); }}
         onKeyDown={e => {
           if (e.key === 'ArrowDown' && showList) { e.preventDefault(); setHi(h => Math.min(h + 1, rows.length - 1)); }
@@ -109,30 +86,32 @@ export function TmdbPicker({
         }}
         style={{ minHeight: 44 }}
       />
-      {showList && pos && createPortal(
+      {showList && (
         <div
+          ref={listRef}
           id={listId}
           role="listbox"
-          // Hindrer at feltet mister fokus når man trykker i lista.
+          aria-label="Treff på TMDB"
+          // Hindrer at feltet mister fokus (og tastaturet lukkes) når man trykker i lista,
+          // slik at første trykk på et treff velger det.
           onMouseDown={e => e.preventDefault()}
           style={{
-            position: 'fixed', left: pos.left, width: pos.width, zIndex: 4000,
-            top: pos.top, ...(pos.up ? { transform: 'translateY(-100%)' } : null),
-            maxHeight: pos.maxH, overflowY: 'auto',
-            background: 'var(--surface)', border: '1px solid var(--line-2)', borderRadius: 9,
-            boxShadow: '0 10px 30px rgba(0,0,0,0.32)', padding: 4,
+            marginTop: 6, background: 'var(--surface)', border: '1px solid var(--line-2)',
+            borderRadius: 9, padding: 4,
           }}
         >
           {rows.map((c, idx) => (
             <div
               key={`${c.kind}-${c.id}`}
+              id={`${listId}-${idx}`}
+              data-idx={idx}
               role="option"
               aria-selected={idx === hiSafe}
               onClick={() => pick(c)}
               onMouseEnter={() => setHi(idx)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 6, cursor: 'pointer',
-                minHeight: 44,
+                minHeight: 44, touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent',
                 background: idx === hiSafe ? 'var(--accent-soft)' : 'transparent',
               }}
             >
@@ -157,10 +136,9 @@ export function TmdbPicker({
                 : <>Velg et treff, eller lagre «{value.trim()}» uten TMDB-kobling</>}
             </div>
           )}
-        </div>,
-        document.body,
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
