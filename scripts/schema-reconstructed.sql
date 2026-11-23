@@ -857,9 +857,24 @@ create table public.movies (
   note        text,
   added_by    text check (added_by in ('M','L')),
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  updated_at  timestamptz not null default now(),
+  -- TMDB-kobling (scripts/movies-tmdb-migration.sql). Skuespillere og
+  -- strømmetjenester lagres ikke; maks 6 mnd mellomlagring (tmdb_synced_at).
+  tmdb_id        integer,
+  tmdb_kind      text,          -- 'movie' | 'tv'; satt hvis og bare hvis tmdb_id er satt
+  poster_path    text,
+  release_year   smallint,
+  runtime_min    smallint,      -- film: spilletid; serie: episodelengde
+  genres         text[],
+  overview       text,
+  tmdb_synced_at timestamptz,
+  constraint movies_tmdb_kind_check check (
+    (tmdb_id is null and tmdb_kind is null)
+    or (tmdb_id is not null and tmdb_kind in ('movie', 'tv'))
+  )
 );
 create unique index movies_title_kind_uniq on public.movies (lower(title), kind);
+create unique index movies_tmdb_uniq on public.movies (tmdb_kind, tmdb_id) where tmdb_id is not null;
 
 alter table public.movies enable row level security;
 create policy "authenticated_movies_all" on public.movies

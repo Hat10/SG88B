@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useSnackbar } from './SnackbarContext';
 import { formatError } from '../lib/formatError';
 import { isUniqueViolation, type Movie, type MovieKind, type MovieWho } from '../lib/movies';
+import type { TmdbFields, TmdbKind } from '../lib/tmdb';
 
 export type MoviePatch = Partial<Pick<Movie, 'title' | 'kind' | 'note' | 'mustM' | 'mustL'>>;
 
@@ -13,9 +14,21 @@ export interface NewMovie {
   mustL: boolean;
   note: string | null;
   addedBy: MovieWho;
+  /** Valgt TMDB-treff. Utelatt/null = lagres uten kobling, som før. */
+  tmdb?: TmdbFields | null;
 }
 
-export type AddResult = { status: 'ok'; id: string } | { status: 'duplicate' } | { status: 'error' };
+export type AddResult =
+  | { status: 'ok'; id: string }
+  | { status: 'duplicate' }
+  | { status: 'tmdbDuplicate' }
+  | { status: 'error' };
+
+/**
+ * ok = lagret; missing = migreringen er ikke kjørt (TMDB-kolonnene finnes ikke);
+ * duplicate = TMDB-tittelen er allerede koblet til en annen rad; error = annen feil.
+ */
+export type TmdbResult = 'ok' | 'missing' | 'duplicate' | 'error';
 
 interface MovieCtx {
   movies: Movie[];
@@ -26,6 +39,8 @@ interface MovieCtx {
   unwatch: (id: string) => void;
   setRating: (id: string, who: MovieWho, rating: number | null) => void;
   remove: (movie: Movie) => void;
+  /** Koble (fields) eller fjerne kobling (null). `silent` = stille oppfrisking uten snackbar ved feil. */
+  setTmdb: (id: string, fields: TmdbFields | null, opts?: { silent?: boolean }) => Promise<TmdbResult>;
 }
 
 const noop = () => {};
@@ -33,6 +48,7 @@ const MovieContext = createContext<MovieCtx>({
   movies: [], loading: true,
   add: async () => ({ status: 'error' }), update: async () => false,
   markWatched: noop, unwatch: noop, setRating: noop, remove: noop,
+  setTmdb: async () => 'error',
 });
 
 const fromRow = (r: Record<string, unknown>): Movie => ({
@@ -48,7 +64,45 @@ const fromRow = (r: Record<string, unknown>): Movie => ({
   addedBy: (r.added_by as MovieWho | null) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
+  // TMDB-kolonnene finnes ikke før movies-tmdb-migration.sql er kjørt ⇒ undefined ⇒ null.
+  tmdbId: (r.tmdb_id as number | null | undefined) ?? null,
+  tmdbKind: (r.tmdb_kind as TmdbKind | null | undefined) ?? null,
+  posterPath: (r.poster_path as string | null | undefined) ?? null,
+  releaseYear: (r.release_year as number | null | undefined) ?? null,
+  runtimeMin: (r.runtime_min as number | null | undefined) ?? null,
+  genres: Array.isArray(r.genres) ? (r.genres as string[]) : [],
+  overview: (r.overview as string | null | undefined) ?? null,
+  tmdbSyncedAt: (r.tmdb_synced_at as string | null | undefined) ?? null,
 });
+
+// PostgREST svarer PGRST204 («Could not find the 'tmdb_id' column …») og Postgres
+// 42703 (undefined_column) når scripts/movies-tmdb-migration.sql ikke er kjørt.
+const TMDB_COLUMN = /tmdb_|poster_path|release_year|runtime_min|genres|overview/;
+const isMissingTmdbColumn = (error: { code?: string; message?: string } | null | undefined) =>
+  !!error && (error.code === 'PGRST204' || error.code === '42703') && TMDB_COLUMN.test(error.message ?? '');
+
+// Brudd på den delvise unike indeksen (tmdb_kind, tmdb_id).
+const isTmdbUniqueViolation = (error: { code?: string; message?: string } | null | undefined) =>
+  isUniqueViolation(error) && /movies_tmdb_uniq/.test(error?.message ?? '');
+
+const tmdbColumns = (f: TmdbFields | null): DbPatch => f
+  ? {
+      tmdb_id: f.tmdbId, tmdb_kind: f.tmdbKind, poster_path: f.posterPath, release_year: f.releaseYear,
+      runtime_min: f.runtimeMin, genres: f.genres, overview: f.overview, tmdb_synced_at: new Date().toISOString(),
+    }
+  : {
+      tmdb_id: null, tmdb_kind: null, poster_path: null, release_year: null,
+      runtime_min: null, genres: null, overview: null, tmdb_synced_at: null,
+    };
+
+const tmdbLocal = (f: TmdbFields | null): Partial<Movie> => f
+  ? { ...f, tmdbSyncedAt: new Date().toISOString() }
+  : {
+      tmdbId: null, tmdbKind: null, posterPath: null, releaseYear: null,
+      runtimeMin: null, genres: [], overview: null, tmdbSyncedAt: null,
+    };
+
+const MIGRATION_MSG = 'TMDB-data ble ikke lagret: kjør scripts/movies-tmdb-migration.sql i Supabase';
 
 // Kolonnene som en kolonne-patch kan røre. updated_at settes fra klienten
 // (ingen trigger i dette repoet).
@@ -105,6 +159,14 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
   const fail = (error: { message?: string } | null) =>
     notify(`Kunne ikke lagre${error?.message ? ': ' + formatError(error) : ''}`);
 
+  // Én snackbar per økt om at migreringen mangler.
+  const warnedMissing = useRef(false);
+  const warnMissing = () => {
+    if (warnedMissing.current) return;
+    warnedMissing.current = true;
+    notify(MIGRATION_MSG);
+  };
+
   /** Optimistisk felt-patch lokalt + skriving; ved feil rydder write() opp via load(). */
   const patchLocal = (id: string, local: Partial<Movie>, db: DbPatch) => {
     setMovies(prev => prev.map(m => (m.id === id ? { ...m, ...local } : m)));
@@ -114,13 +176,39 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
   };
 
   const add = async (m: NewMovie): Promise<AddResult> => {
-    const { data, error } = await write(() => supabase.from('movies').insert({
+    const base = {
       title: m.title, kind: m.kind, must_m: m.mustM, must_l: m.mustL,
       note: m.note, added_by: m.addedBy,
-    }).select('id').single());
+    };
+    const insert = (row: DbPatch) => write(() => supabase.from('movies').insert(row).select('id').single());
+    let { data, error } = await insert(m.tmdb ? { ...base, ...tmdbColumns(m.tmdb) } : base);
+    // Migreringen ikke kjørt: lagre filmen uten TMDB-data.
+    if (m.tmdb && isMissingTmdbColumn(error)) {
+      warnMissing();
+      ({ data, error } = await insert(base));
+    }
+    if (isTmdbUniqueViolation(error)) return { status: 'tmdbDuplicate' };
     if (isUniqueViolation(error)) return { status: 'duplicate' };
     if (error || !data) { fail(error); return { status: 'error' }; }
     return { status: 'ok', id: data.id as string };
+  };
+
+  const setTmdb = async (id: string, fields: TmdbFields | null, opts: { silent?: boolean } = {}): Promise<TmdbResult> => {
+    const before = movies.find(m => m.id === id);
+    const local = tmdbLocal(fields);
+    setMovies(prev => prev.map(m => (m.id === id ? { ...m, ...local } : m)));
+    const { error } = await write(() => supabase.from('movies').update(stamp(tmdbColumns(fields))).eq('id', id));
+    if (!error) return 'ok';
+    // write() laster på nytt fra databasen og ruller dermed tilbake; dette er bare
+    // for å unngå at raden står feil i mellomtiden.
+    if (before) setMovies(prev => prev.map(m => (m.id === id ? before : m)));
+    if (isMissingTmdbColumn(error)) { if (!opts.silent) warnMissing(); return 'missing'; }
+    if (isTmdbUniqueViolation(error)) {
+      if (!opts.silent) notify('Denne TMDB-tittelen er allerede koblet til en annen film');
+      return 'duplicate';
+    }
+    if (!opts.silent) fail(error);
+    return 'error';
   };
 
   const update = async (id: string, patch: MoviePatch): Promise<boolean> => {
@@ -150,6 +238,11 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
       id: m.id, title: m.title, kind: m.kind, must_m: m.mustM, must_l: m.mustL,
       watched_at: m.watchedAt, rating_m: m.ratingM, rating_l: m.ratingL, note: m.note,
       added_by: m.addedBy, created_at: m.createdAt, updated_at: new Date().toISOString(),
+      // TMDB-kolonnene tas bare med når raden var koblet (da finnes de i databasen).
+      ...(m.tmdbId != null && m.tmdbKind ? {
+        tmdb_id: m.tmdbId, tmdb_kind: m.tmdbKind, poster_path: m.posterPath, release_year: m.releaseYear,
+        runtime_min: m.runtimeMin, genres: m.genres, overview: m.overview, tmdb_synced_at: m.tmdbSyncedAt,
+      } : {}),
     }));
     if (isUniqueViolation(error)) notify('Kunne ikke angre: tittelen finnes allerede');
     else if (error) fail(error);
@@ -164,7 +257,7 @@ export function MovieProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <MovieContext.Provider value={{ movies, loading, add, update, markWatched, unwatch, setRating, remove }}>
+    <MovieContext.Provider value={{ movies, loading, add, update, markWatched, unwatch, setRating, remove, setTmdb }}>
       {children}
     </MovieContext.Provider>
   );

@@ -8,7 +8,9 @@ let n = 0;
 const mv = (title: string, over: Partial<Movie> = {}): Movie => ({
   id: `id-${++n}`, title, kind: 'film', mustM: false, mustL: false, watchedAt: null,
   ratingM: null, ratingL: null, note: null, addedBy: null,
-  createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...over,
+  createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+  tmdbId: null, tmdbKind: null, posterPath: null, releaseYear: null, runtimeMin: null,
+  genres: [], overview: null, tmdbSyncedAt: null, ...over,
 });
 const F = (over: Partial<MovieFilters> = {}): MovieFilters => ({ tab: 'want', must: 'all', kind: 'all', query: '', ...over });
 const titles = (l: Movie[]) => l.map(m => m.title);

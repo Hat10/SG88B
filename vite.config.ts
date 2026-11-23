@@ -6,6 +6,7 @@ import kalender from './api/kalender'
 import price from './api/price'
 import tommeplan from './api/tommeplan'
 import nordlys from './api/nordlys'
+import tmdb from './api/tmdb'
 
 // Adapts a Node http response to the minimal Vercel-style `res` API that the
 // /api handlers use, so the dev server runs the exact same handler code that
@@ -69,6 +70,10 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use('/api/kalender',  (req: any, res: any) => { void kalender(req, vercelRes(res)); });
           server.middlewares.use('/api/tommeplan', (req: any, res: any) => { void tommeplan(req, vercelRes(res)); });
           server.middlewares.use('/api/nordlys',   (req: any, res: any) => { void nordlys(req, vercelRes(res)); });
+          server.middlewares.use('/api/tmdb',     (req: any, res: any) => {
+            const query = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
+            void tmdb({ method: req.method, headers: req.headers, query } as any, vercelRes(res));
+          });
           server.middlewares.use('/api/price',    (req: any, res: any) => {
             const url = new URL(req.url, 'http://localhost').searchParams.get('url') ?? undefined;
             void price({ query: { url } } as any, vercelRes(res));

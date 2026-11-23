@@ -3,6 +3,8 @@
 //
 // who-koder: 'M' = Andreas, 'L' = Taran (kolonnene must_m/must_l, rating_m/rating_l).
 
+import type { TmdbCandidate, TmdbKind } from './tmdb';
+
 export type MovieKind = 'film' | 'serie';
 export type MovieWho = 'M' | 'L';
 
@@ -19,11 +21,24 @@ export interface Movie {
   addedBy: MovieWho | null;
   createdAt: string;
   updatedAt: string;
+  // TMDB-kobling (scripts/movies-tmdb-migration.sql). Alle er null når filmen
+  // ikke er koblet, eller når migreringen ikke er kjørt ennå.
+  tmdbId: number | null;
+  tmdbKind: TmdbKind | null;
+  posterPath: string | null;
+  releaseYear: number | null;
+  runtimeMin: number | null;   // film: spilletid; serie: episodelengde
+  genres: string[];
+  overview: string | null;
+  tmdbSyncedAt: string | null;
 }
+
+export const isLinked = (m: Movie) => m.tmdbId != null;
 
 export type MovieTab = 'want' | 'seen';
 export type MustFilter = 'all' | 'both' | 'onlyM' | 'onlyL' | 'none';
 export type KindFilter = 'all' | MovieKind;
+export type LinkFilter = 'all' | 'unlinked';
 export type MovieSort = 'added' | 'alpha' | 'rating' | 'seen';
 export type Presence = 'both' | MovieWho;
 
@@ -61,6 +76,8 @@ export interface MovieFilters {
   must: MustFilter;
   kind: KindFilter;
   query: string;
+  /** 'unlinked' = bare titler som ikke er koblet til TMDB. Utelatt = alle. */
+  link?: LinkFilter;
 }
 
 export function applyFilters(movies: Movie[], f: MovieFilters): Movie[] {
@@ -69,6 +86,7 @@ export function applyFilters(movies: Movie[], f: MovieFilters): Movie[] {
     (f.tab === 'seen' ? isWatched(m) : !isWatched(m)) &&
     matchesMust(m, f.must) &&
     (f.kind === 'all' || m.kind === f.kind) &&
+    (f.link !== 'unlinked' || !isLinked(m)) &&
     (!q || m.title.toLowerCase().includes(q)),
   );
 }
@@ -169,3 +187,62 @@ export const nextRating = (current: number | null, tapped: number): number | nul
 
 /** Postgres unique_violation. */
 export const isUniqueViolation = (err: { code?: string } | null | undefined) => err?.code === '23505';
+
+// ─── TMDB-kobling ─────────────────────────────────────────────────────────
+
+/** Annen rad som allerede er koblet til samme TMDB-tittel (delvis unik indeks). */
+export function findTmdbDuplicate(movies: Movie[], kind: TmdbKind, id: number, exceptId?: string): Movie | null {
+  return movies.find(m => m.id !== exceptId && m.tmdbKind === kind && m.tmdbId === id) ?? null;
+}
+
+/** Små bokstaver, uten aksenter og tegnsetting: «Mamma Mia!» → «mamma mia». */
+export function matchKey(raw: string): string {
+  return raw
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+/** «IT 1», «Avatar 3», «Bridget Jones 4»: vår nummerering stemmer sjelden med TMDB-tittelen. */
+export const hasSequelNumber = (title: string) => /\S\s+\d{1,2}$/.test(normalizeTitle(title));
+
+export type MatchReason = 'sequel' | 'ambiguous' | 'none';
+
+export type TmdbMatch =
+  | { status: 'sure'; candidate: TmdbCandidate }
+  | { status: 'unsure'; reason: MatchReason; candidates: TmdbCandidate[] };
+
+/** Hvor mye mer populært det beste eksakte treffet må være for å slå ut et annet eksakt treff. */
+export const DOMINANCE = 10;
+const MAX_CANDIDATES = 4;
+
+/**
+ * Streng automatisk matching av en tittel mot TMDB-søketreff. Gjetter aldri:
+ * - Titler som slutter på et løpenummer («Spy Kids 3») er alltid usikre.
+ * - Kun eksakt titteltreff (mot tittel eller originaltittel, etter matchKey) teller.
+ *   Med år kreves i tillegg ±1 år.
+ * - Ett eksakt treff ⇒ sikkert. Flere eksakte treff ⇒ sikkert bare hvis det mest
+ *   populære er minst DOMINANCE ganger så populært som det neste.
+ * Usikre treff returnerer de beste kandidatene (eksakte først) til manuelt valg.
+ */
+export function matchTmdb(title: string, candidates: TmdbCandidate[], kind: TmdbKind, year: number | null = null): TmdbMatch {
+  const pool = candidates.filter(c => c.kind === kind);
+  const key = matchKey(title);
+  const isExact = (c: TmdbCandidate) =>
+    !!key && (matchKey(c.title) === key || matchKey(c.originalTitle) === key) &&
+    (year == null || (c.year != null && Math.abs(c.year - year) <= 1));
+  const exact = pool.filter(isExact).sort((a, b) => b.popularity - a.popularity);
+  const shortlist = [...exact, ...pool.filter(c => !exact.includes(c))].slice(0, MAX_CANDIDATES);
+
+  if (!pool.length) return { status: 'unsure', reason: 'none', candidates: [] };
+  if (hasSequelNumber(title)) return { status: 'unsure', reason: 'sequel', candidates: shortlist };
+  if (exact.length === 1) return { status: 'sure', candidate: exact[0] };
+  if (exact.length > 1) {
+    const [a, b] = exact;
+    if (a.popularity > 0 && a.popularity >= b.popularity * DOMINANCE) return { status: 'sure', candidate: a };
+    return { status: 'unsure', reason: 'ambiguous', candidates: shortlist };
+  }
+  return { status: 'unsure', reason: 'none', candidates: shortlist };
+}
