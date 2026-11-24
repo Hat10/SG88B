@@ -105,9 +105,14 @@ export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, pagerR
             )}
             {!auroraError && aurora && (
               <>
-                <div style={{ ...headline, color: AURORA_COLOR[aurora.probability] }}>
-                  {AURORA_LABEL[aurora.probability]}
-                </div>
+                {aurora.nowStatus === 'tooLight' ? (
+                  // Samme tekst som for netter uten mørke (nightText.tooLight), så «nå» og natt aldri motsier hverandre.
+                  <div style={{ ...headline, color: 'var(--ink-4)' }}>For lyst for nordlys</div>
+                ) : (
+                  <div style={{ ...headline, color: AURORA_COLOR[aurora.probability] }}>
+                    {AURORA_LABEL[aurora.probability]}
+                  </div>
+                )}
                 <div style={detail}>
                   Kp {formatKp(aurora.kp)} · {aurora.cloudCover}% skydekke
                 </div>
