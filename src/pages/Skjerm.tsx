@@ -12,6 +12,7 @@ import UndoToastStack from './skjerm/UndoToastStack';
 import { dateLabel } from '../lib/dayLabel';
 import { fireworkRain } from '../confetti';
 import { kpLevel, type KpLevel } from '../lib/kpLevel';
+import { formatKp, kpNowText, kpOngoingText } from '../lib/kpFormat';
 import { TreningQuickRegister } from '../TreningQuickRegister';
 import { QuickTodoForm } from '../QuickAdd';
 import { useIdleReset } from '../lib/useIdleReset';
@@ -377,8 +378,10 @@ function AuroraHourlyChart({ hourly, view, nowLabel = true }: { hourly: AuroraHo
   const barH = (h: AuroraHourlyEntry) => Math.max(3,
     isKp ? (Math.min(h.kp, KP_MAX) / KP_MAX) * barAreaH : (h.score / 4) * barAreaH);
   const chancePct = (h: AuroraHourlyEntry) => Math.round((h.score / 4) * 100);
+  // Hver søyle er enten målt (ferdig bolk) eller prognose; manglende kpKind = prognose.
+  const isObserved = (h: AuroraHourlyEntry) => h.kpKind === 'observed';
   const labelText = (h: AuroraHourlyEntry) => {
-    const kp = `Kp ${Math.round(h.kp * 10) / 10}`;
+    const kp = `Kp ${formatKp(h.kp)} · ${isObserved(h) ? 'observert' : 'prognose'}`;
     return view === 'sannsynlighet' && h.dark ? `${kp} · ${chancePct(h)} %` : kp;
   };
 
@@ -421,10 +424,16 @@ function AuroraHourlyChart({ hourly, view, nowLabel = true }: { hourly: AuroraHo
 
       {hourly.map((h, i) => {
         const bh = barH(h);
-        return (
+        const color = !h.dark ? AURORA_DAYLIGHT_BAR : isKp ? KP_LEVEL_COLOR[kpLevel(h.kp)] : AURORA_CHANCE_COLOR[h.chance];
+        // Prognose-søyler: dempet fyll + stiplet kant. Observerte (ferdig målte) bolker: heltrukket.
+        return isObserved(h) ? (
           <rect key={i}
             x={xc(i) - barW / 2} y={barAreaBot - bh} width={barW} height={bh}
-            fill={!h.dark ? AURORA_DAYLIGHT_BAR : isKp ? KP_LEVEL_COLOR[kpLevel(h.kp)] : AURORA_CHANCE_COLOR[h.chance]}
+            fill={color} opacity={h.dark ? 1 : 0.6} rx="2" />
+        ) : (
+          <rect key={i}
+            x={xc(i) - barW / 2 + 0.5} y={barAreaBot - bh + 0.5} width={barW - 1} height={Math.max(0, bh - 1)}
+            fill={color} fillOpacity={0.45} stroke={color} strokeWidth="1" strokeDasharray="3 2"
             opacity={h.dark ? 1 : 0.6} rx="2" />
         );
       })}
@@ -1435,7 +1444,7 @@ export default function PageSkjerm({ onBack }: Props) {
             {/* Summary */}
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 16 : 28, paddingBottom: isMobile ? 14 : 20, borderBottom: '1px solid rgba(255,255,255,0.08)', ...(isMobile ? { flexWrap: 'wrap' } : {}) }}>
               {[
-                { label: 'Kp', val: popupNight ? (popupBest ? String(Math.round(popupBest.kp * 10) / 10) : '–') : String(aurora.kp), color: '#E8EFF7' },
+                { label: 'Kp', val: popupNight ? (popupBest ? formatKp(popupBest.kp) : '–') : formatKp(aurora.kp), color: '#E8EFF7' },
                 { label: 'Skydekke', val: popupNight ? (popupBest ? `${popupBest.cloudCover}%` : '–') : `${aurora.cloudCover}%`, color: '#E8EFF7' },
               ].map(r => (
                 <div key={r.label} style={{ textAlign: 'center' }}>
@@ -1444,7 +1453,18 @@ export default function PageSkjerm({ onBack }: Props) {
                 </div>
               ))}
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'rgba(207,224,239,0.4)', maxWidth: 340, lineHeight: 1.5 }}>
-                  Kp: NOAA 3-døgnsprognose · 3-timers intervaller
+                  {popupNight ? (
+                    <>Kp: NOAA-prognose · 3-timers bolker</>
+                  ) : (
+                    <>
+                      <span style={aurora.kpStale ? { color: 'var(--warn)' } : undefined}>
+                        Kp: NOAA {kpNowText(aurora.kpSlot, aurora.kpStale) || 'observert'} (Oslo-tid)
+                      </span>
+                      {kpOngoingText(aurora.kpOngoing) && <> · {kpOngoingText(aurora.kpOngoing)}</>}
+                      <br />
+                      Søylene: NOAA-prognose · 3-timers bolker
+                    </>
+                  )}
                   <br />
                   Skydekke: Yr · time for time
               </div>
@@ -1492,6 +1512,10 @@ export default function PageSkjerm({ onBack }: Props) {
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ display: 'inline-block', width: 10, height: 10, background: AURORA_DAYLIGHT_BAR, borderRadius: 2 }} />
                 Dagslys — ikke synlig
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, border: '1px dashed rgba(207,224,239,0.6)', background: 'rgba(207,224,239,0.2)', borderRadius: 2, boxSizing: 'border-box' }} />
+                Stiplet = prognose
               </span>
             </div>
           </div>
