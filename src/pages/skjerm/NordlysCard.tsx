@@ -5,6 +5,7 @@ import { swipeGlow } from './swipeGlow';
 import { PagerArrows } from './PagerArrows';
 import { PagerDots } from './PagerDots';
 import { dateLabel } from '../../lib/dayLabel';
+import { formatKp, kpNowText, kpOngoingText } from '../../lib/kpFormat';
 import { useSwipePager, type PagerHandle } from '../../lib/useSwipePager';
 
 interface Props {
@@ -54,7 +55,7 @@ export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, pagerR
     if (!b) return { color: 'var(--ink-4)', title: 'Usikkert varsel', line: 'For lite data for denne natten' };
     return {
       color: AURORA_COLOR[b.chance], title: AURORA_LABEL[b.chance],
-      line: `Kp ${Math.round(b.kp * 10) / 10} · best ca. ${osloClock(b.time)} · ${b.cloudCover} % skyer`,
+      line: `Kp ${formatKp(b.kp)} · best ca. ${osloClock(b.time)} · ${b.cloudCover} % skyer`,
     };
   })();
 
@@ -108,8 +109,20 @@ export function NordlysCard({ aurora, auroraError, resetSignal, onToggle, pagerR
                   {AURORA_LABEL[aurora.probability]}
                 </div>
                 <div style={detail}>
-                  Kp {aurora.kp} · {aurora.cloudCover}% skydekke
+                  Kp {formatKp(aurora.kp)} · {aurora.cloudCover}% skydekke
                 </div>
+                {/* Hva Kp-tallet er: observert bolk (alltid én bak «nå»), evt. utdatert, + minimum for bolken som pågår. */}
+                {(() => {
+                  const ongoing = kpOngoingText(aurora.kpOngoing);
+                  const text = [kpNowText(aurora.kpSlot, aurora.kpStale), ongoing].filter(Boolean).join(' · ');
+                  if (!text) return null;
+                  return (
+                    <div style={{ ...detail, fontSize: isMobile ? m.mono : 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      ...(aurora.kpStale ? { color: 'var(--warn)' } : {}) }}>
+                      {text}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </>

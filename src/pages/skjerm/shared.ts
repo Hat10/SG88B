@@ -28,7 +28,15 @@ export interface WeatherData {
 // ─── Nordlys ───────────────────────────────────────────────────────────────
 
 export interface AuroraData {
-  kp: number; kpTime: string; cloudCover: number; probability: AuroraChance;
+  /** Siste OBSERVERTE Kp (én desimal) — bolken står i `kpSlot`. Ikke bolken som pågår. */
+  kp: number;
+  kpKind?: 'observed';
+  kpSlot?: { start: string; end: string };
+  /** Bolken sluttet for mer enn 6 timer siden. */
+  kpStale?: boolean;
+  /** Minimum for bolken som pågår (1-minutts-feeden). null/mangler = ikke vis. */
+  kpOngoing?: { slotStart: string; kpMin: number; minutes: number } | null;
+  cloudCover: number; probability: AuroraChance;
   hourly?: AuroraHourlyEntry[];
   /** Natt-for-natt (i kveld, i morgen kveld, overmorgen kveld). Mangler hos eldre/degradert svar. */
   daily?: AuroraNight[];
