@@ -310,8 +310,9 @@ const AURORA_CHANCE_COLOR: Record<AuroraChance, string> = {
   lav: 'rgba(147,197,253,0.45)', middels: 'var(--warn)', høy: 'var(--good)',
 };
 // Dagslys — nordlys uansett ikke synlig, uansett hvor bra Kp/skydekke ellers
-// er den timen. Søylen beholder sin egentlige høyde (så man ser at forholdene
-// faktisk var gode), men dempes tydelig i farge/opasitet i stedet for å
+// er den timen. I Kp-visningen beholder søylen sin egentlige høyde (Kp er Kp);
+// i sannsynlighetsvisningen er poengsummen 0 i dagslys (API: auroraScore), så
+// søylen er bare en tynn stripe. Begge dempes i farge/opasitet i stedet for å
 // fjernes — det holder timeaksen sammenhengende og viser HVORFOR ingenting
 // skjer akkurat da, i stedet for å etterlate et uforklart hull.
 const AURORA_DAYLIGHT_BAR = 'rgba(255,255,255,0.12)';
@@ -1418,8 +1419,8 @@ export default function PageSkjerm({ onBack }: Props) {
                     {popupTooLight ? 'For lyst for nordlys' : popupUncertain || !popupBest ? 'Usikkert varsel' : `${AURORA_LABEL[popupBest.chance]} · best ca. ${new Date(popupBest.time).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' })}`}
                   </div>
                 ) : (
-                  <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: AURORA_COLOR[aurora.probability], letterSpacing: '-0.01em' }}>
-                    {AURORA_LABEL[aurora.probability]} akkurat nå
+                  <div style={{ fontSize: 22, fontWeight: 300, marginTop: 6, color: aurora.nowStatus === 'tooLight' ? 'var(--ink-4)' : AURORA_COLOR[aurora.probability], letterSpacing: '-0.01em' }}>
+                    {aurora.nowStatus === 'tooLight' ? 'For lyst for nordlys akkurat nå' : `${AURORA_LABEL[aurora.probability]} akkurat nå`}
                   </div>
                 )}
               </div>

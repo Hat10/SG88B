@@ -59,7 +59,7 @@ export interface AuroraHourlyEntry {
   kpKind?: KpKind;    // 'observed' hvis bolken er ferdig målt, ellers 'forecast'. Mangler = forecast (eldre svar).
   cloudCover: number; // 0-100, ekte time-for-time-verdi fra Yr
   dark: boolean;       // false ⇒ dagslys, nordlys uansett ikke synlig
-  score: number;       // 0-4, samme kpScore+cloudScore-sum som «nå»-tallet — rå tallet, for et jevnere søylediagram enn de 3 bøttene alene gir
+  score: number;       // 0-4, samme poengmodell som «nå»-tallet (auroraScore): kpScore+cloudScore i mørke, 0 i dagslys — rå tallet, for et jevnere søylediagram enn de 3 bøttene alene gir
   chance: AuroraChance;
 }
 
@@ -93,7 +93,7 @@ function chanceFromScore(score: number): AuroraChance {
 // (Oslo-kveld) til det blir lyst neste morgen — altså over midnatt. En time
 // hører til natten med dato D hvis den er kl. 12:00 eller senere på Oslo-dato D,
 // eller før kl. 12:00 på Oslo-dato D+1. Vinduet er dermed de MØRKE timene
-// (samme isDaylight-definisjon som `hourly`) innenfor dette døgnskillet.
+// (samme isDaylightAt-definisjon som `hourly` og «nå») innenfor dette døgnskillet.
 // Per natt velges den beste mørke timen: høyest score i poengmodellen over.
 
 export const NIGHTS_AHEAD = 3;
@@ -376,44 +376,157 @@ export function kpRowAt(rows: KpRow[], t: number): KpRow | null {
   return val;
 }
 
-interface SunWindow { sunriseMs: number | null; sunsetMs: number | null; alwaysLight: boolean; alwaysDark: boolean }
+/**
+ * Én met.no-post (sunrise 3.0) for én dato. Posten dekker ett «soldøgn»:
+ * fra solarmidnight (`windowStartMs`) til neste solarmidnight, ca. 24 t — IKKE
+ * Oslo-døgnet. `sunriseMs` er siste soloppgang før solnoon, `sunsetMs` første
+ * solnedgang etter. Midnattssol/mørketid kommer som null-tider + flaggene.
+ */
+export interface SunWindow {
+  windowStartMs: number;
+  sunriseMs: number | null;
+  sunsetMs: number | null;
+  /** Ingen soloppgang/-nedgang og sola er synlig ved solarmidnight ⇒ lyst hele soldøgnet (midnattssol). */
+  alwaysLight: boolean;
+  /** Ingen soloppgang/-nedgang og sola er ikke synlig ved solnoon ⇒ mørkt hele soldøgnet (mørketid). */
+  alwaysDark: boolean;
+}
+
+const SUN_DAY_MS = 24 * 3600_000;
+/** Sola regnes som oppe når øvre kant er over horisonten, inkl. refraksjon (samme definisjon som met.no). */
+const SUN_UP_ALTITUDE_DEG = -0.833;
+
+/**
+ * met.no `properties` → SunWindow. null hvis svaret ikke lar oss avgjøre
+ * lys/mørkt (manglende/ugyldig felt, eller en ensidig post uten solarmidnight
+ * å avgrense den med) — kalleren faller da til solhøyde-beregningen under.
+ *
+ *  - begge tider: vanlig dag.
+ *  - bare soloppgang: starten på midnattssol (sola står opp og går ikke ned igjen
+ *    før soldøgnet er slutt). Bare solnedgang: slutten på midnattssol. Disse ble
+ *    tidligere lest som «mørk hele døgnet».
+ *  - ingen av dem: midnattssol hvis solarmidnight er synlig, mørketid hvis
+ *    solnoon ikke er det. Bodø har i praksis aldri mørketid (sola står så vidt
+ *    opp selv 21. des.), men grenen finnes for fullstendighetens skyld.
+ */
+export function parseSunProperties(p: any, dateStr: string): SunWindow | null {
+  // time: null/mangler = «ingen slik hendelse» (null). En tid som er til stede men ikke lar seg tolke
+  // er en ødelagt post — den må ikke leses som midnattssol, så hele posten forkastes (NaN → null under).
+  let corrupt = false;
+  const ms = (x: any): number | null => {
+    if (x?.time === null || x?.time === undefined) return null;
+    const v = new Date(x.time).getTime();
+    if (!Number.isFinite(v)) corrupt = true;
+    return Number.isFinite(v) ? v : null;
+  };
+  const sunriseMs = ms(p?.sunrise);
+  const sunsetMs = ms(p?.sunset);
+  const midnightMs = ms(p?.solarmidnight);
+  if (corrupt) return null;
+  const oneSided = (sunriseMs === null) !== (sunsetMs === null);
+  if (midnightMs === null && oneSided) return null; // kan ikke avgrense en ensidig post
+  // Uten solarmidnight-tid: datoens UTC-midnatt (kun for poster som ikke er ensidige; avviker maks et par timer).
+  const windowStartMs = midnightMs ?? new Date(`${dateStr}T00:00:00Z`).getTime();
+  if (!Number.isFinite(windowStartMs)) return null;
+  if (sunriseMs !== null || sunsetMs !== null) {
+    return { windowStartMs, sunriseMs, sunsetMs, alwaysLight: false, alwaysDark: false };
+  }
+  if (p?.solarmidnight?.visible === true) return { windowStartMs, sunriseMs: null, sunsetMs: null, alwaysLight: true, alwaysDark: false };
+  if (p?.solarnoon?.visible === false) return { windowStartMs, sunriseMs: null, sunsetMs: null, alwaysLight: false, alwaysDark: true };
+  return null;
+}
+
+/**
+ * Solens høyde over horisonten (grader) for Bodø, uten nettverk. Standard
+ * lavpresisjons-formler (gradvis ≈ 0,05°, dvs. noen minutter ved soloppgang):
+ * brukes KUN som fallback når met.no-data mangler for tidspunktet, og i test
+ * som uavhengig sjekk av met.no-dataene.
+ */
+export function solarAltitudeDeg(ms: number): number {
+  const rad = Math.PI / 180;
+  const d = ms / 86400000 - 10957.5; // dager siden J2000
+  const g = (357.528 + 0.9856003 * d) * rad;
+  const lambda = (280.460 + 0.9856474 * d + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+  const eps = (23.439 - 0.0000004 * d) * rad;
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+  const gmst = (280.46061837 + 360.98564736629 * d) * rad;
+  const hourAngle = gmst + LON * rad - ra;
+  const lat = LAT * rad;
+  return Math.asin(Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(hourAngle)) / rad;
+}
+
+/** true hvis `ms` er innenfor dagslys-delen av posten. null hvis `ms` ligger utenfor soldøgnet posten dekker. */
+function daylightInWindow(ms: number, w: SunWindow): boolean | null {
+  const endMs = w.windowStartMs + SUN_DAY_MS;
+  if (ms < w.windowStartMs || ms >= endMs) return null;
+  if (w.alwaysLight) return true;
+  if (w.alwaysDark) return false;
+  if (w.sunriseMs !== null && w.sunsetMs !== null) return ms >= w.sunriseMs && ms <= w.sunsetMs;
+  if (w.sunriseMs !== null) return ms >= w.sunriseMs;  // oppe resten av soldøgnet
+  if (w.sunsetMs !== null) return ms <= w.sunsetMs;    // oppe siden soldøgnets start
+  return false;
+}
+
+/**
+ * true ⇒ dagslys (nordlys uansett ikke synlig). Slår opp i soldøgnet som
+ * dekker tidspunktet (på tvers av Oslo-døgnskiftet). Dekker ingen post
+ * tidspunktet (fetch feilet, eller utenfor de hentede dagene), brukes
+ * solhøyde-beregningen — aldri «mørk» på blindt grunnlag.
+ */
+export function isDaylightAt(ms: number, windows: SunWindow[]): boolean {
+  let covered = false;
+  for (const w of windows) {
+    const r = daylightInWindow(ms, w);
+    if (r === true) return true;
+    if (r === false) covered = true;
+  }
+  return covered ? false : solarAltitudeDeg(ms) > SUN_UP_ALTITUDE_DEG;
+}
 
 /**
  * Soloppgang/-nedgang for ett døgn (Oslo-lokal dato). Brukes i stedet for Yr
  * sitt _day/_night-symbolsuffiks: det suffikset finnes bare på en delmengde av
  * værsymbolene (clearsky/fair/partlycloudy/…) — «cloudy», «rain», «fog» osv.
  * har ALDRI noe suffiks uansett klokkeslett, så en formiddag med regn ville
- * blitt lest som «mørk» med den metoden. Håndterer midnattssol/mørketid via
- * solarmidnight/solarnoon sin «visible»-status når sunrise/sunset er null.
+ * blitt lest som «mørk» med den metoden. null ved enhver feil (se isDaylightAt).
  */
-async function fetchSun(dateStr: string): Promise<SunWindow> {
-  const fallback: SunWindow = { sunriseMs: null, sunsetMs: null, alwaysLight: false, alwaysDark: false };
+async function fetchSun(dateStr: string): Promise<SunWindow | null> {
   try {
     const resp = await fetch(
       `https://api.met.no/weatherapi/sunrise/3.0/sun?lat=${LAT}&lon=${LON}&date=${dateStr}`,
       { headers: { 'User-Agent': 'Felles-App/1.0 div@ofrim.no' }, signal: AbortSignal.timeout(9000) }
     );
-    if (!resp.ok) return fallback;
-    const p = (await resp.json()).properties;
-    const sunriseMs = p.sunrise?.time ? new Date(p.sunrise.time).getTime() : null;
-    const sunsetMs  = p.sunset?.time  ? new Date(p.sunset.time).getTime()  : null;
-    if (sunriseMs === null && sunsetMs === null) {
-      // Sola går aldri ned (midnattssol) eller aldri opp (mørketid) denne
-      // dagen — solarmidnight/solarnoon sin «visible» forteller hvilket.
-      return { sunriseMs: null, sunsetMs: null, alwaysLight: p.solarmidnight?.visible === true, alwaysDark: p.solarnoon?.visible === false };
-    }
-    return { sunriseMs, sunsetMs, alwaysLight: false, alwaysDark: false };
+    if (!resp.ok) return null;
+    return parseSunProperties((await resp.json()).properties, dateStr);
   } catch {
-    return fallback;
+    return null;
   }
 }
 
-/** true ⇒ dagslys (nordlys uansett ikke synlig). Ukjent tilstand (fetch feilet) faller til «mørk» — heller vise en time for mye enn å skjule en reell mulighet. */
-function isDaylight(ms: number, sun: SunWindow): boolean {
-  if (sun.alwaysLight) return true;
-  if (sun.alwaysDark) return false;
-  if (sun.sunriseMs === null || sun.sunsetMs === null) return false;
-  return ms >= sun.sunriseMs && ms <= sun.sunsetMs;
+/** Poengmodellen med mørke: i dagslys er nordlys uansett ikke synlig, så uansett Kp/skydekke gir det 0 poeng. Ellers kpScore + cloudScore (terskler uendret). */
+export function auroraScore(kp: number, cloudPct: number, dark: boolean): number {
+  return dark ? kpScore(kp) + cloudScore(cloudPct) : 0;
+}
+
+/** «nå»-vurderingen: tooLight i dagslys (UI viser «For lyst for nordlys», som for netter), ellers poeng → sjanse. */
+export function assessNow(kp: number, cloudPct: number, dark: boolean): { status: 'ok' | 'tooLight'; score: number; probability: AuroraChance } {
+  const score = auroraScore(kp, cloudPct, dark);
+  return { status: dark ? 'ok' : 'tooLight', score, probability: chanceFromScore(score) };
+}
+
+/** Én time i `hourly`. Dagslys-timer får 0 poeng/«lav» (se auroraScore) men beholder Kp og skydekke. */
+export function buildHourlyEntry(time: string, kp: number | null, kpKind: KpKind | undefined, cloud: number, dark: boolean): AuroraHourlyEntry {
+  const score = auroraScore(kp ?? 0, cloud, dark);
+  return {
+    time,
+    kp: kp !== null ? roundKp(kp) : 0,
+    kpKind: kpKind ?? 'forecast',
+    cloudCover: Math.round(cloud),
+    dark,
+    score,
+    chance: chanceFromScore(score),
+  };
 }
 
 export default async function handler(_req: any, res: any) {
@@ -425,6 +538,9 @@ export default async function handler(_req: any, res: any) {
     const tomorrowStr = new Date(now.getTime() + 24 * 3600_000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
 
     // Netter fra i kveld t.o.m. overmorgen kveld slutter neste morgen, så solen trengs for 4 datoer.
+    // I tillegg i går: soldøgnet (solarmidnight → solarmidnight) som dekker de første
+    // timene etter Oslo-midnatt i dag tilhører gårsdagens post.
+    const yesterdayStr = addDaysIso(todayStr, -1);
     const day2Str = addDaysIso(todayStr, 2);
     const day3Str = addDaysIso(todayStr, 3);
 
@@ -435,7 +551,7 @@ export default async function handler(_req: any, res: any) {
         .then(r => (r.ok ? r.json() : null))
         .catch(() => null);
 
-    const [kpRaw, kpForecastRaw, kp1mRaw, wxResp, sunToday, sunTomorrow, sunDay2, sunDay3] = await Promise.all([
+    const [kpRaw, kpForecastRaw, kp1mRaw, wxResp, ...sunRecords] = await Promise.all([
       getJson(NOAA_KP_URL),
       getJson(NOAA_KP_FORECAST_URL),
       getJson(NOAA_KP_1M_URL),
@@ -443,13 +559,15 @@ export default async function handler(_req: any, res: any) {
         `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${LAT}&lon=${LON}`,
         { headers: { 'User-Agent': 'Felles-App/1.0 div@ofrim.no' }, signal: AbortSignal.timeout(9000) }
       ),
+      fetchSun(yesterdayStr),
       fetchSun(todayStr),
       fetchSun(tomorrowStr),
       fetchSun(day2Str),
       fetchSun(day3Str),
     ]);
     if (!wxResp.ok) throw new Error(`Yr svarte ${wxResp.status}`);
-    const sunByDate: Record<string, SunWindow> = { [todayStr]: sunToday, [tomorrowStr]: sunTomorrow, [day2Str]: sunDay2, [day3Str]: sunDay3 };
+    // Poster som feilet (null) droppes; tidspunkter ingen post dekker faller til solhøyde-beregningen (isDaylightAt).
+    const sunWindows = sunRecords.filter((w): w is SunWindow => w !== null);
 
     // ── Kp nå = siste OBSERVERTE bolk (se toppen av filen) ──
     // `kpRows` er observert + forecast på én tidslinje; forecast-feedens ferdige
@@ -469,7 +587,9 @@ export default async function handler(_req: any, res: any) {
     const cloudCover = cur.data.instant.details.cloud_area_fraction as number;
     if (!Number.isFinite(cloudCover)) throw new Error('Fant ingen gyldig skydekke-verdi');
 
-    const score = kpScore(kpNow.kp) + cloudScore(cloudCover);
+    // «Nå» tar hensyn til mørke på samme måte som natt/«beste time»/hourly: i dagslys
+    // er det «for lyst», aldri «middels»/«høy» på Kp og klar himmel alene.
+    const nowAssessment = assessNow(kpNow.kp, cloudCover, !isDaylightAt(nowMs, sunWindows));
 
     // ── Time-for-time-prognose (neste ~20 timer), for den utvidede grafen ──
     // Feiler prognose-kallet av en eller annen grunn, degraderer vi til bare
@@ -489,23 +609,10 @@ export default async function handler(_req: any, res: any) {
             const cloud = t.data.instant.details.cloud_area_fraction as number;
             const kpRow = kpRowAt(kpRows, ms);
             const kp = kpRow ? kpRow.kp : null;
-            // Soloppgang/-nedgang for akkurat den Oslo-lokale dagen denne
-            // timen faller på (vinduet kan strekke seg over midnatt inn i
-            // morgendagen) — se fetchSun/isDaylight for hvorfor dette
-            // erstatter et tidligere forsøk med Yr sitt symbol-suffiks.
-            const dateStr = new Date(ms).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' });
-            const sun = sunByDate[dateStr] ?? sunToday;
-            const dark = !isDaylight(ms, sun);
-            const hourScore = kpScore(kp ?? 0) + cloudScore(cloud);
-            return {
-              time: t.time,
-              kp: kp !== null ? roundKp(kp) : 0,
-              kpKind: kpRow?.kind ?? 'forecast',
-              cloudCover: Math.round(cloud),
-              dark,
-              score: hourScore,
-              chance: chanceFromScore(hourScore),
-            };
+            // Dagslys slås opp i soldøgnet som dekker timen (vinduet kan strekke seg
+            // over midnatt) — se fetchSun/isDaylightAt for hvorfor dette erstatter
+            // et tidligere forsøk med Yr sitt symbol-suffiks.
+            return buildHourlyEntry(t.time, kp, kpRow?.kind, cloud, !isDaylightAt(ms, sunWindows));
           });
       } catch {
         hourly = []; // se kommentaren over — grafen er et pluss, ikke kritisk
@@ -520,7 +627,6 @@ export default async function handler(_req: any, res: any) {
       const inputs: NightHourInput[] = series
         .map((t: any) => {
           const ms = new Date(t.time).getTime();
-          const sun = sunByDate[osloParts(ms).date];
           const cloud = t.data?.instant?.details?.cloud_area_fraction;
           const kpRow = kpRowAtStrict(kpRows, ms);
           return {
@@ -528,8 +634,7 @@ export default async function handler(_req: any, res: any) {
             kp: kpRow ? kpRow.kp : null,
             kind: kpRow?.kind,
             cloud: Number.isFinite(cloud) ? (cloud as number) : null,
-            // Ukjent sol (fetch feilet) faller til «mørk», som for `hourly`.
-            dark: sun ? !isDaylight(ms, sun) : true,
+            dark: !isDaylightAt(ms, sunWindows),
           };
         })
         .filter((h: NightHourInput) => h.ms >= fromMs);
@@ -548,7 +653,8 @@ export default async function handler(_req: any, res: any) {
       kpStale: kpNow.stale,
       kpOngoing, // null = skjul «pågår»-teksten (1m-feed mangler, 0 minutter data, eller bolken er allerede observert)
       cloudCover: Math.round(cloudCover),
-      probability: chanceFromScore(score) as AuroraChance,
+      nowStatus: nowAssessment.status, // 'tooLight' = sola er oppe nå → UI viser «For lyst for nordlys»
+      probability: nowAssessment.probability, // alltid 'lav' ved tooLight, så eldre klienter aldri viser «høy» i dagslys
       hourly,
       daily,
       updatedAt: new Date().toISOString(),

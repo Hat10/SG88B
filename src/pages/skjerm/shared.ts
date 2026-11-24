@@ -36,6 +36,8 @@ export interface AuroraData {
   kpStale?: boolean;
   /** Minimum for bolken som pågår (1-minutts-feeden). null/mangler = ikke vis. */
   kpOngoing?: { slotStart: string; kpMin: number; minutes: number } | null;
+  /** 'tooLight' = sola er oppe nå (nordlys uansett ikke synlig) → «For lyst for nordlys». Mangler hos eldre svar = 'ok'. */
+  nowStatus?: 'ok' | 'tooLight';
   cloudCover: number; probability: AuroraChance;
   hourly?: AuroraHourlyEntry[];
   /** Natt-for-natt (i kveld, i morgen kveld, overmorgen kveld). Mangler hos eldre/degradert svar. */
